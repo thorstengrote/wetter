@@ -91,16 +91,20 @@ header{
   min-height:0;
   overflow:hidden;
   position:relative;
+  display:flex;
+  flex-direction:column;
   box-shadow:0 0 0 1px rgba(255,255,255,.02) inset
 }
 .title{
+  flex:0 0 auto;
   font-size:12px;
   color:#c5cfdb;
   margin:0 0 6px 2px;
   letter-spacing:.25px
 }
 .hourly-scroll{
-  height:calc(100% - 18px);
+  flex:1 1 auto;
+  min-height:0;
   overflow-x:auto;
   overflow-y:hidden;
   -webkit-overflow-scrolling:touch;
@@ -156,10 +160,11 @@ header{
 .bottom-grid{display:grid;grid-template-columns:48% 52%;gap:9px;min-height:0}
 .radarbox{
   background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
-  padding:9px 9px 7px;min-height:0;overflow:hidden;position:relative
+  padding:9px 9px 7px;min-height:0;overflow:hidden;position:relative;
+  display:flex;flex-direction:column
 }
 .radar-stage{
-  height:calc(100% - 18px);position:relative;border-radius:10px;
+  flex:1 1 auto;min-height:0;position:relative;border-radius:10px;
   background:#101720;overflow:hidden;border:1px solid #334155
 }
 #cloudMap{width:100%;height:100%;background:#111820}
@@ -181,7 +186,8 @@ header{
 }
 .leaflet-control-attribution{font-size:8px!important;background:rgba(255,255,255,.70)!important}
 .days-scroll{
-  height:calc(100% - 18px);
+  flex:1 1 auto;
+  min-height:0;
   overflow-x:auto;
   overflow-y:hidden;
   -webkit-overflow-scrolling:touch;
@@ -268,7 +274,7 @@ header{
     </div>
   </div>
   <div class="box">
-    <div class="title">7 TAGE &middot; WISCHEN F&Uuml;R 14 &middot; GESTRICHELT = TREND &middot; KACHEL ANTIPPEN = ALLE WERTE &nbsp;|&nbsp; REGENRISIKO &middot; SONNE &middot; WIND/B&Ouml;EN</div>
+    <div class="title">7 TAGE &middot; WISCHEN F&Uuml;R 14 &middot; GESTRICHELT = TREND &middot; ANTIPPEN = ALLE WERTE</div>
     <div class="days-scroll" id="daysScroll"><div class="days" id="days"></div></div>
   </div>
 </section>
@@ -1001,8 +1007,17 @@ async function acquireWakeLock(){
     wakeLock.addEventListener("release",()=>{wakeLock=null});
   }catch(e){ wakeLock=null; }
 }
+function chromeless(){
+  try{
+    /* in landscape the viewport height matches the screen's shorter side
+       once no status bar and no browser toolbar are left */
+    const shorter=Math.min(screen.width,screen.height);
+    return window.innerHeight>=shorter-4;
+  }catch(e){ return false; }
+}
 function kioskActive(){
   if(document.fullscreenElement) return true;
+  if(chromeless()) return true;
   try{
     return window.matchMedia("(display-mode: fullscreen)").matches
         || window.matchMedia("(display-mode: standalone)").matches;
@@ -1059,6 +1074,8 @@ document.addEventListener("fullscreenchange",()=>{syncKioskBtn();armFirstTouch()
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)acquireWakeLock()});
 syncKioskBtn();
 armFirstTouch();
+addEventListener("resize",()=>{syncKioskBtn();armFirstTouch()});
+addEventListener("orientationchange",()=>{syncKioskBtn();armFirstTouch()});
 if(kioskActive()) acquireWakeLock();
 
 loadWeather();
