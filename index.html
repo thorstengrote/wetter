@@ -470,6 +470,19 @@ function windText(speed,gust){
 let diagTimer=null;
 let srcNote="DWD ICON via Open-Meteo";
 
+/* Which build is this tablet actually running? document.lastModified carries
+   the Last-Modified header of this file, so the stamp needs no build step and
+   cannot drift. It settles the question of whether a reload picked up a deploy
+   or the browser served an old tab. */
+function buildStamp(){
+  try{
+    const d=new Date(document.lastModified);
+    if(isNaN(d)) return "";
+    return " · Build "+d.toLocaleString("de-DE",
+      {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+  }catch(e){ return ""; }
+}
+
 function showDetail(title,why,pairs,note){
   diagBody.innerHTML=
     `<h4>${title}</h4>`+
@@ -477,7 +490,7 @@ function showDetail(title,why,pairs,note){
     `<div class="rows">`+
       pairs.map(([k,v])=>`<div class="k">${k}</div><div class="v">${v}</div>`).join("")+
     `</div>`+
-    `<div class="src">${note}</div>`;
+    `<div class="src">${note}${buildStamp()}</div>`;
   diag.classList.add("on");
   clearTimeout(diagTimer);
   diagTimer=setTimeout(()=>diag.classList.remove("on"),40000);
