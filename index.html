@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Wetter Uedorf</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#090c11">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{
+  --bg:#090c11;
+  --panel:#121821;
+  --panel2:#1a2230;
+  --panel3:#202b3a;
+  --fg:#f7f9fb;
+  --muted:#aeb8c5;
+  --line:#3a4657;
+  --blue:#6ec8ff;
+  --yellow:#ffd45c;
+}
+*{box-sizing:border-box}
+html,body{
+  margin:0;width:100%;height:100%;
+  background:var(--bg);color:var(--fg);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  overflow:hidden
+}
+body{padding:12px 16px 10px}
+#app{
+  height:100%;
+  display:grid;
+  grid-template-rows:auto 1fr 1fr auto;
+  gap:9px
+}
+header{
+  background:linear-gradient(180deg,#171f2a,#111821);
+  border:1px solid #4a586b;
+  border-radius:15px;
+  padding:10px 14px;
+  display:grid;
+  grid-template-columns:185px 1fr auto;
+  gap:18px;
+  align-items:center;
+  box-shadow:0 0 0 1px rgba(255,255,255,.025) inset
+}
+.place{font-size:21px;font-weight:700}
+.clock{font-size:38px;font-weight:750;line-height:1}
+.date{font-size:12px;color:var(--muted);margin-top:3px}
+.current{display:flex;align-items:center;gap:12px}
+.current .icon .wicon{width:58px;height:58px;display:block}
+.current .temp{font-size:34px;font-weight:750}
+.current .details{font-size:13px;line-height:1.5;color:#c9d2dc}
+.today{text-align:right;max-width:690px}
+.today .summary{font-size:17px;font-weight:700}
+.today .sub{font-size:12px;color:#c5ced8;margin-top:3px}
+.today .extra{font-size:12px;color:#c5ced8;margin-top:4px}
+
+/* One label system for every secondary value on the page.
+   Same size, same weight, same icon box, never wraps, never absent.
+   Grey means unremarkable, colour means worth a look. */
+.lbl{
+  font-size:10px;line-height:14px;font-weight:600;
+  white-space:nowrap;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;gap:3px;
+  font-variant-numeric:tabular-nums;
+  color:#8b97a6
+}
+.lbl.rain{color:var(--blue)}
+.lbl.sun{color:var(--yellow)}
+.lbl.wind{color:#ffb86b}
+.mi{width:11px;height:11px;flex:0 0 auto}
+.mi.sock{width:14px;height:10px}
+.inl{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.inl .mi{width:12px;height:12px}
+.inl .mi.sock{width:15px;height:11px}
+
+.box{
+  background:#0f151d;
+  border:1px solid #3e4a5b;
+  border-radius:15px;
+  padding:9px 9px 7px;
+  min-height:0;
+  overflow:hidden;
+  position:relative;
+  box-shadow:0 0 0 1px rgba(255,255,255,.02) inset
+}
+.title{
+  font-size:12px;
+  color:#c5cfdb;
+  margin:0 0 6px 2px;
+  letter-spacing:.25px
+}
+.hourly-scroll{
+  height:calc(100% - 18px);
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  touch-action:pan-x;
+}
+.hourly-scroll::-webkit-scrollbar{display:none}
+.hours{
+  height:100%;
+  display:flex;
+  gap:4px;
+  width:max-content;
+}
+.hour{
+  width:calc((100vw - 64px - 44px)/12);
+  flex:0 0 calc((100vw - 64px - 44px)/12);
+  background:linear-gradient(180deg,var(--panel3),var(--panel2));
+  border:1px solid #46546a;
+  border-radius:8px;
+  padding:6px 1px 4px;
+  text-align:center;
+  display:grid;
+  grid-template-rows:auto 1fr auto auto auto;
+  align-items:center;
+  min-width:0
+}
+.hour.night{background:linear-gradient(180deg,#161d29,#111722);border-color:#364254}
+.hour .t{font-size:11px;color:#d5dce4;font-weight:600;font-variant-numeric:tabular-nums}
+.hour .icon{line-height:1}
+.hour .icon .wicon{width:38px;height:38px;display:block;margin:auto}
+.hour .deg{font-size:16px;font-weight:750;line-height:20px;font-variant-numeric:tabular-nums}
+
+/* Tap an hour to see the raw model numbers behind its icon. */
+.diag{
+  position:absolute;z-index:900;left:9px;right:9px;top:9px;bottom:7px;
+  background:rgba(7,11,17,.965);border:1px solid #5b6b81;border-radius:11px;
+  padding:10px 14px;display:none;
+  font-size:12.5px;line-height:1.55;color:#e6ecf3
+}
+.diag.on{display:block}
+.diag h4{margin:0 0 5px;font-size:14px;color:#fff}
+.diag table{border-collapse:collapse;width:100%;max-width:760px}
+.diag td{padding:1px 12px 1px 0;vertical-align:top;white-space:nowrap}
+.diag td.k{color:#9dabbb;width:150px}
+.diag .why{margin-top:6px;color:#ffd45c;font-weight:650}
+.diag .close{position:absolute;right:11px;top:8px;color:#9dabbb;font-size:11px}
+
+.bottom-grid{display:grid;grid-template-columns:48% 52%;gap:9px;min-height:0}
+.radarbox{
+  background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
+  padding:9px 9px 7px;min-height:0;overflow:hidden;position:relative
+}
+.radar-stage{
+  height:calc(100% - 18px);position:relative;border-radius:10px;
+  background:#101720;overflow:hidden;border:1px solid #334155
+}
+#cloudMap{width:100%;height:100%;background:#111820}
+/* smooth-scaled interpolated field instead of visible grid squares */
+.cloudfield{image-rendering:auto;filter:blur(1.5px)}
+.radar-time{
+  position:absolute;z-index:800;left:10px;bottom:9px;background:rgba(5,8,12,.88);
+  border:1px solid #536276;border-radius:7px;padding:4px 8px;
+  font-size:12px;font-weight:700;color:#fff
+}
+.radar-legend{
+  position:absolute;z-index:800;right:10px;bottom:9px;background:rgba(5,8,12,.82);
+  border-radius:6px;padding:4px 7px;font-size:9px;color:#d5dee8
+}
+.radar-msg{
+  position:absolute;z-index:801;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(5,8,12,.92);border:1px solid #536276;border-radius:8px;
+  padding:7px 10px;font-size:11px;color:#fff;display:none;text-align:center;max-width:80%
+}
+.leaflet-control-attribution{font-size:8px!important;background:rgba(255,255,255,.70)!important}
+.days-scroll{
+  height:calc(100% - 18px);
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  touch-action:pan-x;
+}
+.days-scroll::-webkit-scrollbar{display:none}
+.days{
+  height:100%;
+  display:flex;
+  gap:8px;
+  width:max-content;
+}
+.day{
+  width:calc((52vw - 52px - 48px)/7);
+  flex:0 0 calc((52vw - 52px - 48px)/7);
+  background:linear-gradient(180deg,#222d3d,#1a2230);
+  border:1px solid #4b5a70;
+  border-radius:11px;
+  padding:7px 3px;
+  text-align:center;
+  display:grid;
+  grid-template-rows:auto 1fr auto auto auto auto;
+  align-items:center;
+  min-width:0
+}
+.day.trend{opacity:.72;border-style:dashed}
+.day .name{font-size:13px;font-weight:750;color:#f5f7f9}
+.day .icon .wicon{width:48px;height:48px;display:block;margin:auto}
+.day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums}
+.day .lbl{gap:2.5px;letter-spacing:-.15px}
+
+footer{
+  display:flex;
+  justify-content:space-between;
+  font-size:11px;
+  color:var(--muted);
+  padding:0 2px
+}
+.error{color:#ff8a8a}
+#kiosk{
+  border:1px solid #55657c;border-radius:999px;
+  padding:2px 11px;margin-left:10px;
+  color:#e6ecf3;background:#1c2534;
+  font-size:11px;font-weight:600;
+  cursor:pointer;-webkit-user-select:none;user-select:none
+}
+#kiosk[hidden]{display:none}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <div>
+    <div class="place">Uedorf</div>
+    <div class="clock" id="clock">--:--</div>
+    <div class="date" id="date"></div>
+  </div>
+
+  <div class="current">
+    <div class="icon" id="nowIcon">--</div>
+    <div class="temp" id="nowTemp">--&deg;</div>
+    <div class="details" id="nowDetails">lade Wetter&hellip;</div>
+  </div>
+
+  <div class="today">
+    <div class="summary" id="summary">Heute: lade Prognose&hellip;</div>
+    <div class="sub" id="todaySub"></div>
+    <div class="extra" id="todayExtra"></div>
+  </div>
+</header>
+
+<section class="box">
+  <div class="title">12 STUNDEN &middot; WISCHEN F&Uuml;R MEHR &middot; ANTIPPEN = MODELLWERTE &nbsp;|&nbsp; REGENRISIKO &middot; WIND/B&Ouml;EN IN KM/H</div>
+  <div class="hourly-scroll" id="hourlyScroll"><div class="hours" id="hours"></div></div>
+  <div class="diag" id="diag"><span class="close">antippen zum Schlie&szlig;en</span><div id="diagBody"></div></div>
+</section>
+
+<section class="bottom-grid">
+  <div class="radarbox">
+    <div class="title">WETTERENTWICKLUNG &middot; JETZT &rarr; +6 STUNDEN &middot; DWD ICON</div>
+    <div class="radar-stage">
+      <div id="cloudMap"></div>
+      <div class="radar-time" id="radarTime">Wolken laden&hellip;</div>
+      <div class="radar-legend" id="radarLegend">grau = Wolken &middot; blau/gelb/rot = Niederschlag</div>
+      <div class="radar-msg" id="radarMsg"></div>
+    </div>
+  </div>
+  <div class="box">
+    <div class="title">7 TAGE &middot; WISCHEN F&Uuml;R 14 &middot; GESTRICHELT = TREND &nbsp;|&nbsp; H&Ouml;CHST/TIEFST &middot; REGEN &middot; SONNE &middot; WIND/B&Ouml;EN IN KM/H</div>
+    <div class="days-scroll" id="daysScroll"><div class="days" id="days"></div></div>
+  </div>
+</section>
+
+<footer>
+  <span id="srcline">Stunden + Karte: DWD ICON via Open&#8209;Meteo &middot; Tage 8&ndash;14: Modellmix &middot; Karte: OpenStreetMap</span>
+  <span id="status">Auto&#8209;Refresh alle 10 Minuten</span>
+  <span><span id="lastUpdate">Letzte Aktualisierung: --:--</span><span id="kiosk" role="button" hidden>Vollbild</span></span>
+</footer>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const LAT=50.76,LON=7.00,REFRESH_MS=600000;
+
+function weatherIcon(type, cls="wicon"){
+  const common=`class="${cls}" viewBox="0 0 64 64" aria-hidden="true"`;
+  const sun=`<circle cx="32" cy="32" r="10" fill="#FFD65A"/>
+    <g stroke="#FFD65A" stroke-width="3" stroke-linecap="round">
+      <path d="M32 7v7M32 50v7M7 32h7M50 32h7M14.3 14.3l5 5M44.7 44.7l5 5M49.7 14.3l-5 5M19.3 44.7l-5 5"/>
+    </g>`;
+  const moon=`<g transform="translate(-6 0)"><path d="M40 14 A18 18 0 1 0 40 50 A22 22 0 0 1 40 14 Z" fill="#E9EEF6"/></g>`;
+  const stars=`<g fill="#C9D6EA"><circle cx="48" cy="16" r="2"/><circle cx="55" cy="27" r="1.5"/><circle cx="44" cy="30" r="1.2"/></g>`;
+  const cloud=`<path d="M18 45h28c8 0 14-5 14-12s-6-12-13-12c-2 0-4 .4-5.7 1.3C38.4 16.8 33.2 14 27.5 14 19 14 12 21 12 29.5v.6C6.8 31.3 3 35.8 3 41c0 2.5.8 4.8 2.3 6.8C8 44.7 12.5 45 18 45z" fill="#E8EDF3"/>`;
+  const cloudDark=`<path d="M18 45h28c8 0 14-5 14-12s-6-12-13-12c-2 0-4 .4-5.7 1.3C38.4 16.8 33.2 14 27.5 14 19 14 12 21 12 29.5v.6C6.8 31.3 3 35.8 3 41c0 2.5.8 4.8 2.3 6.8C8 44.7 12.5 45 18 45z" fill="#B8C2CF"/>`;
+  const rain=`<g stroke="#65C7FF" stroke-width="4" stroke-linecap="round">
+      <path d="M20 49l-3 7M32 49l-3 7M44 49l-3 7"/>
+    </g>`;
+  const drizzle=`<g stroke="#8FD8FF" stroke-width="3" stroke-linecap="round">
+      <path d="M22 50l-2 5M32 50l-2 5M42 50l-2 5"/>
+    </g>`;
+  const snow=`<g stroke="#D9F2FF" stroke-width="3" stroke-linecap="round">
+      <path d="M20 51v8M16 55h8M32 51v8M28 55h8M44 51v8M40 55h8"/>
+    </g>`;
+  const fog=`<g stroke="#C7D0DA" stroke-width="3" stroke-linecap="round">
+      <path d="M10 42h44M14 49h36M19 56h26"/>
+    </g>`;
+  const lightning=`<path d="M34 42h10l-8 10h6L29 63l4-13h-7z" fill="#FFD65A"/>`;
+
+  if(type==="clear")        return `<svg ${common}>${sun}</svg>`;
+  if(type==="partly")       return `<svg ${common}>${sun}<g transform="translate(7 8) scale(.82)">${cloud}</g></svg>`;
+  if(type==="night_clear")  return `<svg ${common}>${stars}${moon}</svg>`;
+  if(type==="night_partly") return `<svg ${common}>${moon}<g transform="translate(7 8) scale(.82)">${cloud}</g></svg>`;
+  if(type==="cloud")        return `<svg ${common}>${cloud}</svg>`;
+  if(type==="fog")          return `<svg ${common}>${cloudDark}${fog}</svg>`;
+  if(type==="drizzle")      return `<svg ${common}>${cloud}${drizzle}</svg>`;
+  if(type==="rain")         return `<svg ${common}>${cloudDark}${rain}</svg>`;
+  if(type==="snow")         return `<svg ${common}>${cloudDark}${snow}</svg>`;
+  if(type==="storm")        return `<svg ${common}>${cloudDark}${rain}${lightning}</svg>`;
+  return `<svg ${common}>${sun}<g transform="translate(7 8) scale(.82)">${cloud}</g></svg>`;
+}
+
+const ICON_LABEL={
+  clear:"sonnig", partly:"sonnig mit Wolken", cloud:"bedeckt",
+  night_clear:"klare Nacht", night_partly:"Nacht, teils Wolken",
+  fog:"neblig", drizzle:"Nieselregen", rain:"Regen", snow:"Schnee", storm:"Gewitter"
+};
+
+function wmoText(c){
+  c=Number(c);
+  if(c===0)return"klar";
+  if(c===1)return"überwiegend klar";
+  if(c===2)return"teils bewölkt";
+  if(c===3)return"bedeckt";
+  if([45,48].includes(c))return"Nebel";
+  if([51,53,55].includes(c))return"Nieselregen";
+  if([56,57].includes(c))return"gefrierender Niesel";
+  if([61,63,65].includes(c))return"Regen";
+  if([66,67].includes(c))return"gefrierender Regen";
+  if([71,73,75,77].includes(c))return"Schnee";
+  if([80,81,82].includes(c))return"Regenschauer";
+  if([85,86].includes(c))return"Schneeschauer";
+  if([95,96,99].includes(c))return"Gewitter";
+  return"unbekannt ("+c+")";
+}
+
+/*
+  Icon selection.
+
+  Cloud cover percentages alone are a bad predictor of "do I see the sun".
+  Open-Meteo/ICON regularly reports 80-100 % total cover for an hour that also
+  carries 60 minutes of sunshine duration and 550 W/m2 of shortwave radiation.
+  So for daylight hours the sky symbol is derived from how much solar energy
+  actually reaches the ground, measured against the clear-sky maximum
+  (terrestrial_radiation is the extraterrestrial value; ~0.78 of it arrives on a
+  clean, cloud-free day). Cloud cover only caps the "fully sunny" case.
+  At night there is no radiation signal, so total cloud cover is all we have.
+*/
+const CLEAR_SKY_FACTOR=0.78;
+
+function skyDecision(o){
+  const code=Number(o.code||0);
+  const precip=Number(o.precip||0), pop=Number(o.pop||0);
+  const toa=Number(o.toa||0), swrad=Number(o.swrad||0);
+  const tot=Number(o.tot||0);
+  /* the hour counts as daylight when its midpoint lies between sunrise and
+     sunset; radiation is only the fallback when those times are missing */
+  const day=typeof o.isDay==="boolean"?o.isDay:toa>15;
+
+  const clearSky=toa>0?CLEAR_SKY_FACTOR*toa:0;
+  const ratio=clearSky>0?Math.min(1.25,swrad/clearSky):0;
+  const sunFrac=Math.max(0,Math.min(1,Number(o.sunSec||0)/3600));
+  const brightness=Math.max(ratio,sunFrac*0.55);
+
+  const d={ratio,sunFrac,brightness,clearSky,day};
+
+  if([95,96,99].includes(code))                 return {...d,icon:"storm",   why:"WMO-Code "+code+" = Gewitter"};
+  if([71,73,75,77,85,86].includes(code))        return {...d,icon:"snow",    why:"WMO-Code "+code+" = Schnee"};
+  if([61,63,65,66,67,80,81,82].includes(code))  return {...d,icon:"rain",    why:"WMO-Code "+code+" = Regen"};
+  if(precip>=0.3)                               return {...d,icon:"rain",    why:n1(precip)+NB+"mm Niederschlag"};
+  if([51,53,55,56,57].includes(code)||precip>0) return {...d,icon:"drizzle", why:"leichter Niederschlag ("+n1(precip)+NB+"mm)"};
+  if([45,48].includes(code))                    return {...d,icon:"fog",     why:"WMO-Code "+code+" = Nebel"};
+  if(pop>=75)                                   return {...d,icon:"rain",    why:"Regenrisiko "+pop+" %"};
+
+  if(!day){
+    if(tot<25)  return {...d,icon:"night_clear", why:"Nacht, "+Math.round(tot)+" % Bewölkung"};
+    if(tot<75)  return {...d,icon:"night_partly",why:"Nacht, "+Math.round(tot)+" % Bewölkung"};
+    return        {...d,icon:"cloud",            why:"Nacht, "+Math.round(tot)+" % Bewölkung"};
+  }
+
+  /* near sunrise and sunset the long atmospheric path depresses the radiation
+     ratio, so a nearly cloud-free sky is trusted on cloud cover alone */
+  if(tot<25)
+    return {...d,icon:"clear", why:`nur ${Math.round(tot)} % Bewölkung`};
+  if(brightness>=0.70&&tot<50)
+    return {...d,icon:"clear", why:`Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel, nur ${Math.round(tot)} % Bewölkung`};
+  if(brightness>=0.40||tot<75)
+    return {...d,icon:"partly",why:`Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel bei ${Math.round(tot)} % Bewölkung`};
+  return   {...d,icon:"cloud", why:`nur ${(brightness*100).toFixed(0)} % Helligkeit bei ${Math.round(tot)} % Bewölkung`};
+}
+
+function tick(){
+  let n=new Date();
+  clock.textContent=n.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+  date.textContent=n.toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit"})
+}
+tick();
+setInterval(tick,1000);
+
+function hh(s){return s.slice(11,16)}
+function dow(s){
+  return new Date(s+"T12:00").toLocaleDateString("de-DE",{weekday:"short"})
+}
+function hoursFromSeconds(sec){
+  return Number(sec||0)/3600
+}
+
+/*
+  Every small label on the page uses this icon set. They are inline SVG rather
+  than text glyphs because the tablet font has no umbrella or sun character and
+  silently substituted an arrow and an asterisk. All of them paint in
+  currentColor, so an icon can never drift away from the colour of its row.
+*/
+function mi(kind){
+  const a='viewBox="0 0 16 16" aria-hidden="true"';
+  if(kind==="drop") return `<svg class="mi" ${a}><path d="M8 1.5c2.7 3.4 4.1 5.7 4.1 7.5a4.1 4.1 0 0 1-8.2 0C3.9 7.2 5.3 4.9 8 1.5z" fill="currentColor"/></svg>`;
+  if(kind==="sun")  return `<svg class="mi" ${a}><circle cx="8" cy="8" r="3.1" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 .8v2.1M8 13.1v2.1M.8 8h2.1M13.1 8h2.1M2.9 2.9l1.5 1.5M11.6 11.6l1.5 1.5M13.1 2.9l-1.5 1.5M4.4 11.6l-1.5 1.5"/></g></svg>`;
+  if(kind==="sock") return `<svg class="mi sock" viewBox="0 0 20 14" aria-hidden="true"><path d="M2.3 1.2v11.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.7 2.4 L17.4 4.7 L14.7 10.2 L3.7 8.6 Z" fill="currentColor" opacity=".9"/></svg>`;
+  if(kind==="up")   return `<svg class="mi" ${a}><path d="M8 3.2 3.6 8.4h8.8z" fill="currentColor"/><path d="M2.6 12.4h10.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  if(kind==="down") return `<svg class="mi" ${a}><path d="M8 9.2 3.6 4h8.8z" fill="currentColor"/><path d="M2.6 12.4h10.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  if(kind==="bolt") return `<svg class="mi" ${a}><path d="M9.4 1 3.8 9h3.3l-1 6 6.1-8.6H8.7z" fill="currentColor"/></svg>`;
+  return "";
+}
+
+/* German number formatting, with a narrow no-break space before every unit so a
+   value and its unit can never be split across two lines. */
+const NB="\u202f";
+const n1=v=>Number(v||0).toLocaleString("de-DE",{minimumFractionDigits:1,maximumFractionDigits:1});
+const pct=v=>Math.round(Number(v||0))+NB+"%";
+const deg=v=>Math.round(Number(v||0))+"°";
+
+/* one label row: icon, value, and a colour only when the value is notable */
+function lbl(kind,text,accent){
+  return `<div class="lbl${accent?" "+accent:""}">${mi(kind)}<span>${text}</span></div>`;
+}
+function windSignificant(speed,gust){
+  speed=Number(speed||0); gust=Number(gust||0);
+  return gust>=35||speed>=20;
+}
+/* Always speed and gust, always the same shape. The unit lives in the panel
+   title, not on 21 individual cards. */
+function windText(speed,gust){
+  return Math.round(Number(speed||0))+"/"+Math.round(Number(gust||0));
+}
+
+/* ---------- diagnostics overlay ---------- */
+let diagTimer=null;
+function showDiag(info){
+  const b=info.blk, s=info.dec;
+  diagBody.innerHTML=
+    `<h4>${info.label} &middot; Symbol: ${ICON_LABEL[s.icon]||s.icon}</h4>`+
+    `<table>`+
+    `<tr><td class=k>Bewölkung gesamt</td><td>${pct(b.tot)}</td>`+
+      `<td class=k>tief / mittel / hoch</td><td>${pct(b.low)} / ${pct(b.mid)} / ${pct(b.high)}</td></tr>`+
+    `<tr><td class=k>Sonnenscheindauer</td><td>${Math.round((b.sunSec||0)/60)} von 60${NB}min</td>`+
+      `<td class=k>Strahlung</td><td>${Math.round(b.swrad)} von ${Math.round(s.clearSky)}${NB}W/m² klar (${pct(s.ratio*100)})</td></tr>`+
+    `<tr><td class=k>Niederschlag</td><td>${n1(b.precip)}${NB}mm bei ${pct(b.pop)} Risiko</td>`+
+      `<td class=k>Gewitterenergie CAPE</td><td>${Math.round(b.cape||0)}${NB}J/kg</td></tr>`+
+    `<tr><td class=k>Temperatur</td><td>${n1(b.temp)}${NB}°C</td>`+
+      `<td class=k>Wind / Böen</td><td>${windText(b.wind,b.gust)}${NB}km/h</td></tr>`+
+    `<tr><td class=k>WMO-Code des Modells</td><td colspan=3>${b.code} = ${wmoText(b.code)}</td></tr>`+
+    `</table>`+
+    `<div class="why">Symbolentscheidung: ${s.why}</div>`;
+  diag.classList.add("on");
+  clearTimeout(diagTimer);
+  diagTimer=setTimeout(()=>diag.classList.remove("on"),25000);
+}
+diag.addEventListener("click",()=>{diag.classList.remove("on");clearTimeout(diagTimer)});
+
+/* ---------- forecast ---------- */
+const ICON_URL=
+  `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}`+
+  `&models=icon_seamless`+
+  `&current=temperature_2m,apparent_temperature,weather_code,cloud_cover,wind_speed_10m,wind_gusts_10m`+
+  `&hourly=temperature_2m,weather_code,precipitation_probability,precipitation,cloud_cover,`+
+    `cloud_cover_low,cloud_cover_mid,cloud_cover_high,sunshine_duration,shortwave_radiation,`+
+    `terrestrial_radiation,wind_speed_10m,wind_gusts_10m,cape`+
+  `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,`+
+    `weather_code,sunshine_duration,daylight_duration,sunrise,sunset,wind_speed_10m_max,wind_gusts_10m_max`+
+  `&forecast_days=7&forecast_hours=48&timezone=Europe%2FBerlin`;
+
+const TREND_URL=
+  `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}`+
+  `&models=best_match`+
+  `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,`+
+    `weather_code,sunshine_duration,daylight_duration,wind_speed_10m_max,wind_gusts_10m_max`+
+  `&forecast_days=14&timezone=Europe%2FBerlin`;
+
+function dayIcon(code,mm,ratio){
+  code=Number(code||0);
+  if([95,96,99].includes(code)) return "storm";
+  if([71,73,75,77,85,86].includes(code)) return "snow";
+  if([61,63,65,66,67,80,81,82].includes(code)||mm>=3) return "rain";
+  if([51,53,55,56,57].includes(code)&&mm>=0.5) return "drizzle";
+  if([45,48].includes(code)&&ratio<.15) return "fog";
+  if(ratio>=.60) return "clear";
+  if(ratio>=.28) return "partly";
+  return "cloud";
+}
+
+function renderDays(icon,trend){
+  days.innerHTML="";
+  const src=[];
+  for(let i=0;i<7;i++){
+    if(icon.daily.temperature_2m_max[i]==null) break;
+    src.push({d:icon.daily,i,trend:false});
+  }
+  if(trend){
+    const off=trend.daily.time.indexOf(icon.daily.time[0]);
+    const base=off<0?0:off;
+    for(let i=src.length;i<14;i++){
+      const j=base+i;
+      if(j>=trend.daily.time.length||trend.daily.temperature_2m_max[j]==null) break;
+      src.push({d:trend.daily,i:j,trend:true});
+    }
+  }
+
+  src.forEach((s,pos)=>{
+    const d=s.d,i=s.i;
+    const maxT=d.temperature_2m_max[i], minT=d.temperature_2m_min[i];
+    const sunh=Number(d.sunshine_duration?.[i]||0)/3600;
+    const daylight=Number(d.daylight_duration?.[i]||0)/3600;
+    const ratio=daylight>0?sunh/daylight:0;
+    const mm=Number(d.precipitation_sum?.[i]||0);
+    const pp=Number(d.precipitation_probability_max?.[i]||0);
+    const dws=d.wind_speed_10m_max?.[i]??0;
+    const dwg=d.wind_gusts_10m_max?.[i]??0;
+
+    const e=document.createElement("div");
+    e.className="day"+(s.trend?" trend":"");
+    e.innerHTML=
+      `<div class=name>${pos===0?"Heute":dow(d.time[i])}</div>`+
+      `<div class=icon>${weatherIcon(dayIcon(d.weather_code?.[i],mm,ratio))}</div>`+
+      `<div class=temps>${deg(maxT)} / ${deg(minT)}</div>`+
+      lbl("drop",`${pct(pp)}·${n1(mm)}${NB}mm`,pp>=10?"rain":"")+
+      lbl("sun",`${n1(sunh)}${NB}h`,sunh>=1?"sun":"")+
+      lbl("sock",windText(dws,dwg),windSignificant(dws,dwg)?"wind":"");
+    days.appendChild(e);
+  });
+}
+
+async function loadWeather(){
+  try{
+    status.textContent="aktualisiere…";
+
+    const [rI,rT]=await Promise.all([
+      fetch(ICON_URL,{cache:"no-store"}),
+      fetch(TREND_URL,{cache:"no-store"}).catch(()=>null)
+    ]);
+    if(!rI.ok) throw Error("ICON HTTP "+rI.status);
+    const d=await rI.json();
+    let trend=null;
+    try{ if(rT&&rT.ok) trend=await rT.json(); }catch(e){ trend=null; }
+
+    const H=d.hourly;
+
+    const sunMap={};
+    (d.daily.time||[]).forEach((day,k)=>{
+      const a=d.daily.sunrise?.[k], b=d.daily.sunset?.[k];
+      if(a&&b) sunMap[day]={rise:new Date(a).getTime(),set:new Date(b).getTime()};
+    });
+    const isDayHour=iso=>{
+      const s=sunMap[iso.slice(0,10)];
+      if(!s) return null;
+      const mid=new Date(iso).getTime()+1800000;
+      return mid>=s.rise&&mid<=s.set;
+    };
+
+    const blockAt=i=>({
+      time:H.time[i], temp:H.temperature_2m[i], code:H.weather_code[i],
+      tot:H.cloud_cover?.[i]??0, low:H.cloud_cover_low?.[i]??0,
+      mid:H.cloud_cover_mid?.[i]??0, high:H.cloud_cover_high?.[i]??0,
+      precip:H.precipitation?.[i]??0, pop:H.precipitation_probability?.[i]??0,
+      sunSec:H.sunshine_duration?.[i]??0, swrad:H.shortwave_radiation?.[i]??0,
+      toa:H.terrestrial_radiation?.[i]??0,
+      wind:H.wind_speed_10m?.[i]??0, gust:H.wind_gusts_10m?.[i]??0,
+      cape:H.cape?.[i]??0,
+      isDay:isDayHour(H.time[i])
+    });
+
+    /* current conditions use the matching hourly block, so header and hour row agree */
+    const c=d.current;
+    let nowIdx=H.time.findIndex(t=>t.slice(0,13)===c.time.slice(0,13));
+    if(nowIdx<0) nowIdx=0;
+    const nowBlk=blockAt(nowIdx);
+    const nowDec=skyDecision(nowBlk);
+
+    nowIcon.innerHTML=weatherIcon(nowDec.icon);
+    nowTemp.textContent=Math.round(c.temperature_2m)+"°";
+    nowDetails.innerHTML=
+      `${ICON_LABEL[nowDec.icon]||wmoText(c.weather_code)}<br>`+
+      `gefühlt ${deg(c.apparent_temperature)} · Wolken ${pct(c.cloud_cover)}`+
+      `${nowDec.day?` · Sonne ${pct(nowDec.brightness*100)}`:""}<br>`+
+      `<span class="inl">${mi("sock")}Wind ${Math.round(c.wind_speed_10m)} km/h, Böen ${Math.round(c.wind_gusts_10m??0)} km/h</span>`;
+
+    const hi=Math.round(d.daily.temperature_2m_max[0]);
+    const lo=Math.round(d.daily.temperature_2m_min[0]);
+    const pp=d.daily.precipitation_probability_max[0]??0;
+    const mm=d.daily.precipitation_sum[0]??0;
+    const sh=hoursFromSeconds(d.daily.sunshine_duration[0]);
+    const daylight=Number(d.daily.daylight_duration?.[0]||0)/3600;
+    const sunRatio=daylight>0?Number(sh)/daylight:0;
+    const dt=mm>=2?"regnerisch":(sunRatio>=.60?"überwiegend sonnig":(sunRatio>=.28?"teils sonnig":"überwiegend bewölkt"));
+
+    summary.textContent=`Heute ${dt}, ${lo}–${hi}\u00a0°C`;
+    todaySub.innerHTML=
+      `<span class="inl">${mi("drop")}Regenrisiko bis ${pct(pp)}, ${n1(mm)}${NB}mm</span>`+
+      ` · <span class="inl" style="color:var(--yellow)">${mi("sun")}${n1(sh)}${NB}h Sonne</span>`;
+    const sr=(d.daily.sunrise?.[0]||"").slice(11,16);
+    const ss=(d.daily.sunset?.[0]||"").slice(11,16);
+    const maxWind=Math.round(d.daily.wind_speed_10m_max?.[0]||0);
+    const maxGust=Math.round(d.daily.wind_gusts_10m_max?.[0]||0);
+    let maxCape=0;
+    for(let i=0;i<Math.min(24,H.cape?.length||0);i++) maxCape=Math.max(maxCape,Number(H.cape[i]||0));
+    const thunder=maxCape>=1000?"Gewitterpotenzial erhöht":(maxCape>=300?"Gewitter nicht ausgeschlossen":"kein auffälliges Gewitterpotenzial");
+    todayExtra.innerHTML=
+      `<span class="inl">${mi("up")}${sr}</span> · <span class="inl">${mi("down")}${ss}</span>`+
+      ` · <span class="inl">${mi("sock")}Wind bis ${maxWind} km/h, Böen ${maxGust} km/h</span>`+
+      ` · <span class="inl">${mi("bolt")}${thunder}</span>`;
+
+    const ts=H.time;
+    let start=ts.findIndex(t=>new Date(t).getTime()>=Date.now()-1800000);
+    if(start<0) start=0;
+
+    hours.innerHTML="";
+    for(let i=start;i<Math.min(start+48,ts.length);i++){
+      const blk=blockAt(i);
+      const dec=skyDecision(blk);
+      const e=document.createElement("div");
+      e.className="hour"+(dec.day?"":" night");
+      e.innerHTML=
+        `<div class=t>${hh(ts[i])}</div>`+
+        `<div class=icon>${weatherIcon(dec.icon)}</div>`+
+        `<div class=deg>${deg(blk.temp)}</div>`+
+        lbl("drop",pct(blk.pop),Number(blk.pop||0)>=10?"rain":"")+
+        lbl("sock",windText(blk.wind,blk.gust),windSignificant(blk.wind,blk.gust)?"wind":"");
+      const label=new Date(ts[i]).toLocaleDateString("de-DE",{weekday:"short"})+" "+hh(ts[i]);
+      e.addEventListener("click",()=>showDiag({label,blk,dec}));
+      hours.appendChild(e);
+    }
+
+    renderDays(d,trend);
+
+    const upd=new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+    status.textContent="automatisch alle 10 Min.";
+    lastUpdate.textContent="Letzte Aktualisierung: "+upd;
+
+  }catch(e){
+    console.error(e);
+    status.innerHTML='<span class=error>Wetter-Aktualisierung fehlgeschlagen</span>'
+  }
+}
+
+/*
+  Spatial cloud/rain development around Uedorf.
+  Not radar: this is ICON's gridded forecast sampled at a coarse point grid and
+  then bilinearly interpolated into a small raster, so it reads as a continuous
+  field instead of the visible squares of the earlier versions. Frames are
+  pre-rendered once per fetch, so the animation itself costs nothing.
+*/
+let cloudMap=null, cloudOverlay=null, cloudMarkers=[], cloudFrames=[], cloudIdx=0, cloudTimer=null;
+const CLOUD_HOURS=7;
+/* 13 x 7 keeps the sample cells roughly square over a 2.1:1 landscape map */
+const GRID_X=13, GRID_Y=7;
+const LAT_SPAN_FB=1.30, LON_SPAN_FB=2.15;  /* only used if the map has no size yet */
+const GRID_PAD=0.12;   /* raster margin beyond the visible map */
+const EDGE_FADE=0.05;  /* alpha taper, ends well inside that off-screen margin */
+const SS=12;
+let gridBox=null;
+
+/*
+  The raster has to cover more ground than the map shows.
+  Until v20 it was a fixed 2.15 x 1.30 degree box, while the map at zoom 7.9
+  shows about 3.57 x 1.08 degrees. The western data edge therefore fell inside
+  the picture at lon 5.925 and drew a dead straight vertical line across the
+  map near Aachen, which looked like a weather front. The box is now derived
+  from the map viewport and padded, and the alpha fades out inside that padding,
+  so a data edge can never reach the visible area.
+*/
+function computeGridBox(){
+  let s=LAT-LAT_SPAN_FB/2, n=LAT+LAT_SPAN_FB/2,
+      w=LON-LON_SPAN_FB/2, e=LON+LON_SPAN_FB/2;
+  try{
+    const b=cloudMap.getBounds();
+    const dLat=b.getNorth()-b.getSouth(), dLon=b.getEast()-b.getWest();
+    if(dLat>0.05&&dLon>0.05){
+      s=b.getSouth()-dLat*GRID_PAD; n=b.getNorth()+dLat*GRID_PAD;
+      w=b.getWest() -dLon*GRID_PAD; e=b.getEast() +dLon*GRID_PAD;
+    }
+  }catch(err){ /* keep the fallback box */ }
+  return {s,n,w,e};
+}
+
+function rainRGB(mm){
+  const v=Number(mm||0);
+  if(v<=0) return null;
+  if(v<0.2) return [90,169,255];
+  if(v<0.5) return [62,197,255];
+  if(v<1)   return [49,211,208];
+  if(v<2)   return [111,214,107];
+  if(v<4)   return [240,216,74];
+  if(v<8)   return [255,159,50];
+  return      [239,75,75];
+}
+function cloudFrameLabel(iso,idx){
+  const t=new Date(iso).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+  if(radarLegend&&!radarLegend.dataset.done){
+    radarLegend.innerHTML=`grau = Wolken · blau/gelb/rot = Niederschlag · <span class="inl">${mi("bolt")}Gewitterrisiko</span>`;
+    radarLegend.dataset.done="1";
+  }
+  return idx===0?`Jetzt / ${t}`:`+${idx} h · ${t}`;
+}
+function makeGrid(box){
+  const pts=[];
+  const dLat=(box.n-box.s)/(GRID_Y-1), dLon=(box.e-box.w)/(GRID_X-1);
+  for(let y=0;y<GRID_Y;y++){
+    const lat=box.s+y*dLat;
+    for(let x=0;x<GRID_X;x++) pts.push({lat,lon:box.w+x*dLon,x,y});
+  }
+  return {pts,dLat,dLon};
+}
+function bilinear(f,W,H,fx,fy){
+  const x0=Math.max(0,Math.min(W-1,Math.floor(fx))), x1=Math.min(W-1,x0+1);
+  const y0=Math.max(0,Math.min(H-1,Math.floor(fy))), y1=Math.min(H-1,y0+1);
+  const tx=fx-x0, ty=fy-y0;
+  const a=f[y0*W+x0], b=f[y0*W+x1], c=f[y1*W+x0], e=f[y1*W+x1];
+  return (a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+e*tx)*ty;
+}
+/* raised-cosine taper, 1 in the interior, 0 at the very border */
+function taper(t){
+  if(t>=EDGE_FADE) return 1;
+  if(t<=0) return 0;
+  return 0.5-0.5*Math.cos(Math.PI*t/EDGE_FADE);
+}
+/* rasterise one hour into a data URL; image rows run north -> south */
+function renderFrame(cloud,precip,pop){
+  const W=(GRID_X-1)*SS+1, H=(GRID_Y-1)*SS+1;
+  const cv=document.createElement("canvas");
+  cv.width=W; cv.height=H;
+  const ctx=cv.getContext("2d");
+  const img=ctx.createImageData(W,H);
+  for(let py=0;py<H;py++){
+    /* grid row 0 is the southern edge, image row 0 is the northern edge */
+    const gy=(GRID_Y-1)-py/SS;
+    const ey=taper(Math.min(py,H-1-py)/(H-1));
+    for(let px=0;px<W;px++){
+      const gx=px/SS;
+      const edge=Math.min(ey,taper(Math.min(px,W-1-px)/(W-1)));
+      const cc=Math.max(0,Math.min(100,bilinear(cloud,GRID_X,GRID_Y,gx,gy)));
+      const mm=Math.max(0,bilinear(precip,GRID_X,GRID_Y,gx,gy));
+      const pr=Math.max(0,bilinear(pop,GRID_X,GRID_Y,gx,gy));
+      let r=233,g=238,b=245;
+      let a=(0.03+Math.pow(cc/100,1.15)*0.60)*0.55;
+      const rc=rainRGB(mm);
+      if(rc){
+        const ra=Math.min(.78,.18+pr/170);
+        r=r*(1-ra)+rc[0]*ra; g=g*(1-ra)+rc[1]*ra; b=b*(1-ra)+rc[2]*ra;
+        a=Math.max(a,ra);
+      }
+      const o=(py*W+px)*4;
+      img.data[o]=r; img.data[o+1]=g; img.data[o+2]=b;
+      img.data[o+3]=Math.round(a*edge*255);
+    }
+  }
+  ctx.putImageData(img,0,0);
+  return cv.toDataURL("image/png");
+}
+function clearMarkers(){
+  for(const m of cloudMarkers) cloudMap.removeLayer(m);
+  cloudMarkers=[];
+}
+function drawCloudFrame(idx){
+  if(!cloudMap||!cloudFrames.length) return;
+  cloudIdx=((idx%cloudFrames.length)+cloudFrames.length)%cloudFrames.length;
+  const f=cloudFrames[cloudIdx];
+  const bounds=[[f.box.s,f.box.w],[f.box.n,f.box.e]];
+  if(!cloudOverlay){
+    cloudOverlay=L.imageOverlay(f.url,bounds,{opacity:1,interactive:false,className:"cloudfield"}).addTo(cloudMap);
+  }else{
+    cloudOverlay.setUrl(f.url);
+    cloudOverlay.setBounds(L.latLngBounds(bounds));
+  }
+  clearMarkers();
+  for(const st of f.storms){
+    const m=L.marker([st.lat,st.lon],{
+      interactive:false,
+      icon:L.divIcon({className:"",html:`<div style="width:20px;height:20px;color:#ffd45c;filter:drop-shadow(0 1px 2px #000)">${mi("bolt").replace('class="mi"','style="width:20px;height:20px;display:block"')}</div>`,iconSize:[22,22],iconAnchor:[11,11]})
+    }).addTo(cloudMap);
+    cloudMarkers.push(m);
+  }
+  radarTime.textContent=cloudFrameLabel(f.time,cloudIdx);
+}
+async function loadCloudForecast(){
+  try{
+    radarMsg.style.display="none";
+    radarTime.textContent="Wolken laden…";
+    gridBox=computeGridBox();
+    const {pts}=makeGrid(gridBox);
+    const lats=pts.map(p=>p.lat.toFixed(4)).join(",");
+    const lons=pts.map(p=>p.lon.toFixed(4)).join(",");
+    const url=`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}`+
+      `&models=icon_seamless&hourly=cloud_cover,precipitation,precipitation_probability,cape`+
+      `&forecast_hours=${CLOUD_HOURS}&timezone=Europe%2FBerlin`;
+
+    const r=await fetch(url,{cache:"no-store"});
+    if(!r.ok) throw new Error("Open-Meteo HTTP "+r.status);
+    let j=await r.json();
+    if(!Array.isArray(j)) j=[j];
+    if(!j.length) throw new Error("keine Wolkendaten");
+
+    const n=Math.min(CLOUD_HOURS,j[0].hourly?.time?.length||0);
+    const frames=[];
+    for(let h=0;h<n;h++){
+      const cloud=new Float32Array(GRID_X*GRID_Y);
+      const precip=new Float32Array(GRID_X*GRID_Y);
+      const pop=new Float32Array(GRID_X*GRID_Y);
+      const storms=[];
+      for(let k=0;k<Math.min(j.length,pts.length);k++){
+        const p=pts[k], o=p.y*GRID_X+p.x;
+        cloud[o]=Number(j[k].hourly?.cloud_cover?.[h]??0);
+        precip[o]=Number(j[k].hourly?.precipitation?.[h]??0);
+        pop[o]=Number(j[k].hourly?.precipitation_probability?.[h]??0);
+        if(Number(j[k].hourly?.cape?.[h]??0)>=600) storms.push({lat:p.lat,lon:p.lon});
+      }
+      frames.push({time:j[0].hourly.time[h],url:renderFrame(cloud,precip,pop),storms,box:gridBox});
+    }
+    if(!frames.length) throw new Error("keine Wolken-Frames");
+    cloudFrames=frames;
+
+    cloudIdx=0;
+    drawCloudFrame(0);
+    clearInterval(cloudTimer);
+    cloudTimer=setInterval(()=>drawCloudFrame(cloudIdx+1),1400);
+  }catch(e){
+    console.error("Cloud forecast",e);
+    /* a wall display should keep the last good film rather than go blank */
+    if(cloudFrames.length){
+      radarTime.textContent="Stand nicht aktuell";
+    }else{
+      radarMsg.style.display="block";
+      radarMsg.textContent="Wolkenprognose nicht verfügbar: "+e.message;
+      radarTime.textContent="Wolkenfehler";
+    }
+  }
+}
+function initCloudMap(){
+  try{
+    if(typeof L==="undefined") throw new Error("Kartenbibliothek nicht geladen");
+    cloudMap=L.map("cloudMap",{
+      zoomControl:false,attributionControl:true,dragging:false,scrollWheelZoom:false,
+      doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false
+    }).setView([LAT,LON],7.9);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+      maxZoom:19,attribution:"© OpenStreetMap"
+    }).addTo(cloudMap);
+
+    L.circleMarker([LAT,LON],{
+      radius:5,weight:2,color:"#ffffff",fillColor:"#ff3b30",fillOpacity:1
+    }).addTo(cloudMap).bindTooltip("Uedorf",{permanent:true,direction:"right",offset:[7,0]});
+
+    loadCloudForecast();
+    setInterval(loadCloudForecast,20*60*1000);
+  }catch(e){
+    radarMsg.style.display="block";
+    radarMsg.textContent="Wolkenkarte nicht verfügbar: "+e.message;
+  }
+}
+setTimeout(initCloudMap,250);
+
+/*
+  Wall-tablet kiosk mode. One tap asks for fullscreen, locks landscape and takes
+  a screen wake lock so the tablet stops dimming. All three are optional APIs on
+  an older Android build, so each one is attempted on its own and a refusal is
+  simply ignored. The button hides itself once the page runs without browser
+  chrome, which is also the case when it was launched from the home screen.
+*/
+let wakeLock=null;
+async function acquireWakeLock(){
+  if(wakeLock||!("wakeLock" in navigator)) return;
+  try{
+    wakeLock=await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release",()=>{wakeLock=null});
+  }catch(e){ wakeLock=null; }
+}
+function kioskActive(){
+  if(document.fullscreenElement) return true;
+  try{
+    return window.matchMedia("(display-mode: fullscreen)").matches
+        || window.matchMedia("(display-mode: standalone)").matches;
+  }catch(e){ return false; }
+}
+function syncKioskBtn(){
+  kiosk.hidden=kioskActive()||!document.documentElement.requestFullscreen;
+}
+async function goKiosk(){
+  try{
+    if(!document.fullscreenElement&&document.documentElement.requestFullscreen)
+      await document.documentElement.requestFullscreen({navigationUI:"hide"});
+  }catch(e){}
+  try{ if(screen.orientation&&screen.orientation.lock) await screen.orientation.lock("landscape"); }catch(e){}
+  await acquireWakeLock();
+  syncKioskBtn();
+}
+kiosk.addEventListener("click",goKiosk);
+document.addEventListener("fullscreenchange",syncKioskBtn);
+/* the wake lock is dropped whenever the page goes to the background */
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)acquireWakeLock()});
+syncKioskBtn();
+if(kioskActive()) acquireWakeLock();
+
+loadWeather();
+setInterval(loadWeather,REFRESH_MS);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadWeather()});
+</script>
+</body>
+</html>
