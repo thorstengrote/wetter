@@ -471,6 +471,7 @@ function windText(speed,gust){
 /* ---------- detail panel ---------- */
 let diagTimer=null;
 let srcNote="DWD ICON via Open-Meteo";
+let lastGood="";
 
 /* Which build is this tablet actually running? document.lastModified carries
    the Last-Modified header of this file, so the stamp needs no build step and
@@ -781,12 +782,16 @@ async function loadWeather(){
     srcNote=trend
       ? "DWD ICON via Open-Meteo, Tage 8–14 Modellmix · Karte OpenStreetMap"
       : "DWD ICON via Open-Meteo · Karte OpenStreetMap";
-    const upd=new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
-    stand.innerHTML=` · <span class="stand">Stand ${upd}</span>`;
+    lastGood=new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+    stand.innerHTML=` · <span class="stand">Stand ${lastGood}</span>`;
 
   }catch(e){
     console.error(e);
-    stand.innerHTML=' · <span class="stale">Aktualisierung fehlgeschlagen</span>';
+    /* the tiles still hold the last good values, so say how old they are
+       instead of only reporting a failure */
+    stand.innerHTML=lastGood
+      ? ` · <span class="stand">Stand ${lastGood}</span> · <span class="stale">nicht aktualisiert</span>`
+      : ' · <span class="stale">keine Verbindung zum Wetterdienst</span>';
   }
 }
 
@@ -800,17 +805,17 @@ async function loadWeather(){
 let cloudMap=null, cloudOverlay=null, cloudMarkers=[], cloudFrames=[], cloudIdx=0, cloudTimer=null;
 const CLOUD_HOURS=7;
 /*
-  25 x 13 over the padded viewport gives roughly 9 km cells instead of 26 km.
-  That is affordable because the underlying field is hourly: refreshing more
-  often than once per hour returns the same numbers, so the request budget goes
-  into resolution rather than into repetition. Cells stay roughly square on a
-  2.1:1 landscape map.
+  19 x 10 over the padded viewport gives roughly 12 km cells instead of the
+  26 km this started with. 25 x 13 was tried first and was a planning mistake:
+  325 points times 25 hourly fetches is 8125 of a 10000 request daily budget,
+  which leaves no room for page reloads, and one afternoon of testing exhausted
+  the quota. 190 points times 25 fetches is 4750, about half the budget.
 */
-const GRID_X=25, GRID_Y=13;
+const GRID_X=19, GRID_Y=10;
 const LAT_SPAN_FB=1.30, LON_SPAN_FB=2.15;  /* only used if the map has no size yet */
 const GRID_PAD=0.12;   /* raster margin beyond the visible map */
 const EDGE_FADE=0.05;  /* alpha taper, ends well inside that off-screen margin */
-const SS=6;   /* raster stays 145 x 73 px, so the canvas cost is unchanged */
+const SS=8;   /* raster stays 145 x 73 px, so the canvas cost is unchanged */
 let gridBox=null;
 
 /*
@@ -934,6 +939,29 @@ function drawCloudFrame(idx){
   }
   radarTime.textContent=cloudFrameLabel(f.time,cloudIdx);
 }
+/*
+  The field is hourly, so a reload inside the same hour would fetch numbers that
+  are already known. Caching them makes a reload free, which matters because a
+  reload otherwise costs one request per grid point and that is what exhausted
+  the daily quota during development.
+*/
+const CACHE_KEY="wetter.cloudfield.v1";
+function cacheKeyNow(box){
+  const h=new Date().toISOString().slice(0,13);
+  return `${h}|${box.s.toFixed(3)},${box.n.toFixed(3)},${box.w.toFixed(3)},${box.e.toFixed(3)}`;
+}
+function readCache(box){
+  try{
+    const raw=localStorage.getItem(CACHE_KEY);
+    if(!raw) return null;
+    const c=JSON.parse(raw);
+    return c&&c.key===cacheKeyNow(box)&&Array.isArray(c.data)?c.data:null;
+  }catch(e){ return null; }
+}
+function writeCache(box,data){
+  try{ localStorage.setItem(CACHE_KEY,JSON.stringify({key:cacheKeyNow(box),data})); }catch(e){}
+}
+
 async function loadCloudForecast(){
   try{
     radarMsg.style.display="none";
@@ -946,11 +974,24 @@ async function loadCloudForecast(){
       `&models=icon_seamless&hourly=cloud_cover,precipitation,cape`+
       `&forecast_hours=${CLOUD_HOURS}&timezone=Europe%2FBerlin`;
 
-    const r=await fetch(url,{cache:"no-store"});
-    if(!r.ok) throw new Error("Open-Meteo HTTP "+r.status);
-    let j=await r.json();
-    if(!Array.isArray(j)) j=[j];
-    if(!j.length) throw new Error("keine Wolkendaten");
+    let j=readCache(gridBox);
+    let fromCache=!!j;
+    if(!j){
+      const r=await fetch(url,{cache:"no-store"});
+      if(!r.ok) throw new Error("Open-Meteo HTTP "+r.status);
+      j=await r.json();
+      if(!Array.isArray(j)) j=[j];
+      if(!j.length) throw new Error("keine Wolkendaten");
+      /* keep only what the raster needs, so the cache stays small */
+      j=j.map(p=>({hourly:{
+        time:p.hourly.time,
+        cloud_cover:p.hourly.cloud_cover,
+        precipitation:p.hourly.precipitation,
+        cape:p.hourly.cape
+      }}));
+      writeCache(gridBox,j);
+    }
+    if(fromCache) console.info("Wolkenfeld aus dem Puffer der laufenden Stunde");
 
     const n=Math.min(CLOUD_HOURS,j[0].hourly?.time?.length||0);
     const frames=[];
