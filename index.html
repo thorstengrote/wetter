@@ -35,7 +35,7 @@ body{padding:12px 16px 10px}
 #app{
   height:100%;
   display:grid;
-  grid-template-rows:auto minmax(0,1fr) minmax(0,1fr) auto;
+  grid-template-rows:auto minmax(0,1fr) minmax(0,1fr);
   gap:9px
 }
 header{
@@ -52,6 +52,8 @@ header{
 .place{font-size:21px;font-weight:700}
 .clock{font-size:38px;font-weight:750;line-height:1}
 .date{font-size:12px;color:var(--muted);margin-top:3px}
+.date .stand{color:#8b97a6}
+.date .stale{color:#ff8a8a;font-weight:650}
 .current{display:flex;align-items:center;gap:12px}
 .current .icon{display:flex;align-items:center}
 .current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
@@ -131,20 +133,25 @@ header{
 .hour .icon .wicon{width:38px;height:38px;max-width:100%;max-height:100%;display:block}
 .hour .deg{font-size:16px;font-weight:750;line-height:20px;font-variant-numeric:tabular-nums}
 
-/* Tap an hour to see the raw model numbers behind its icon. */
+/* Tap any tile to see every value the model delivers for it. */
 .diag{
-  position:absolute;z-index:900;left:9px;right:9px;top:9px;bottom:7px;
-  background:rgba(7,11,17,.965);border:1px solid #5b6b81;border-radius:11px;
-  padding:10px 14px;display:none;
-  font-size:12.5px;line-height:1.55;color:#e6ecf3
+  position:fixed;z-index:1000;inset:3.5% 4.5%;
+  background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:14px;
+  padding:15px 24px 12px;display:none;
+  font-size:15px;line-height:1.7;color:#e6ecf3
 }
-.diag.on{display:block}
-.diag h4{margin:0 0 5px;font-size:14px;color:#fff}
-.diag table{border-collapse:collapse;width:100%;max-width:760px}
-.diag td{padding:1px 12px 1px 0;vertical-align:top;white-space:nowrap}
-.diag td.k{color:#9dabbb;width:150px}
-.diag .why{margin-top:6px;color:#ffd45c;font-weight:650}
-.diag .close{position:absolute;right:11px;top:8px;color:#9dabbb;font-size:11px}
+.diag.on{display:flex;flex-direction:column}
+.diag h4{margin:0;font-size:21px;font-weight:750;color:#fff}
+.diag .why{margin:2px 0 11px;color:var(--yellow);font-weight:650;font-size:14px}
+.diag .rows{
+  flex:1 1 auto;min-height:0;overflow:hidden;
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
+  gap:2px 22px;align-content:start
+}
+.diag .k{color:#9dabbb;white-space:nowrap}
+.diag .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.diag .src{flex:0 0 auto;margin-top:8px;font-size:11px;color:#7d8896}
+.diag .close{position:absolute;right:16px;top:12px;color:#9dabbb;font-size:11px}
 
 .bottom-grid{display:grid;grid-template-columns:48% 52%;gap:9px;min-height:0}
 .radarbox{
@@ -205,25 +212,9 @@ header{
 .day .name{font-size:13px;font-weight:750;color:#f5f7f9}
 .day .icon{min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .day .icon .wicon{width:48px;height:48px;max-width:100%;max-height:100%;display:block}
-.day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums}
+.day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .day .lbl{gap:2.5px;letter-spacing:-.15px}
 
-footer{
-  display:flex;
-  justify-content:space-between;
-  font-size:11px;
-  color:var(--muted);
-  padding:0 2px
-}
-.error{color:#ff8a8a}
-#kiosk{
-  border:1px solid #55657c;border-radius:999px;
-  padding:2px 11px;margin-left:10px;
-  color:#e6ecf3;background:#1c2534;
-  font-size:11px;font-weight:600;
-  cursor:pointer;-webkit-user-select:none;user-select:none
-}
-#kiosk[hidden]{display:none}
 /* shown until the page runs without browser chrome; any tap takes it there */
 #hint{
   position:fixed;z-index:1000;left:50%;bottom:34px;transform:translateX(-50%);
@@ -240,7 +231,7 @@ footer{
   <div>
     <div class="place">Uedorf</div>
     <div class="clock" id="clock">--:--</div>
-    <div class="date" id="date"></div>
+    <div class="date"><span id="date"></span><span id="stand"></span></div>
   </div>
 
   <div class="current">
@@ -257,9 +248,9 @@ footer{
 </header>
 
 <section class="box">
-  <div class="title">12 STUNDEN &middot; WISCHEN F&Uuml;R MEHR &middot; ANTIPPEN = MODELLWERTE &nbsp;|&nbsp; REGENRISIKO &middot; WIND/B&Ouml;EN IN KM/H</div>
+  <div class="title">12 STUNDEN &middot; WISCHEN F&Uuml;R MEHR &middot; KACHEL ANTIPPEN = ALLE WERTE &nbsp;|&nbsp; REGENRISIKO &middot; WIND/B&Ouml;EN IN KM/H</div>
   <div class="hourly-scroll" id="hourlyScroll"><div class="hours" id="hours"></div></div>
-  <div class="diag" id="diag"><span class="close">antippen zum Schlie&szlig;en</span><div id="diagBody"></div></div>
+  
 </section>
 
 <section class="bottom-grid">
@@ -273,17 +264,13 @@ footer{
     </div>
   </div>
   <div class="box">
-    <div class="title">7 TAGE &middot; WISCHEN F&Uuml;R 14 &middot; GESTRICHELT = TREND &nbsp;|&nbsp; H&Ouml;CHST/TIEFST &middot; REGEN &middot; SONNE &middot; WIND/B&Ouml;EN IN KM/H</div>
+    <div class="title">7 TAGE &middot; WISCHEN F&Uuml;R 14 &middot; GESTRICHELT = TREND &middot; KACHEL ANTIPPEN = ALLE WERTE &nbsp;|&nbsp; REGENRISIKO &middot; SONNE &middot; WIND/B&Ouml;EN</div>
     <div class="days-scroll" id="daysScroll"><div class="days" id="days"></div></div>
   </div>
 </section>
 
-<footer>
-  <span id="srcline">Stunden + Karte: DWD ICON via Open&#8209;Meteo &middot; Tage 8&ndash;14: Modellmix &middot; Karte: OpenStreetMap</span>
-  <span id="status">Auto&#8209;Refresh alle 10 Minuten</span>
-  <span><span id="lastUpdate">Letzte Aktualisierung: --:--</span><span id="kiosk" role="button" hidden>Vollbild</span></span>
-</footer>
 <div id="hint" hidden>Einmal tippen f&uuml;r Vollbild</div>
+<div class="diag" id="diag"><span class="close">antippen zum Schlie&szlig;en</span><div id="diagBody"></div></div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -443,6 +430,15 @@ function mi(kind){
    value and its unit can never be split across two lines. */
 const NB="\u202f";
 const n1=v=>Number(v||0).toLocaleString("de-DE",{minimumFractionDigits:1,maximumFractionDigits:1});
+const n0=v=>Math.round(Number(v||0)).toLocaleString("de-DE");
+const n1p=v=>Number(v||0).toLocaleString("de-DE",{minimumFractionDigits:1,maximumFractionDigits:1,useGrouping:false});
+const COMPASS=["N","NNO","NO","ONO","O","OSO","SO","SSO","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+function dirText(d){
+  if(d==null) return "–";
+  const x=((Number(d)%360)+360)%360;
+  return `${Math.round(x)}° ${COMPASS[Math.round(x/22.5)%16]}`;
+}
+const orDash=(v,fn)=>v==null?"–":fn(v);
 const pct=v=>Math.round(Number(v||0))+NB+"%";
 const deg=v=>Math.round(Number(v||0))+"°";
 
@@ -460,48 +456,112 @@ function windText(speed,gust){
   return Math.round(Number(speed||0))+"/"+Math.round(Number(gust||0));
 }
 
-/* ---------- diagnostics overlay ---------- */
+/* ---------- detail panel ---------- */
 let diagTimer=null;
-function showDiag(info){
-  const b=info.blk, s=info.dec;
+let srcNote="DWD ICON via Open-Meteo";
+
+function showDetail(title,why,pairs,note){
   diagBody.innerHTML=
-    `<h4>${info.label} &middot; Symbol: ${ICON_LABEL[s.icon]||s.icon}</h4>`+
-    `<table>`+
-    `<tr><td class=k>Bewölkung gesamt</td><td>${pct(b.tot)}</td>`+
-      `<td class=k>tief / mittel / hoch</td><td>${pct(b.low)} / ${pct(b.mid)} / ${pct(b.high)}</td></tr>`+
-    `<tr><td class=k>Sonnenscheindauer</td><td>${Math.round((b.sunSec||0)/60)} von 60${NB}min</td>`+
-      `<td class=k>Strahlung</td><td>${Math.round(b.swrad)} von ${Math.round(s.clearSky)}${NB}W/m² klar (${pct(s.ratio*100)})</td></tr>`+
-    `<tr><td class=k>Niederschlag</td><td>${n1(b.precip)}${NB}mm bei ${pct(b.pop)} Risiko</td>`+
-      `<td class=k>Gewitterenergie CAPE</td><td>${Math.round(b.cape||0)}${NB}J/kg</td></tr>`+
-    `<tr><td class=k>Temperatur</td><td>${n1(b.temp)}${NB}°C</td>`+
-      `<td class=k>Wind / Böen</td><td>${windText(b.wind,b.gust)}${NB}km/h</td></tr>`+
-    `<tr><td class=k>WMO-Code des Modells</td><td colspan=3>${b.code} = ${wmoText(b.code)}</td></tr>`+
-    `</table>`+
-    `<div class="why">Symbolentscheidung: ${s.why}</div>`;
+    `<h4>${title}</h4>`+
+    (why?`<div class="why">${why}</div>`:`<div class="why">&nbsp;</div>`)+
+    `<div class="rows">`+
+      pairs.map(([k,v])=>`<div class="k">${k}</div><div class="v">${v}</div>`).join("")+
+    `</div>`+
+    `<div class="src">${note}</div>`;
   diag.classList.add("on");
   clearTimeout(diagTimer);
-  diagTimer=setTimeout(()=>diag.classList.remove("on"),25000);
+  diagTimer=setTimeout(()=>diag.classList.remove("on"),40000);
 }
 diag.addEventListener("click",()=>{diag.classList.remove("on");clearTimeout(diagTimer)});
 
+function hourDetail(label,b,s){
+  showDetail(
+    `${label} &middot; ${ICON_LABEL[s.icon]||s.icon}`,
+    `Symbolentscheidung: ${s.why}`,
+    [
+      ["Temperatur",              `${n1(b.temp)}${NB}°C`],
+      ["gefühlt",                 orDash(b.app,v=>`${n1(v)}${NB}°C`)],
+      ["Bewölkung gesamt",        pct(b.tot)],
+      ["tief / mittel / hoch",    `${pct(b.low)} / ${pct(b.mid)} / ${pct(b.high)}`],
+      ["Sonnenschein",            `${n0((b.sunSec||0)/60)} von 60${NB}min`],
+      ["Strahlung",               `${n0(b.swrad)} von ${n0(s.clearSky)}${NB}W/m² klar (${pct(s.ratio*100)})`],
+      ["Niederschlag",            `${n1(b.precip)}${NB}mm`],
+      ["Regenrisiko",             pct(b.pop)],
+      ["Regen / Schauer",         `${n1(b.rain)} / ${n1(b.showers)}${NB}mm`],
+      ["Schneefall",              `${n1(b.snow)}${NB}cm`],
+      ["Luftfeuchte",             orDash(b.rh,pct)],
+      ["Taupunkt",                orDash(b.dew,v=>`${n1(v)}${NB}°C`)],
+      ["Luftdruck",               orDash(b.pmsl,v=>`${n1p(v)}${NB}hPa`)],
+      ["Sichtweite",              orDash(b.vis,v=>`${n1(v/1000)}${NB}km`)],
+      ["Wind",                    `${n0(b.wind)}${NB}km/h aus ${dirText(b.wdir)}`],
+      ["Böen",                    `${n0(b.gust)}${NB}km/h`],
+      ["Wind in 80 m",            orDash(b.wind80,v=>`${n0(v)}${NB}km/h`)],
+      ["Gewitterenergie",         `CAPE ${n0(b.cape)} · Deckel ${n0(b.cin)}${NB}J/kg`],
+      ["Nullgradgrenze",          orDash(b.frz,v=>`${n0(v)}${NB}m`)],
+      ["Bodentemperatur",         orDash(b.soil,v=>`${n1(v)}${NB}°C`)],
+      ["UV-Index",                orDash(b.uv,n1)],
+      ["WMO-Code",                `${b.code} = ${wmoText(b.code)}`]
+    ],
+    `${srcNote} · Stundenwerte, Zeitangabe ist der Beginn der Stunde`
+  );
+}
+
+function dayDetail(label,d,note){
+  const ratio=d.daylight>0?d.sunh/d.daylight:0;
+  showDetail(label, "",
+    [
+      ["Höchst / Tiefst",         `${n1(d.maxT)} / ${n1(d.minT)}${NB}°C`],
+      ["gefühlt Höchst / Tiefst", `${orDash(d.appMax,n1)} / ${orDash(d.appMin,n1)}${NB}°C`],
+      ["Niederschlag",            `${n1(d.mm)}${NB}mm`],
+      ["Niederschlagsstunden",    orDash(d.ph,v=>`${n0(v)}${NB}h`)],
+      ["max. Regenrisiko",        pct(d.pp)],
+      ["Regen / Schauer",         `${n1(d.rain)} / ${n1(d.showers)}${NB}mm`],
+      ["Schneefall",              `${n1(d.snow)}${NB}cm`],
+      ["Sonnenschein",            `${n1(d.sunh)} von ${n1(d.daylight)}${NB}h (${pct(ratio*100)})`],
+      ["Sonnenaufgang",           d.sr||"–"],
+      ["Sonnenuntergang",         d.ss||"–"],
+      ["Strahlungssumme",         orDash(d.radsum,v=>`${n1(v)}${NB}MJ/m²`)],
+      ["Wind höchstens",          `${n0(d.wmax)}${NB}km/h`],
+      ["Böen höchstens",          `${n0(d.gmax)}${NB}km/h`],
+      ["Windrichtung",            dirText(d.wdir)],
+      ["UV-Index höchstens",      orDash(d.uv,n1)],
+      ["Verdunstung",             orDash(d.et0,v=>`${n1(v)}${NB}mm`)],
+      ["WMO-Code",               `${d.code} = ${wmoText(d.code)}`],
+      ["Quelle",                  note]
+    ],
+    `${srcNote} · Tageswerte`
+  );
+}
+
 /* ---------- forecast ---------- */
+/* Daily set is identical for both models so the day detail panel works the same
+   for ICON days and for the trend days beyond day 7. */
+const DAILY_VARS=
+  "temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,"+
+  "precipitation_probability_max,precipitation_sum,rain_sum,showers_sum,snowfall_sum,"+
+  "precipitation_hours,weather_code,sunshine_duration,daylight_duration,sunrise,sunset,"+
+  "shortwave_radiation_sum,et0_fao_evapotranspiration,wind_speed_10m_max,wind_gusts_10m_max,"+
+  "wind_direction_10m_dominant";
+
 const ICON_URL=
   `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}`+
   `&models=icon_seamless`+
   `&current=temperature_2m,apparent_temperature,weather_code,cloud_cover,wind_speed_10m,wind_gusts_10m`+
-  `&hourly=temperature_2m,weather_code,precipitation_probability,precipitation,cloud_cover,`+
-    `cloud_cover_low,cloud_cover_mid,cloud_cover_high,sunshine_duration,shortwave_radiation,`+
-    `terrestrial_radiation,wind_speed_10m,wind_gusts_10m,cape`+
-  `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,`+
-    `weather_code,sunshine_duration,daylight_duration,sunrise,sunset,wind_speed_10m_max,wind_gusts_10m_max`+
+  `&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,precipitation,`+
+    `rain,showers,snowfall,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,`+
+    `sunshine_duration,shortwave_radiation,terrestrial_radiation,relative_humidity_2m,dew_point_2m,`+
+    `pressure_msl,visibility,wind_speed_10m,wind_gusts_10m,wind_direction_10m,wind_speed_80m,`+
+    `cape,convective_inhibition,freezing_level_height,soil_temperature_0cm`+
+  `&daily=${DAILY_VARS}`+
   `&forecast_days=7&forecast_hours=48&timezone=Europe%2FBerlin`;
 
+/* ICON carries no UV index, so the trend request supplies it for both panels. */
 const TREND_URL=
   `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}`+
   `&models=best_match`+
-  `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,`+
-    `weather_code,sunshine_duration,daylight_duration,wind_speed_10m_max,wind_gusts_10m_max`+
-  `&forecast_days=14&timezone=Europe%2FBerlin`;
+  `&hourly=uv_index`+
+  `&daily=${DAILY_VARS},uv_index_max`+
+  `&forecast_days=14&forecast_hours=48&timezone=Europe%2FBerlin`;
 
 function dayIcon(code,mm,ratio){
   code=Number(code||0);
@@ -515,7 +575,7 @@ function dayIcon(code,mm,ratio){
   return "cloud";
 }
 
-function renderDays(icon,trend){
+function renderDays(icon,trend,uvDay){
   days.innerHTML="";
   const src=[];
   for(let i=0;i<7;i++){
@@ -534,31 +594,45 @@ function renderDays(icon,trend){
 
   src.forEach((s,pos)=>{
     const d=s.d,i=s.i;
-    const maxT=d.temperature_2m_max[i], minT=d.temperature_2m_min[i];
-    const sunh=Number(d.sunshine_duration?.[i]||0)/3600;
-    const daylight=Number(d.daylight_duration?.[i]||0)/3600;
-    const ratio=daylight>0?sunh/daylight:0;
-    const mm=Number(d.precipitation_sum?.[i]||0);
-    const pp=Number(d.precipitation_probability_max?.[i]||0);
-    const dws=d.wind_speed_10m_max?.[i]??0;
-    const dwg=d.wind_gusts_10m_max?.[i]??0;
+    const info={
+      maxT:d.temperature_2m_max[i], minT:d.temperature_2m_min[i],
+      appMax:d.apparent_temperature_max?.[i], appMin:d.apparent_temperature_min?.[i],
+      sunh:Number(d.sunshine_duration?.[i]||0)/3600,
+      daylight:Number(d.daylight_duration?.[i]||0)/3600,
+      mm:Number(d.precipitation_sum?.[i]||0),
+      pp:Number(d.precipitation_probability_max?.[i]||0),
+      rain:Number(d.rain_sum?.[i]||0), showers:Number(d.showers_sum?.[i]||0),
+      snow:Number(d.snowfall_sum?.[i]||0), ph:d.precipitation_hours?.[i],
+      sr:(d.sunrise?.[i]||"").slice(11,16), ss:(d.sunset?.[i]||"").slice(11,16),
+      radsum:d.shortwave_radiation_sum?.[i], et0:d.et0_fao_evapotranspiration?.[i],
+      wmax:d.wind_speed_10m_max?.[i]??0, gmax:d.wind_gusts_10m_max?.[i]??0,
+      wdir:d.wind_direction_10m_dominant?.[i],
+      uv:(uvDay||{})[d.time[i]],
+      code:d.weather_code?.[i]??0
+    };
+    const ratio=info.daylight>0?info.sunh/info.daylight:0;
 
     const e=document.createElement("div");
     e.className="day"+(s.trend?" trend":"");
     e.innerHTML=
       `<div class=name>${pos===0?"Heute":dow(d.time[i])}</div>`+
-      `<div class=icon>${weatherIcon(dayIcon(d.weather_code?.[i],mm,ratio))}</div>`+
-      `<div class=temps>${deg(maxT)} / ${deg(minT)}</div>`+
-      lbl("drop",`${pct(pp)}·${n1(mm)}${NB}mm`,pp>=10?"rain":"")+
-      lbl("sun",`${n1(sunh)}${NB}h`,sunh>=1?"sun":"")+
-      lbl("sock",windText(dws,dwg),windSignificant(dws,dwg)?"wind":"");
+      `<div class=icon>${weatherIcon(dayIcon(info.code,info.mm,ratio))}</div>`+
+      `<div class=temps>${deg(info.maxT)}/${deg(info.minT)}</div>`+
+      lbl("drop",pct(info.pp),info.pp>=10?"rain":"")+
+      lbl("sun",`${n1(info.sunh)}${NB}h`,info.sunh>=1?"sun":"")+
+      lbl("sock",windText(info.wmax,info.gmax),windSignificant(info.wmax,info.gmax)?"wind":"");
+
+    const label=pos===0
+      ? "Heute, "+new Date(d.time[i]+"T12:00").toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit"})
+      : new Date(d.time[i]+"T12:00").toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit"});
+    const note=s.trend?"Modellmix, Trend ab Tag 8":"DWD ICON";
+    e.addEventListener("click",()=>dayDetail(label,info,note));
     days.appendChild(e);
   });
 }
 
 async function loadWeather(){
   try{
-    status.textContent="aktualisiere…";
 
     const [rI,rT]=await Promise.all([
       fetch(ICON_URL,{cache:"no-store"}),
@@ -570,6 +644,19 @@ async function loadWeather(){
     try{ if(rT&&rT.ok) trend=await rT.json(); }catch(e){ trend=null; }
 
     const H=d.hourly;
+
+    /* UV comes from the trend model, keyed by timestamp and by date */
+    const uvHour={}, uvDay={};
+    if(trend){
+      (trend.hourly?.time||[]).forEach((t,k)=>{
+        const v=trend.hourly.uv_index?.[k];
+        if(v!=null) uvHour[t]=v;
+      });
+      (trend.daily?.time||[]).forEach((t,k)=>{
+        const v=trend.daily.uv_index_max?.[k];
+        if(v!=null) uvDay[t]=v;
+      });
+    }
 
     const sunMap={};
     (d.daily.time||[]).forEach((day,k)=>{
@@ -585,13 +672,20 @@ async function loadWeather(){
 
     const blockAt=i=>({
       time:H.time[i], temp:H.temperature_2m[i], code:H.weather_code[i],
+      app:H.apparent_temperature?.[i],
       tot:H.cloud_cover?.[i]??0, low:H.cloud_cover_low?.[i]??0,
       mid:H.cloud_cover_mid?.[i]??0, high:H.cloud_cover_high?.[i]??0,
       precip:H.precipitation?.[i]??0, pop:H.precipitation_probability?.[i]??0,
+      rain:H.rain?.[i]??0, showers:H.showers?.[i]??0, snow:H.snowfall?.[i]??0,
       sunSec:H.sunshine_duration?.[i]??0, swrad:H.shortwave_radiation?.[i]??0,
       toa:H.terrestrial_radiation?.[i]??0,
+      rh:H.relative_humidity_2m?.[i], dew:H.dew_point_2m?.[i],
+      pmsl:H.pressure_msl?.[i], vis:H.visibility?.[i],
       wind:H.wind_speed_10m?.[i]??0, gust:H.wind_gusts_10m?.[i]??0,
-      cape:H.cape?.[i]??0,
+      wdir:H.wind_direction_10m?.[i], wind80:H.wind_speed_80m?.[i],
+      cape:H.cape?.[i]??0, cin:H.convective_inhibition?.[i]??0,
+      frz:H.freezing_level_height?.[i], soil:H.soil_temperature_0cm?.[i],
+      uv:uvHour[H.time[i]],
       isDay:isDayHour(H.time[i])
     });
 
@@ -651,20 +745,23 @@ async function loadWeather(){
         `<div class=deg>${deg(blk.temp)}</div>`+
         lbl("drop",pct(blk.pop),Number(blk.pop||0)>=10?"rain":"")+
         lbl("sock",windText(blk.wind,blk.gust),windSignificant(blk.wind,blk.gust)?"wind":"");
-      const label=new Date(ts[i]).toLocaleDateString("de-DE",{weekday:"short"})+" "+hh(ts[i]);
-      e.addEventListener("click",()=>showDiag({label,blk,dec}));
+      const label=new Date(ts[i]).toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit"})+
+        ", "+hh(ts[i])+" Uhr";
+      e.addEventListener("click",()=>hourDetail(label,blk,dec));
       hours.appendChild(e);
     }
 
-    renderDays(d,trend);
+    renderDays(d,trend,uvDay);
 
+    srcNote=trend
+      ? "DWD ICON via Open-Meteo, Tage 8–14 Modellmix · Karte OpenStreetMap"
+      : "DWD ICON via Open-Meteo · Karte OpenStreetMap";
     const upd=new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
-    status.textContent="automatisch alle 10 Min.";
-    lastUpdate.textContent="Letzte Aktualisierung: "+upd;
+    stand.innerHTML=` · <span class="stand">Stand ${upd}</span>`;
 
   }catch(e){
     console.error(e);
-    status.innerHTML='<span class=error>Wetter-Aktualisierung fehlgeschlagen</span>'
+    stand.innerHTML=' · <span class="stale">Aktualisierung fehlgeschlagen</span>';
   }
 }
 
@@ -907,10 +1004,9 @@ function kioskActive(){
         || window.matchMedia("(display-mode: standalone)").matches;
   }catch(e){ return false; }
 }
+/* the hint is the only affordance left; any tap does the job */
 function syncKioskBtn(){
-  const off=kioskActive()||!document.documentElement.requestFullscreen;
-  kiosk.hidden=off;
-  hint.hidden=off;
+  hint.hidden=kioskActive()||!document.documentElement.requestFullscreen;
 }
 
 /*
@@ -940,7 +1036,6 @@ async function goKiosk(){
   await acquireWakeLock();
   syncKioskBtn();
 }
-kiosk.addEventListener("click",goKiosk);
 document.addEventListener("fullscreenchange",()=>{syncKioskBtn();armFirstTouch()});
 /* the wake lock is dropped whenever the page goes to the background */
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)acquireWakeLock()});
