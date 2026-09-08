@@ -138,23 +138,25 @@ header{
 .hour .deg{font-size:16px;font-weight:750;line-height:20px;font-variant-numeric:tabular-nums}
 
 /* Tap any tile to see every value the model delivers for it. */
+/* the card takes the height of its content and centres itself, instead of
+   stretching to a fixed share of the screen and leaving half of it black */
 .diag{
-  position:fixed;z-index:1000;inset:3.5% 4.5%;
+  position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
+  transform:translateY(-50%);max-height:93%;overflow:auto;
   background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:14px;
-  padding:15px 24px 12px;display:none;
+  padding:15px 24px 13px;display:none;
   font-size:15px;line-height:1.7;color:#e6ecf3
 }
-.diag.on{display:flex;flex-direction:column}
+.diag.on{display:block}
 .diag h4{margin:0;font-size:21px;font-weight:750;color:#fff}
 .diag .why{margin:2px 0 11px;color:var(--yellow);font-weight:650;font-size:14px}
 .diag .rows{
-  flex:1 1 auto;min-height:0;overflow:hidden;
   display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
   gap:2px 22px;align-content:start
 }
 .diag .k{color:#9dabbb;white-space:nowrap}
 .diag .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.diag .src{flex:0 0 auto;margin-top:8px;font-size:11px;color:#7d8896}
+.diag .src{margin-top:10px;font-size:11px;color:#7d8896}
 .diag .close{position:absolute;right:16px;top:12px;color:#9dabbb;font-size:11px}
 
 .bottom-grid{display:grid;grid-template-columns:48% 52%;gap:9px;min-height:0}
