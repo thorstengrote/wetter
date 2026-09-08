@@ -799,12 +799,18 @@ async function loadWeather(){
 */
 let cloudMap=null, cloudOverlay=null, cloudMarkers=[], cloudFrames=[], cloudIdx=0, cloudTimer=null;
 const CLOUD_HOURS=7;
-/* 13 x 7 keeps the sample cells roughly square over a 2.1:1 landscape map */
-const GRID_X=13, GRID_Y=7;
+/*
+  25 x 13 over the padded viewport gives roughly 9 km cells instead of 26 km.
+  That is affordable because the underlying field is hourly: refreshing more
+  often than once per hour returns the same numbers, so the request budget goes
+  into resolution rather than into repetition. Cells stay roughly square on a
+  2.1:1 landscape map.
+*/
+const GRID_X=25, GRID_Y=13;
 const LAT_SPAN_FB=1.30, LON_SPAN_FB=2.15;  /* only used if the map has no size yet */
 const GRID_PAD=0.12;   /* raster margin beyond the visible map */
 const EDGE_FADE=0.05;  /* alpha taper, ends well inside that off-screen margin */
-const SS=12;
+const SS=6;   /* raster stays 145 x 73 px, so the canvas cost is unchanged */
 let gridBox=null;
 
 /*
@@ -872,7 +878,7 @@ function taper(t){
   return 0.5-0.5*Math.cos(Math.PI*t/EDGE_FADE);
 }
 /* rasterise one hour into a data URL; image rows run north -> south */
-function renderFrame(cloud,precip,pop){
+function renderFrame(cloud,precip){
   const W=(GRID_X-1)*SS+1, H=(GRID_Y-1)*SS+1;
   const cv=document.createElement("canvas");
   cv.width=W; cv.height=H;
@@ -887,12 +893,11 @@ function renderFrame(cloud,precip,pop){
       const edge=Math.min(ey,taper(Math.min(px,W-1-px)/(W-1)));
       const cc=Math.max(0,Math.min(100,bilinear(cloud,GRID_X,GRID_Y,gx,gy)));
       const mm=Math.max(0,bilinear(precip,GRID_X,GRID_Y,gx,gy));
-      const pr=Math.max(0,bilinear(pop,GRID_X,GRID_Y,gx,gy));
       let r=233,g=238,b=245;
       let a=(0.03+Math.pow(cc/100,1.15)*0.60)*0.55;
       const rc=rainRGB(mm);
       if(rc){
-        const ra=Math.min(.78,.18+pr/170);
+        const ra=Math.min(.80,.20+Math.sqrt(mm)*0.42);
         r=r*(1-ra)+rc[0]*ra; g=g*(1-ra)+rc[1]*ra; b=b*(1-ra)+rc[2]*ra;
         a=Math.max(a,ra);
       }
@@ -938,7 +943,7 @@ async function loadCloudForecast(){
     const lats=pts.map(p=>p.lat.toFixed(4)).join(",");
     const lons=pts.map(p=>p.lon.toFixed(4)).join(",");
     const url=`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}`+
-      `&models=icon_seamless&hourly=cloud_cover,precipitation,precipitation_probability,cape`+
+      `&models=icon_seamless&hourly=cloud_cover,precipitation,cape`+
       `&forecast_hours=${CLOUD_HOURS}&timezone=Europe%2FBerlin`;
 
     const r=await fetch(url,{cache:"no-store"});
@@ -952,16 +957,14 @@ async function loadCloudForecast(){
     for(let h=0;h<n;h++){
       const cloud=new Float32Array(GRID_X*GRID_Y);
       const precip=new Float32Array(GRID_X*GRID_Y);
-      const pop=new Float32Array(GRID_X*GRID_Y);
       const storms=[];
       for(let k=0;k<Math.min(j.length,pts.length);k++){
         const p=pts[k], o=p.y*GRID_X+p.x;
         cloud[o]=Number(j[k].hourly?.cloud_cover?.[h]??0);
         precip[o]=Number(j[k].hourly?.precipitation?.[h]??0);
-        pop[o]=Number(j[k].hourly?.precipitation_probability?.[h]??0);
         if(Number(j[k].hourly?.cape?.[h]??0)>=600) storms.push({lat:p.lat,lon:p.lon});
       }
-      frames.push({time:j[0].hourly.time[h],url:renderFrame(cloud,precip,pop),storms,box:gridBox});
+      frames.push({time:j[0].hourly.time[h],url:renderFrame(cloud,precip),storms,box:gridBox});
     }
     if(!frames.length) throw new Error("keine Wolken-Frames");
     cloudFrames=frames;
@@ -982,6 +985,15 @@ async function loadCloudForecast(){
     }
   }
 }
+/* The field is hourly, so a reload only pays off just after the hour rolls
+   over. That keeps the frame labels honest and leaves the request budget for
+   resolution. */
+function scheduleCloudReload(){
+  const now=new Date();
+  const wait=(60-now.getMinutes())*60000-now.getSeconds()*1000+90000;
+  setTimeout(()=>{ loadCloudForecast(); scheduleCloudReload(); },Math.max(60000,wait));
+}
+
 function initCloudMap(){
   try{
     if(typeof L==="undefined") throw new Error("Kartenbibliothek nicht geladen");
@@ -999,7 +1011,14 @@ function initCloudMap(){
     }).addTo(cloudMap).bindTooltip("Uedorf",{permanent:true,direction:"right",offset:[7,0]});
 
     loadCloudForecast();
-    setInterval(loadCloudForecast,20*60*1000);
+    scheduleCloudReload();
+    /* the viewport changes when the page enters fullscreen or the tablet
+       rotates, and the raster is cut for the viewport it was built from */
+    let resizeTimer=null;
+    addEventListener("resize",()=>{
+      clearTimeout(resizeTimer);
+      resizeTimer=setTimeout(()=>{ try{cloudMap.invalidateSize();}catch(e){} loadCloudForecast(); },1200);
+    });
   }catch(e){
     radarMsg.style.display="block";
     radarMsg.textContent="Wolkenkarte nicht verfügbar: "+e.message;
