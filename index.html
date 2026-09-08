@@ -35,7 +35,7 @@ body{padding:12px 16px 10px}
 #app{
   height:100%;
   display:grid;
-  grid-template-rows:auto 1fr 1fr auto;
+  grid-template-rows:auto minmax(0,1fr) minmax(0,1fr) auto;
   gap:9px
 }
 header{
@@ -53,7 +53,8 @@ header{
 .clock{font-size:38px;font-weight:750;line-height:1}
 .date{font-size:12px;color:var(--muted);margin-top:3px}
 .current{display:flex;align-items:center;gap:12px}
-.current .icon .wicon{width:58px;height:58px;display:block}
+.current .icon{display:flex;align-items:center}
+.current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
 .current .temp{font-size:34px;font-weight:750}
 .current .details{font-size:13px;line-height:1.5;color:#c9d2dc}
 .today{text-align:right;max-width:690px}
@@ -120,14 +121,14 @@ header{
   padding:6px 1px 4px;
   text-align:center;
   display:grid;
-  grid-template-rows:auto 1fr auto auto auto;
+  grid-template-rows:auto minmax(0,1fr) auto auto auto;
   align-items:center;
   min-width:0
 }
 .hour.night{background:linear-gradient(180deg,#161d29,#111722);border-color:#364254}
 .hour .t{font-size:11px;color:#d5dce4;font-weight:600;font-variant-numeric:tabular-nums}
-.hour .icon{line-height:1}
-.hour .icon .wicon{width:38px;height:38px;display:block;margin:auto}
+.hour .icon{line-height:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.hour .icon .wicon{width:38px;height:38px;max-width:100%;max-height:100%;display:block}
 .hour .deg{font-size:16px;font-weight:750;line-height:20px;font-variant-numeric:tabular-nums}
 
 /* Tap an hour to see the raw model numbers behind its icon. */
@@ -196,13 +197,14 @@ header{
   padding:7px 3px;
   text-align:center;
   display:grid;
-  grid-template-rows:auto 1fr auto auto auto auto;
+  grid-template-rows:auto minmax(0,1fr) auto auto auto auto;
   align-items:center;
   min-width:0
 }
 .day.trend{opacity:.72;border-style:dashed}
 .day .name{font-size:13px;font-weight:750;color:#f5f7f9}
-.day .icon .wicon{width:48px;height:48px;display:block;margin:auto}
+.day .icon{min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.day .icon .wicon{width:48px;height:48px;max-width:100%;max-height:100%;display:block}
 .day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums}
 .day .lbl{gap:2.5px;letter-spacing:-.15px}
 
@@ -222,6 +224,14 @@ footer{
   cursor:pointer;-webkit-user-select:none;user-select:none
 }
 #kiosk[hidden]{display:none}
+/* shown until the page runs without browser chrome; any tap takes it there */
+#hint{
+  position:fixed;z-index:1000;left:50%;bottom:34px;transform:translateX(-50%);
+  background:rgba(7,11,17,.94);border:1px solid #5b6b81;border-radius:999px;
+  padding:7px 16px;font-size:13px;font-weight:650;color:#e6ecf3;
+  pointer-events:none;-webkit-user-select:none;user-select:none
+}
+#hint[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -273,6 +283,7 @@ footer{
   <span id="status">Auto&#8209;Refresh alle 10 Minuten</span>
   <span><span id="lastUpdate">Letzte Aktualisierung: --:--</span><span id="kiosk" role="button" hidden>Vollbild</span></span>
 </footer>
+<div id="hint" hidden>Einmal tippen f&uuml;r Vollbild</div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -897,7 +908,28 @@ function kioskActive(){
   }catch(e){ return false; }
 }
 function syncKioskBtn(){
-  kiosk.hidden=kioskActive()||!document.documentElement.requestFullscreen;
+  const off=kioskActive()||!document.documentElement.requestFullscreen;
+  kiosk.hidden=off;
+  hint.hidden=off;
+}
+
+/*
+  Firefox has no Wake Lock API and refuses fullscreen without a user gesture, so
+  the page arms a one-shot capture listener: the first touch anywhere goes
+  fullscreen and is swallowed, every later touch behaves normally. Any
+  coordinate works, which is what makes it drivable from an automation app.
+*/
+function armFirstTouch(){
+  if(kioskActive()||!document.documentElement.requestFullscreen) return;
+  const once=ev=>{
+    document.removeEventListener("pointerdown",once,true);
+    document.removeEventListener("touchstart",once,true);
+    ev.stopPropagation();
+    if(ev.cancelable) ev.preventDefault();
+    goKiosk();
+  };
+  document.addEventListener("pointerdown",once,true);
+  document.addEventListener("touchstart",once,true);
 }
 async function goKiosk(){
   try{
@@ -909,10 +941,11 @@ async function goKiosk(){
   syncKioskBtn();
 }
 kiosk.addEventListener("click",goKiosk);
-document.addEventListener("fullscreenchange",syncKioskBtn);
+document.addEventListener("fullscreenchange",()=>{syncKioskBtn();armFirstTouch()});
 /* the wake lock is dropped whenever the page goes to the background */
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)acquireWakeLock()});
 syncKioskBtn();
+armFirstTouch();
 if(kioskActive()) acquireWakeLock();
 
 loadWeather();
