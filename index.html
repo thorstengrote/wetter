@@ -215,13 +215,17 @@ header{
 .day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .day .lbl{gap:2.5px;letter-spacing:-.15px}
 
-/* shown until the page runs without browser chrome; any tap takes it there */
+/* shown until the page runs without browser chrome; any tap takes it there,
+   and this is a real target so a deliberate tap cannot miss */
 #hint{
-  position:fixed;z-index:1000;left:50%;bottom:34px;transform:translateX(-50%);
-  background:rgba(7,11,17,.94);border:1px solid #5b6b81;border-radius:999px;
-  padding:7px 16px;font-size:13px;font-weight:650;color:#e6ecf3;
-  pointer-events:none;-webkit-user-select:none;user-select:none
+  position:fixed;z-index:1200;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(12,18,26,.97);border:1px solid #6d7f96;border-radius:14px;
+  padding:18px 30px;font-size:18px;font-weight:700;color:#e6ecf3;
+  text-align:center;line-height:1.45;
+  box-shadow:0 10px 40px rgba(0,0,0,.55);
+  cursor:pointer;-webkit-user-select:none;user-select:none
 }
+#hint small{display:block;margin-top:5px;font-size:12.5px;font-weight:500;color:#9dabbb}
 #hint[hidden]{display:none}
 </style>
 </head>
@@ -269,7 +273,7 @@ header{
   </div>
 </section>
 
-<div id="hint" hidden>Einmal tippen f&uuml;r Vollbild</div>
+<div id="hint" role="button" hidden>Vollbild starten<small>hier oder irgendwo tippen</small></div>
 <div class="diag" id="diag"><span class="close">antippen zum Schlie&szlig;en</span><div id="diagBody"></div></div>
 </div>
 
@@ -1005,35 +1009,49 @@ function kioskActive(){
   }catch(e){ return false; }
 }
 /* the hint is the only affordance left; any tap does the job */
+const HINT_HTML='Vollbild starten<small>hier oder irgendwo tippen</small>';
 function syncKioskBtn(){
-  hint.hidden=kioskActive()||!document.documentElement.requestFullscreen;
+  const off=kioskActive()||!document.documentElement.requestFullscreen;
+  hint.hidden=off;
+  if(!off) hint.innerHTML=HINT_HTML;
 }
 
 /*
-  Firefox has no Wake Lock API and refuses fullscreen without a user gesture, so
-  the page arms a one-shot capture listener: the first touch anywhere goes
-  fullscreen and is swallowed, every later touch behaves normally. Any
-  coordinate works, which is what makes it drivable from an automation app.
+  Firefox has no Wake Lock API and grants fullscreen only from a real user
+  gesture, so the page cannot go fullscreen on load. It arms a one-shot capture
+  listener on "click": pointerdown and touchstart do not count as an activation
+  triggering event in Firefox, and calling preventDefault on them additionally
+  suppressed the follow-up click. The first click anywhere goes fullscreen and
+  is swallowed so it does not also open a tile, every later click behaves
+  normally. Any coordinate works, which is what makes it drivable from an
+  automation app.
 */
+let firstClick=null;
 function armFirstTouch(){
+  if(firstClick){
+    document.removeEventListener("click",firstClick,true);
+    firstClick=null;
+  }
   if(kioskActive()||!document.documentElement.requestFullscreen) return;
-  const once=ev=>{
-    document.removeEventListener("pointerdown",once,true);
-    document.removeEventListener("touchstart",once,true);
+  firstClick=ev=>{
     ev.stopPropagation();
-    if(ev.cancelable) ev.preventDefault();
     goKiosk();
   };
-  document.addEventListener("pointerdown",once,true);
-  document.addEventListener("touchstart",once,true);
+  document.addEventListener("click",firstClick,true);
 }
 async function goKiosk(){
+  let refused=null;
   try{
     if(!document.fullscreenElement&&document.documentElement.requestFullscreen)
       await document.documentElement.requestFullscreen({navigationUI:"hide"});
-  }catch(e){}
+  }catch(e){ refused=e&&e.message?e.message:"abgelehnt"; }
   try{ if(screen.orientation&&screen.orientation.lock) await screen.orientation.lock("landscape"); }catch(e){}
   await acquireWakeLock();
+  if(refused&&!kioskActive()){
+    hint.innerHTML=`Vollbild abgelehnt<small>${refused}<br>nochmal tippen</small>`;
+    armFirstTouch();
+    return;
+  }
   syncKioskBtn();
 }
 document.addEventListener("fullscreenchange",()=>{syncKioskBtn();armFirstTouch()});
