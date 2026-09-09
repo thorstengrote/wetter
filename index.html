@@ -911,7 +911,7 @@ function showOutlookDetail(){
   const heading=(isToday?"Heute":"Morgen")+", "+
     new Date(outlookKey+"T12:00").toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit"});
 
-  showDetail(heading, dayNarrative(v,info,isToday),
+  showDetail(heading, "",
     [
       ["Höchst / Tiefst",       `${n1(info.maxT)} / ${n1(info.minT)}${NB}°C`],
       ["gefühlt",               `${orDash(info.appMax,n1)} / ${orDash(info.appMin,n1)}${NB}°C`],
@@ -924,7 +924,8 @@ function showOutlookDetail(){
       ["Gewitterenergie",       `CAPE bis ${Math.round(v.maxCape)}${NB}J/kg`],
       ["UV-Index",              orDash(info.uv,n1)]
     ],
-    `${srcNote} · ${entry.note} · Text aus den Stundenwerten dieses Ortes`
+    `${entry.note} via Open-Meteo · Text aus den Stundenwerten dieses Ortes`,
+    dayNarrative(v,info,isToday)
   );
 }
 
