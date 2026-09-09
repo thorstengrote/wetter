@@ -1032,7 +1032,8 @@ async function loadWeather(){
       ? "DWD ICON via Open-Meteo, Tage 8–14 Modellmix · Karte OpenStreetMap"
       : "DWD ICON via Open-Meteo · Karte OpenStreetMap";
     lastGood=new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
-    stand.innerHTML=` · <span class="stand">Stand ${lastGood}</span>`;
+    stand.innerHTML=` · <span class="stand">Stand ${lastGood}</span>`+
+      (updatePending?` · <span class="stand">Update wartet</span>`:"");
 
   }catch(e){
     console.error(e);
@@ -1401,6 +1402,48 @@ armFirstTouch();
 addEventListener("resize",()=>{syncKioskBtn();armFirstTouch()});
 addEventListener("orientationchange",()=>{syncKioskBtn();armFirstTouch()});
 if(kioskActive()) acquireWakeLock();
+
+/*
+  Self update.
+
+  The ten minute refresh fetches data; it cannot replace the page's own code.
+  A reload can, but it drops fullscreen: measured on the wall tablet, the
+  status and navigation bars come back the moment the document is replaced.
+  So the page reloads itself only inside a night window, and the tablet's
+  automation taps once shortly afterwards to restore fullscreen.
+
+  Cost: one conditional request per hour against GitHub Pages, nothing against
+  the weather API.
+*/
+/* Reload between two and three, so the tablet's automation, which taps at
+   three, finds a freshly loaded page and restores fullscreen right after. */
+const UPDATE_WINDOW_FROM=2, UPDATE_WINDOW_TO=3;
+const BUILD_AT_LOAD=document.lastModified;
+let updatePending=false;
+
+async function checkForUpdate(){
+  try{
+    const r=await fetch(location.pathname+"?v="+Date.now(),{method:"HEAD",cache:"no-store"});
+    if(!r.ok) return;
+    const lm=r.headers.get("last-modified");
+    if(!lm) return;
+    const remote=new Date(lm).getTime(), mine=new Date(BUILD_AT_LOAD).getTime();
+    if(isFinite(remote)&&isFinite(mine)&&remote>mine){
+      updatePending=true;
+      console.info("neue Fassung liegt bereit, Stand",lm);
+    }
+  }catch(e){ /* offline is not an error worth showing */ }
+}
+
+function maybeApplyUpdate(){
+  if(!updatePending) return;
+  const h=new Date().getHours();
+  if(h>=UPDATE_WINDOW_FROM&&h<UPDATE_WINDOW_TO) location.reload();
+}
+
+setInterval(checkForUpdate,60*60*1000);
+setInterval(maybeApplyUpdate,5*60*1000);
+setTimeout(checkForUpdate,30000);
 
 loadWeather();
 setInterval(loadWeather,REFRESH_MS);
