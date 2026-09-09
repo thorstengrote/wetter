@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fullscreen-Reload-Test</title>
+<style>
+html,body{margin:0;height:100%;background:#111;color:#eee;
+  font:16px system-ui;display:grid;place-items:center;text-align:center}
+b{font-size:34px}
+</style>
+<div>
+  <b id="n">–</b><br><br>
+  <span id="s">tippen für Vollbild</span><br>
+  <small id="t"></small>
+</div>
+<script>
+/* Does a reload keep fullscreen? Count reloads and report the state. */
+const k="fs.reload.count";
+let n=Number(sessionStorage.getItem(k)||0);
+document.getElementById("n").textContent="Ladevorgang "+(n+1);
+document.getElementById("t").textContent=
+  "Vollbild beim Laden: "+(document.fullscreenElement?"JA":"nein")+
+  " · innerHeight "+innerHeight+" von screen "+Math.min(screen.width,screen.height);
+addEventListener("click",async()=>{
+  try{ await document.documentElement.requestFullscreen({navigationUI:"hide"}); }catch(e){}
+  document.getElementById("s").textContent="Vollbild an, lade in 12 s neu…";
+  setTimeout(()=>{ sessionStorage.setItem(k,String(n+1)); location.reload(); },12000);
+});
+</script>
