@@ -59,7 +59,9 @@ header{
 .current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
 .current .temp{font-size:34px;font-weight:750}
 .current .details{font-size:13px;line-height:1.5;color:#c9d2dc}
-.today{text-align:right;max-width:690px}
+.today{text-align:right;max-width:690px;cursor:pointer;-webkit-user-select:none;user-select:none;
+  border-radius:10px;padding:4px 7px;margin:-4px -7px}
+.today:active{background:rgba(255,255,255,.06)}
 .today .summary{font-size:17px;font-weight:700}
 .today .sub{font-size:12px;color:#c5ced8;margin-top:3px}
 .today .extra{font-size:12px;color:#c5ced8;margin-top:4px}
@@ -157,6 +159,11 @@ header{
 .diag .k{color:#9dabbb;white-space:nowrap}
 .diag .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .diag .src{margin-top:10px;font-size:11px;color:#7d8896}
+.diag .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 34px;margin-top:6px}
+/* a line of 60 to 70 characters reads comfortably; the full column would run
+   past 100 and force the eye to hunt for the next line */
+.diag .story{font-size:17px;line-height:1.65;color:#dfe6ef;max-width:64ch}
+.diag .rows.two{grid-template-columns:auto minmax(0,1fr)}
 .diag .close{position:absolute;right:16px;top:12px;color:#9dabbb;font-size:11px}
 
 .bottom-grid{display:grid;grid-template-columns:48% 52%;gap:9px;min-height:0}
@@ -252,7 +259,7 @@ header{
     <div class="details" id="nowDetails">lade Wetter&hellip;</div>
   </div>
 
-  <div class="today">
+  <div class="today" id="today" role="button">
     <div class="summary" id="summary">Heute: lade Prognose&hellip;</div>
     <div class="sub" id="todaySub"></div>
     <div class="extra" id="todayExtra"></div>
@@ -408,7 +415,10 @@ function skyDecision(o){
 function tick(){
   let n=new Date();
   clock.textContent=n.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
-  date.textContent=n.toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit"})
+  date.textContent=n.toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit"});
+  /* switch the header to the next day the moment the hour arrives, rather than
+     waiting for the ten minute refresh */
+  if(outlookKey&&isoDay(outlookDate(n))!==outlookKey) renderOutlook();
 }
 tick();
 setInterval(tick,1000);
@@ -416,9 +426,6 @@ setInterval(tick,1000);
 function hh(s){return s.slice(11,16)}
 function dow(s){
   return new Date(s+"T12:00").toLocaleDateString("de-DE",{weekday:"short"})
-}
-function hoursFromSeconds(sec){
-  return Number(sec||0)/3600
 }
 
 /*
@@ -472,6 +479,9 @@ function windText(speed,gust){
 let diagTimer=null;
 let srcNote="DWD ICON via Open-Meteo";
 let lastGood="";
+/* prepared days, keyed by ISO date, so the header can reuse a day card's
+   figures without recomputing them */
+const dayCache={};
 
 /* Which build is this tablet actually running? document.lastModified carries
    the Last-Modified header of this file, so the stamp needs no build step and
@@ -486,19 +496,21 @@ function buildStamp(){
   }catch(e){ return ""; }
 }
 
-function showDetail(title,why,pairs,note){
+function showDetail(title,why,pairs,note,narrative){
+  const rows=pairs.map(([k,v])=>`<div class="k">${k}</div><div class="v">${v}</div>`).join("");
   diagBody.innerHTML=
     `<h4>${title}</h4>`+
-    (why?`<div class="why">${why}</div>`:`<div class="why">&nbsp;</div>`)+
-    `<div class="rows">`+
-      pairs.map(([k,v])=>`<div class="k">${k}</div><div class="v">${v}</div>`).join("")+
-    `</div>`+
+    (narrative
+      /* running text and figures side by side, so a wide panel stays readable */
+      ? `<div class="split"><div class="story">${narrative}</div><div class="rows two">${rows}</div></div>`
+      : (why?`<div class="why">${why}</div>`:`<div class="why">&nbsp;</div>`)+`<div class="rows">${rows}</div>`)+
     `<div class="src">${note}${buildStamp()}</div>`;
   diag.classList.add("on");
   clearTimeout(diagTimer);
   diagTimer=setTimeout(()=>diag.classList.remove("on"),40000);
 }
 diag.addEventListener("click",()=>{diag.classList.remove("on");clearTimeout(diagTimer)});
+today.addEventListener("click",()=>showOutlookDetail());
 
 function hourDetail(label,b,s){
   showDetail(
@@ -534,6 +546,7 @@ function hourDetail(label,b,s){
 
 function dayDetail(label,d,note){
   const ratio=d.daylight>0?d.sunh/d.daylight:0;
+  const v=d.verdict;
   showDetail(label, "",
     [
       ["Höchst / Tiefst",         `${n1(d.maxT)} / ${n1(d.minT)}${NB}°C`],
@@ -555,7 +568,8 @@ function dayDetail(label,d,note){
       ["WMO-Code",               `${d.code} = ${wmoText(d.code)}`],
       ["Quelle",                  note]
     ],
-    `${srcNote} · Tageswerte`
+    `${srcNote} · Tageswerte`,
+    v?dayNarrative(v,d,false):null
   );
 }
 
@@ -579,30 +593,211 @@ const ICON_URL=
     `pressure_msl,visibility,wind_speed_10m,wind_gusts_10m,wind_direction_10m,wind_speed_80m,`+
     `cape,convective_inhibition,freezing_level_height,soil_temperature_0cm`+
   `&daily=${DAILY_VARS}`+
-  `&forecast_days=7&forecast_hours=48&timezone=Europe%2FBerlin`;
+  `&forecast_days=7&timezone=Europe%2FBerlin`;
 
-/* ICON carries no UV index, so the trend request supplies it for both panels. */
+/* ICON carries no UV index, so the trend request supplies it for both panels.
+   It also delivers the hourly series for days 8 to 14, which the day verdict
+   needs in order to judge a day by its daylight hours instead of by a code
+   that summarises all 24 hours. Full hourly series cost nothing extra:
+   Open-Meteo weights a request by variable count and by spans beyond two
+   weeks, not by the number of hours returned. */
 const TREND_URL=
   `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}`+
   `&models=best_match`+
-  `&hourly=uv_index`+
+  `&hourly=uv_index,weather_code,precipitation,precipitation_probability,`+
+    `cloud_cover,sunshine_duration,cape`+
   `&daily=${DAILY_VARS},uv_index_max`+
-  `&forecast_days=14&forecast_hours=48&timezone=Europe%2FBerlin`;
+  `&forecast_days=14&timezone=Europe%2FBerlin`;
 
-function dayIcon(code,mm,ratio){
-  code=Number(code||0);
-  if([95,96,99].includes(code)) return "storm";
-  if([71,73,75,77,85,86].includes(code)) return "snow";
-  if([61,63,65,66,67,80,81,82].includes(code)||mm>=3) return "rain";
-  if([51,53,55,56,57].includes(code)&&mm>=0.5) return "drizzle";
-  if([45,48].includes(code)&&ratio<.15) return "fog";
-  if(ratio>=.60) return "clear";
-  if(ratio>=.28) return "partly";
-  return "cloud";
+/*
+  A day is judged by its waking hours, 05:00 to 23:00.
+
+  Open-Meteo's daily weather_code reports the most severe weather of all 24
+  hours, so 0.2 mm of drizzle at one in the morning turned a day with eight
+  hours of sunshine into a rain day. The verdict below therefore ignores the
+  daily code entirely and aggregates the hourly series over the window instead.
+*/
+const DAY_FROM=5, DAY_TO=22;          /* 05:00 up to and including 22:00 */
+const WMO_STORM=[95,96,99];
+const WMO_SNOW=[71,73,75,77,85,86];
+const WMO_RAIN=[61,63,65,66,67,80,81,82];
+const WMO_DRIZZLE=[51,53,55,56,57];
+const WMO_FOG=[45,48];
+const WET=[...WMO_DRIZZLE,...WMO_RAIN,...WMO_SNOW,...WMO_STORM];
+
+/* hrs: one entry per hour of the day, {hour,code,precip,pop,cloud,sunSec,cape} */
+function dayVerdict(hrs,daylightH){
+  const win=hrs.filter(h=>h.hour>=DAY_FROM&&h.hour<=DAY_TO);
+  const src=win.length?win:hrs;
+  const v={
+    hours:src,
+    mm:0, wetHours:0, maxPop:0, sunH:0, maxCape:0,
+    storm:false, snow:false, fog:false, cloudAvg:0
+  };
+  if(!src.length) return {...v,icon:"cloud",text:"keine Stundendaten",ratio:0};
+
+  for(const h of src){
+    const c=Number(h.code||0);
+    v.mm+=Number(h.precip||0);
+    if(Number(h.precip||0)>=0.1||WET.includes(c)) v.wetHours++;
+    v.maxPop=Math.max(v.maxPop,Number(h.pop||0));
+    v.sunH+=Number(h.sunSec||0)/3600;
+    v.maxCape=Math.max(v.maxCape,Number(h.cape||0));
+    v.cloudAvg+=Number(h.cloud||0);
+    if(WMO_STORM.includes(c)) v.storm=true;
+    if(WMO_SNOW.includes(c)) v.snow=true;
+    if(WMO_FOG.includes(c)) v.fog=true;
+  }
+  v.cloudAvg/=src.length;
+  /* sunshine is only possible while it is light, so the daylight span is the
+     honest denominator */
+  v.ratio=daylightH>0?Math.min(1,v.sunH/daylightH):0;
+
+  /*
+    Amount decides first, because that is what one actually notices. Counting
+    wet hours alone made a day with twelve hours of sunshine and 0.6 mm spread
+    thinly across six hours come out as a rain day. A weak signal therefore
+    only counts when the day is not sunny anyway.
+  */
+  if(v.storm)                                    { v.icon="storm";   v.text="Gewitterneigung"; }
+  else if(v.snow)                                { v.icon="snow";    v.text="Schnee"; }
+  else if(v.mm>=2||(v.wetHours>=4&&v.mm>=1))     { v.icon="rain";    v.text="regnerisch"; }
+  else if(v.mm>=1)                               { v.icon="drizzle"; v.text="zeitweise etwas Regen"; }
+  else if((v.mm>=0.4||v.wetHours>=3)&&v.ratio<0.7)
+                                                 { v.icon="drizzle"; v.text="zeitweise etwas Regen"; }
+  else if(v.ratio>=0.55)                         { v.icon="clear";   v.text="überwiegend sonnig"; }
+  else if(v.ratio>=0.25)                         { v.icon="partly";  v.text="teils sonnig"; }
+  else if(v.fog&&v.ratio<0.1)                    { v.icon="fog";     v.text="trüb und neblig"; }
+  else                                           { v.icon="cloud";   v.text="überwiegend bewölkt"; }
+  return v;
+}
+
+/* group the hours of a day into the parts of day people actually name */
+const PARTS=[
+  {key:"Morgen",     adv:"morgens",     from:5,  to:9},
+  {key:"Vormittag",  adv:"vormittags",  from:10, to:12},
+  {key:"Nachmittag", adv:"nachmittags", from:13, to:17},
+  {key:"Abend",      adv:"abends",      from:18, to:22}
+];
+
+function partSummary(hrs,part){
+  const win=hrs.filter(h=>h.hour>=part.from&&h.hour<=part.to);
+  if(!win.length) return null;
+  let mm=0,sun=0,cloud=0,wet=0;
+  for(const h of win){
+    mm+=Number(h.precip||0);
+    sun+=Number(h.sunSec||0)/3600;
+    cloud+=Number(h.cloud||0);
+    if(Number(h.precip||0)>=0.1||WET.includes(Number(h.code||0))) wet++;
+  }
+  cloud/=win.length;
+  const possible=win.filter(h=>h.isDay!==false).length||win.length;
+  const sunFrac=possible>0?sun/possible:0;
+  let sky;
+  if(wet>=2||mm>=0.5) sky="nass";
+  else if(sunFrac>=0.55) sky="sonnig";
+  else if(sunFrac>=0.25) sky="wechselnd";
+  else sky="bewölkt";
+  return {...part,mm,sun,cloud,wet,sunFrac,sky,hours:win};
+}
+
+/* find the contiguous stretches in which precipitation is expected */
+function wetSpans(hrs){
+  const spans=[]; let cur=null;
+  for(const h of hrs){
+    const isWet=Number(h.precip||0)>=0.1||WET.includes(Number(h.code||0));
+    if(isWet){
+      if(!cur) cur={from:h.hour,to:h.hour,mm:0};
+      cur.to=h.hour; cur.mm+=Number(h.precip||0);
+    }else if(cur){ spans.push(cur); cur=null; }
+  }
+  if(cur) spans.push(cur);
+  return spans;
+}
+
+/*
+  Build the running text for one day. It is written from the hourly series of
+  this location rather than fetched: DWD does publish regional forecast texts
+  on opendata.dwd.de, but they cover all of North Rhine-Westphalia and are
+  served without CORS headers, so a browser cannot read them.
+*/
+function dayNarrative(v,info,isToday){
+  const parts=PARTS.map(p=>partSummary(v.hours,p)).filter(Boolean);
+  const out=[];
+
+  const span=`${Math.round(info.minT)} bis ${Math.round(info.maxT)}${NB}°C`;
+  out.push(`${v.text.charAt(0).toUpperCase()+v.text.slice(1)} bei ${span}.`);
+
+  /* only describe the course of the day when the parts actually differ */
+  const skies=parts.map(p=>p.sky);
+  if(new Set(skies).size>1){
+    const chunks=[];
+    let i=0;
+    while(i<parts.length){
+      let j=i;
+      while(j+1<parts.length&&parts[j+1].sky===parts[i].sky) j++;
+      const label=i===j?parts[i].adv:`${parts[i].adv} bis ${parts[j].adv}`;
+      const word={nass:"nass",sonnig:"sonnig",wechselnd:"wechselnd bewölkt",bewölkt:"bewölkt"}[parts[i].sky];
+      chunks.push(`${label} ${word}`);
+      i=j+1;
+    }
+    const line=chunks.join(", ");
+    out.push(line.charAt(0).toUpperCase()+line.slice(1)+".");
+  }
+
+  const spans=wetSpans(v.hours);
+  if(!spans.length){
+    out.push("Tagsüber trocken.");
+  }else{
+    const what=v.snow?"Schnee":"Regen";
+    const txt=spans.map(sp=>sp.from===sp.to
+      ? `gegen ${sp.from} Uhr`
+      : `von ${sp.from} bis ${sp.to+1} Uhr`);
+    out.push(`${what} ${txt.join(" und ")}, zusammen ${n1(v.mm)}${NB}mm.`);
+  }
+
+  if(v.maxCape>=1000) out.push("Gewitter sind wahrscheinlich.");
+  else if(v.maxCape>=300) out.push("Einzelne Gewitter sind möglich.");
+
+  const gust=Math.round(info.gmax||0), wind=Math.round(info.wmax||0);
+  if(wind>0||gust>0){
+    const dir=info.wdir!=null?` aus ${dirText(info.wdir).split(" ")[1]}`:"";
+    out.push(gust>=45
+      ? `Kräftiger Wind${dir} um ${wind}${NB}km/h mit Böen bis ${gust}${NB}km/h.`
+      : `Wind${dir} um ${wind}${NB}km/h, Böen bis ${gust}${NB}km/h.`);
+  }
+
+  if(info.sr&&info.ss)
+    out.push(`Sonnenaufgang ${info.sr}, Sonnenuntergang ${info.ss}, `+
+             `${n1(v.sunH)} von ${n1(info.daylight)} Stunden mit Sonne.`);
+
+  if(info.uv!=null&&info.uv>=6) out.push(`UV-Index bis ${n1(info.uv)}, Sonnenschutz sinnvoll.`);
+
+  return out.join(" ");
+}
+
+/* pull one day out of an hourly series, in the shape dayVerdict expects */
+function hoursOfDay(H,dayIso){
+  const out=[];
+  if(!H||!H.time) return out;
+  for(let k=0;k<H.time.length;k++){
+    if(H.time[k].slice(0,10)!==dayIso) continue;
+    out.push({
+      hour:Number(H.time[k].slice(11,13)),
+      code:H.weather_code?.[k],
+      precip:H.precipitation?.[k],
+      pop:H.precipitation_probability?.[k],
+      cloud:H.cloud_cover?.[k],
+      sunSec:H.sunshine_duration?.[k],
+      cape:H.cape?.[k]
+    });
+  }
+  return out;
 }
 
 function renderDays(icon,trend,uvDay){
   days.innerHTML="";
+  for(const k of Object.keys(dayCache)) delete dayCache[k];
   const src=[];
   for(let i=0;i<7;i++){
     if(icon.daily.temperature_2m_max[i]==null) break;
@@ -636,13 +831,18 @@ function renderDays(icon,trend,uvDay){
       uv:(uvDay||{})[d.time[i]],
       code:d.weather_code?.[i]??0
     };
-    const ratio=info.daylight>0?info.sunh/info.daylight:0;
+
+    /* judge the day from its own hourly series, 05:00 to 23:00 */
+    const hrs=hoursOfDay(s.trend?trend?.hourly:icon.hourly,d.time[i]);
+    const v=dayVerdict(hrs,info.daylight);
+    info.verdict=v;
+    info.day=d.time[i];
 
     const e=document.createElement("div");
     e.className="day"+(s.trend?" trend":"");
     e.innerHTML=
       `<div class=name>${pos===0?"Heute":dow(d.time[i])}</div>`+
-      `<div class=icon>${weatherIcon(dayIcon(info.code,info.mm,ratio))}</div>`+
+      `<div class=icon>${weatherIcon(v.icon)}</div>`+
       `<div class=temps>${deg(info.maxT)}/${deg(info.minT)}</div>`+
       lbl("drop",pct(info.pp),info.pp>=10?"rain":"")+
       lbl("sun",`${n1(info.sunh)}${NB}h`,info.sunh>=1?"sun":"")+
@@ -653,8 +853,78 @@ function renderDays(icon,trend,uvDay){
       : new Date(d.time[i]+"T12:00").toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit"});
     const note=s.trend?"Modellmix, Trend ab Tag 8":"DWD ICON";
     e.addEventListener("click",()=>dayDetail(label,info,note));
+    dayCache[d.time[i]]={label,info,note};
     days.appendChild(e);
   });
+}
+
+/*
+  Which day does the header talk about?
+
+  Until eight in the evening it is the current day. After that the day is
+  practically over and the header switches to the next one. It stays there
+  through the night without a second rule: at one in the morning the calendar
+  day has already advanced, so the day being described is the current date
+  again.
+*/
+const OUTLOOK_SWITCH_HOUR=20;
+const isoDay=dt=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+function outlookDate(now=new Date()){
+  const t=new Date(now);
+  if(now.getHours()>=OUTLOOK_SWITCH_HOUR) t.setDate(t.getDate()+1);
+  return t;
+}
+
+let outlookKey="";
+function renderOutlook(){
+  const now=new Date();
+  const target=isoDay(outlookDate(now));
+  const entry=dayCache[target];
+  /* keep whatever is on screen if the cache has not caught up yet, and let the
+     next refresh fill it in */
+  if(!entry){ if(!outlookKey) summary.textContent="Prognose lädt…"; return; }
+  outlookKey=target;
+
+  const info=entry.info, v=info.verdict;
+  const word=target===isoDay(now)?"Heute":"Morgen";
+  summary.textContent=`${word} ${v.text}, ${Math.round(info.minT)}–${Math.round(info.maxT)}\u00a0°C`;
+
+  todaySub.innerHTML=
+    `<span class="inl">${mi("drop")}Regenrisiko bis ${pct(v.maxPop)}, ${n1(v.mm)}${NB}mm</span>`+
+    ` · <span class="inl" style="color:var(--yellow)">${mi("sun")}${n1(v.sunH)}${NB}h Sonne</span>`;
+
+  const thunder=v.maxCape>=1000?"Gewitterpotenzial erhöht"
+    :(v.maxCape>=300?"Gewitter nicht ausgeschlossen":"kein auffälliges Gewitterpotenzial");
+  todayExtra.innerHTML=
+    `<span class="inl">${mi("up")}${info.sr||"–"}</span> · <span class="inl">${mi("down")}${info.ss||"–"}</span>`+
+    ` · <span class="inl">${mi("sock")}Wind bis ${Math.round(info.wmax)} km/h, Böen ${Math.round(info.gmax)} km/h</span>`+
+    ` · <span class="inl">${mi("bolt")}${thunder}</span>`;
+}
+
+/* the header is a button: it opens the running text for the day it describes */
+function showOutlookDetail(){
+  const entry=dayCache[outlookKey];
+  if(!entry) return;
+  const info=entry.info, v=info.verdict;
+  const isToday=outlookKey===isoDay(new Date());
+  const heading=(isToday?"Heute":"Morgen")+", "+
+    new Date(outlookKey+"T12:00").toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit"});
+
+  showDetail(heading, dayNarrative(v,info,isToday),
+    [
+      ["Höchst / Tiefst",       `${n1(info.maxT)} / ${n1(info.minT)}${NB}°C`],
+      ["gefühlt",               `${orDash(info.appMax,n1)} / ${orDash(info.appMin,n1)}${NB}°C`],
+      ["Sonne 5 bis 23 Uhr",    `${n1(v.sunH)} von ${n1(info.daylight)}${NB}h (${pct(v.ratio*100)})`],
+      ["Bewölkung im Mittel",   pct(v.cloudAvg)],
+      ["Niederschlag 5–23 Uhr", `${n1(v.mm)}${NB}mm in ${v.wetHours} Stunden`],
+      ["max. Regenrisiko",      pct(v.maxPop)],
+      ["Wind / Böen",           `${Math.round(info.wmax)} / ${Math.round(info.gmax)}${NB}km/h`],
+      ["Windrichtung",          dirText(info.wdir)],
+      ["Gewitterenergie",       `CAPE bis ${Math.round(v.maxCape)}${NB}J/kg`],
+      ["UV-Index",              orDash(info.uv,n1)]
+    ],
+    `${srcNote} · ${entry.note} · Text aus den Stundenwerten dieses Ortes`
+  );
 }
 
 async function loadWeather(){
@@ -730,30 +1000,9 @@ async function loadWeather(){
       `${nowDec.day?` · Sonne ${pct(nowDec.brightness*100)}`:""}<br>`+
       `<span class="inl">${mi("sock")}Wind ${Math.round(c.wind_speed_10m)} km/h, Böen ${Math.round(c.wind_gusts_10m??0)} km/h</span>`;
 
-    const hi=Math.round(d.daily.temperature_2m_max[0]);
-    const lo=Math.round(d.daily.temperature_2m_min[0]);
-    const pp=d.daily.precipitation_probability_max[0]??0;
-    const mm=d.daily.precipitation_sum[0]??0;
-    const sh=hoursFromSeconds(d.daily.sunshine_duration[0]);
-    const daylight=Number(d.daily.daylight_duration?.[0]||0)/3600;
-    const sunRatio=daylight>0?Number(sh)/daylight:0;
-    const dt=mm>=2?"regnerisch":(sunRatio>=.60?"überwiegend sonnig":(sunRatio>=.28?"teils sonnig":"überwiegend bewölkt"));
-
-    summary.textContent=`Heute ${dt}, ${lo}–${hi}\u00a0°C`;
-    todaySub.innerHTML=
-      `<span class="inl">${mi("drop")}Regenrisiko bis ${pct(pp)}, ${n1(mm)}${NB}mm</span>`+
-      ` · <span class="inl" style="color:var(--yellow)">${mi("sun")}${n1(sh)}${NB}h Sonne</span>`;
-    const sr=(d.daily.sunrise?.[0]||"").slice(11,16);
-    const ss=(d.daily.sunset?.[0]||"").slice(11,16);
-    const maxWind=Math.round(d.daily.wind_speed_10m_max?.[0]||0);
-    const maxGust=Math.round(d.daily.wind_gusts_10m_max?.[0]||0);
-    let maxCape=0;
-    for(let i=0;i<Math.min(24,H.cape?.length||0);i++) maxCape=Math.max(maxCape,Number(H.cape[i]||0));
-    const thunder=maxCape>=1000?"Gewitterpotenzial erhöht":(maxCape>=300?"Gewitter nicht ausgeschlossen":"kein auffälliges Gewitterpotenzial");
-    todayExtra.innerHTML=
-      `<span class="inl">${mi("up")}${sr}</span> · <span class="inl">${mi("down")}${ss}</span>`+
-      ` · <span class="inl">${mi("sock")}Wind bis ${maxWind} km/h, Böen ${maxGust} km/h</span>`+
-      ` · <span class="inl">${mi("bolt")}${thunder}</span>`;
+    /* the tiles are built first: the header reuses one of them */
+    renderDays(d,trend,uvDay);
+    renderOutlook();
 
     const ts=H.time;
     let start=ts.findIndex(t=>new Date(t).getTime()>=Date.now()-1800000);
@@ -776,8 +1025,6 @@ async function loadWeather(){
       e.addEventListener("click",()=>hourDetail(label,blk,dec));
       hours.appendChild(e);
     }
-
-    renderDays(d,trend,uvDay);
 
     srcNote=trend
       ? "DWD ICON via Open-Meteo, Tage 8–14 Modellmix · Karte OpenStreetMap"
