@@ -412,6 +412,25 @@ function skyDecision(o){
   return   {...d,icon:"cloud", why:`nur ${(brightness*100).toFixed(0)} % Helligkeit bei ${Math.round(tot)} % Bewölkung`};
 }
 
+/*
+  Which day does the header talk about?
+
+  Until eight in the evening it is the current day. After that the day is
+  practically over and the header switches to the next one. It stays there
+  through the night without a second rule: at one in the morning the calendar
+  day has already advanced, so the day being described is the current date
+  again.
+*/
+const OUTLOOK_SWITCH_HOUR=20;
+const isoDay=dt=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+function outlookDate(now=new Date()){
+  const t=new Date(now);
+  if(now.getHours()>=OUTLOOK_SWITCH_HOUR) t.setDate(t.getDate()+1);
+  return t;
+}
+
+let outlookKey="";
+
 function tick(){
   let n=new Date();
   clock.textContent=n.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
@@ -858,24 +877,6 @@ function renderDays(icon,trend,uvDay){
   });
 }
 
-/*
-  Which day does the header talk about?
-
-  Until eight in the evening it is the current day. After that the day is
-  practically over and the header switches to the next one. It stays there
-  through the night without a second rule: at one in the morning the calendar
-  day has already advanced, so the day being described is the current date
-  again.
-*/
-const OUTLOOK_SWITCH_HOUR=20;
-const isoDay=dt=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
-function outlookDate(now=new Date()){
-  const t=new Date(now);
-  if(now.getHours()>=OUTLOOK_SWITCH_HOUR) t.setDate(t.getDate()+1);
-  return t;
-}
-
-let outlookKey="";
 function renderOutlook(){
   const now=new Date();
   const target=isoDay(outlookDate(now));
