@@ -54,6 +54,17 @@ header{
 .date{font-size:12px;color:var(--muted);margin-top:3px}
 .date .stand{color:#8b97a6}
 .date .stale{color:#ff8a8a;font-weight:650}
+#stand{cursor:pointer;-webkit-user-select:none;user-select:none}
+.diag .evlog{
+  margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;
+  line-height:1.5;max-height:46vh;overflow:auto
+}
+.diag .evlog div{white-space:nowrap}
+.diag .evlog .e-ok{color:#8fcf9a}
+.diag .evlog .e-netz{color:#ff9e9e}
+.diag .evlog .e-http{color:#ffc46b}
+.diag .evlog .e-api{color:#ffc46b}
+.diag .evlog .e-json{color:#ffc46b}
 .current{display:flex;align-items:center;gap:12px}
 .current .icon{display:flex;align-items:center}
 .current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
@@ -498,6 +509,75 @@ function windText(speed,gust){
 let diagTimer=null;
 let srcNote="DWD ICON via Open-Meteo";
 let lastGood="";
+let lastError=null;
+let lastGoodAt=0;
+
+/*
+  Event log for diagnosis.
+
+  The friendly message in the header stays short, but a wall tablet gives no
+  way to open a console, so every fetch records what happened. Tapping the
+  message opens the raw record, which can be photographed and read back.
+  The log survives a reload because it lives in localStorage.
+*/
+const DIAG_KEY="wetter.diag.v1", DIAG_MAX=60;
+let diagEvents=[];
+try{ diagEvents=JSON.parse(localStorage.getItem(DIAG_KEY)||"[]")||[]; }catch(e){ diagEvents=[]; }
+
+function diagPush(ev){
+  ev.t=Date.now();
+  ev.on=navigator.onLine!==false;
+  const last=diagEvents[diagEvents.length-1];
+  /*
+    Successful fetches are the overwhelming majority: two every ten minutes
+    plus one per hour for the map. Logging each of them would push a night-time
+    failure out of the buffer before morning. A run of successes from the same
+    source is therefore folded into one entry with a counter, so the log keeps
+    reaching back days while every failure stays individually visible.
+  */
+  if(ev.kind==="ok"&&last&&last.kind==="ok"){
+    if(last.src!==ev.src) last.src="Abrufe";
+    if(!last.t0) last.t0=last.t;
+    last.t=ev.t; last.ms=ev.ms; last.n=(last.n||1)+1; last.on=ev.on;
+  }else{
+    diagEvents.push(ev);
+  }
+  while(diagEvents.length>DIAG_MAX) diagEvents.shift();
+  try{ localStorage.setItem(DIAG_KEY,JSON.stringify(diagEvents)); }catch(e){}
+}
+
+/* classify a failed request instead of letting every problem look the same */
+async function fetchJson(url,label){
+  const t0=Date.now();
+  let r;
+  try{
+    r=await fetch(url,{cache:"no-store"});
+  }catch(e){
+    const m=`${e.name||"Error"}: ${e.message||"fetch abgebrochen"}`;
+    diagPush({src:label,kind:"netz",msg:m,ms:Date.now()-t0});
+    throw new Error(`${label}: ${m}`);
+  }
+  if(!r.ok){
+    const m=`HTTP ${r.status}${r.statusText?" "+r.statusText:""}`;
+    diagPush({src:label,kind:"http",msg:m,ms:Date.now()-t0,status:r.status});
+    throw new Error(`${label}: ${m}`);
+  }
+  let j;
+  try{
+    j=await r.json();
+  }catch(e){
+    diagPush({src:label,kind:"json",msg:"Antwort unlesbar: "+e.message,ms:Date.now()-t0});
+    throw new Error(`${label}: Antwort unlesbar`);
+  }
+  const probe=Array.isArray(j)?j[0]:j;
+  if(probe&&probe.error){
+    const m=String(probe.reason||"API meldet Fehler");
+    diagPush({src:label,kind:"api",msg:m,ms:Date.now()-t0});
+    throw new Error(`${label}: ${m}`);
+  }
+  diagPush({src:label,kind:"ok",msg:"geladen",ms:Date.now()-t0});
+  return j;
+}
 /* prepared days, keyed by ISO date, so the header can reuse a day card's
    figures without recomputing them */
 const dayCache={};
@@ -530,6 +610,7 @@ function showDetail(title,why,pairs,note,narrative){
 }
 diag.addEventListener("click",()=>{diag.classList.remove("on");clearTimeout(diagTimer)});
 today.addEventListener("click",()=>showOutlookDetail());
+stand.addEventListener("click",ev=>{ ev.stopPropagation(); showDiagnostics(); });
 
 function hourDetail(label,b,s){
   showDetail(
@@ -902,6 +983,66 @@ function renderOutlook(){
     ` · <span class="inl">${mi("bolt")}${thunder}</span>`;
 }
 
+/*
+  Everything that helps to explain a failed update, in one photographable
+  panel: what broke, how the environment looked, and the recent history.
+*/
+function showDiagnostics(){
+  const now=Date.now();
+  const hhmmss=t=>new Date(t).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  const ago=t=>{
+    const s=Math.round((now-t)/1000);
+    if(s<90) return s+" s her";
+    if(s<5400) return Math.round(s/60)+" min her";
+    return (s/3600).toFixed(1)+" h her";
+  };
+
+  let streak=0;
+  for(let i=diagEvents.length-1;i>=0;i--){
+    if(diagEvents[i].kind==="ok") break;
+    streak++;
+  }
+  const firstT=diagEvents.length?diagEvents[0].t:0;
+  const c=navigator.connection||{};
+  const pairs=[
+    ["Zustand", lastError?"Fehler":"in Ordnung"],
+    ["letzter Fehler", lastError?`${lastError.msg} (${ago(lastError.t)})`:"keiner"],
+    ["letzter Erfolg", lastGoodAt?`${hhmmss(lastGoodAt)} (${ago(lastGoodAt)})`:"noch keiner"],
+    ["Fehlversuche in Folge", String(streak)],
+    ["Browser online", navigator.onLine===false?"nein":"ja"],
+    ["Verbindung", [c.effectiveType,c.downlink!=null?c.downlink+" Mbit/s":null,c.rtt!=null?c.rtt+" ms":null].filter(Boolean).join(" · ")||"nicht gemeldet"],
+    ["Seite geladen", document.lastModified],
+    ["Adresse", location.href.replace(/^https?:\/\//,"")],
+    ["Aktualisierung", `Prognose alle ${REFRESH_MS/60000} min, Karte zur vollen Stunde`],
+    ["Protokoll", diagEvents.length
+      ? `${diagEvents.length} Einträge ab ${new Date(firstT).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}`
+      : "leer"]
+  ];
+
+  const rows=pairs.map(([k,v])=>`<div class="k">${k}</div><div class="v">${v}</div>`).join("");
+  const log=diagEvents.slice(-24).map(ev=>{
+    const t=hhmmss(ev.t).padStart(8," ");
+    const src=(ev.src||"?").padEnd(9," ");
+    const kind=(ev.kind||"?").padEnd(5," ");
+    const ms=ev.ms!=null?String(ev.ms).padStart(6," ")+" ms":"        ";
+    const off=ev.on===false?"  [offline]":"";
+    if(ev.n>1){
+      const von=new Date(ev.t0||ev.t).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+      return `<div class="e-ok">${t}  ${src}${kind}${ms}  ${ev.n}× ok, seit ${von}${off}</div>`;
+    }
+    return `<div class="e-${ev.kind}">${t}  ${src}${kind}${ms}  ${ev.msg||""}${off}</div>`;
+  }).join("")||'<div>noch keine Einträge</div>';
+
+  diagBody.innerHTML=
+    `<h4>Diagnose · Aktualisierung</h4>`+
+    `<div class="rows" style="grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr)">${rows}</div>`+
+    `<div class="evlog">${log}</div>`+
+    `<div class="src">Zeit · Quelle · Art · Dauer · Meldung${buildStamp()}</div>`;
+  diag.classList.add("on");
+  clearTimeout(diagTimer);
+  diagTimer=setTimeout(()=>diag.classList.remove("on"),120000);
+}
+
 /* the header is a button: it opens the running text for the day it describes */
 function showOutlookDetail(){
   const entry=dayCache[outlookKey];
@@ -932,14 +1073,10 @@ function showOutlookDetail(){
 async function loadWeather(){
   try{
 
-    const [rI,rT]=await Promise.all([
-      fetch(ICON_URL,{cache:"no-store"}),
-      fetch(TREND_URL,{cache:"no-store"}).catch(()=>null)
+    const [d,trend]=await Promise.all([
+      fetchJson(ICON_URL,"Prognose"),
+      fetchJson(TREND_URL,"Trend").catch(()=>null)
     ]);
-    if(!rI.ok) throw Error("ICON HTTP "+rI.status);
-    const d=await rI.json();
-    let trend=null;
-    try{ if(rT&&rT.ok) trend=await rT.json(); }catch(e){ trend=null; }
 
     const H=d.hourly;
 
@@ -1032,13 +1169,16 @@ async function loadWeather(){
       ? "DWD ICON via Open-Meteo, Tage 8–14 Modellmix · Karte OpenStreetMap"
       : "DWD ICON via Open-Meteo · Karte OpenStreetMap";
     lastGood=new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+    lastGoodAt=Date.now(); lastError=null;
     stand.innerHTML=` · <span class="stand">Stand ${lastGood}</span>`+
       (updatePending?` · <span class="stand">Update wartet</span>`:"");
 
   }catch(e){
     console.error(e);
+    lastError={msg:e.message||String(e),t:Date.now()};
     /* the tiles still hold the last good values, so say how old they are
-       instead of only reporting a failure */
+       instead of only reporting a failure; the wording stays plain, the
+       detail sits one tap away */
     stand.innerHTML=lastGood
       ? ` · <span class="stand">Stand ${lastGood}</span> · <span class="stale">nicht aktualisiert</span>`
       : ' · <span class="stale">keine Verbindung zum Wetterdienst</span>';
@@ -1227,11 +1367,9 @@ async function loadCloudForecast(){
     let j=readCache(gridBox);
     let fromCache=!!j;
     if(!j){
-      const r=await fetch(url,{cache:"no-store"});
-      if(!r.ok) throw new Error("Open-Meteo HTTP "+r.status);
-      j=await r.json();
+      j=await fetchJson(url,"Karte");
       if(!Array.isArray(j)) j=[j];
-      if(!j.length) throw new Error("keine Wolkendaten");
+      if(!j.length) throw new Error("Karte: keine Wolkendaten");
       /* keep only what the raster needs, so the cache stays small */
       j=j.map(p=>({hourly:{
         time:p.hourly.time,
@@ -1266,6 +1404,7 @@ async function loadCloudForecast(){
     cloudTimer=setInterval(()=>drawCloudFrame(cloudIdx+1),1400);
   }catch(e){
     console.error("Cloud forecast",e);
+    lastError={msg:e.message||String(e),t:Date.now()};
     /* a wall display should keep the last good film rather than go blank */
     if(cloudFrames.length){
       radarTime.textContent="Stand nicht aktuell";
