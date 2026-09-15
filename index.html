@@ -612,6 +612,27 @@ diag.addEventListener("click",()=>{diag.classList.remove("on");clearTimeout(diag
 today.addEventListener("click",()=>showOutlookDetail());
 stand.addEventListener("click",ev=>{ ev.stopPropagation(); showDiagnostics(); });
 
+/*
+  Both strips scroll sideways and nothing ever scrolled them back. A swipe
+  ahead to tomorrow therefore survived every ten-minute refresh: the tiles are
+  rebuilt inside a single synchronous block, so the browser never re-clamps
+  scrollLeft and the old offset outlives its content. On a wall tablet that
+  looks exactly like a stale forecast. Each strip now returns to the start
+  once nobody has touched it for two minutes, which leaves a deliberate swipe
+  alone while someone is still reading it.
+*/
+const STRIP_IDLE=120000;
+[hourlyScroll,daysScroll].forEach(el=>{
+  let touched=0;
+  const mark=()=>{touched=Date.now()};
+  ["pointerdown","touchstart","wheel"].forEach(t=>el.addEventListener(t,mark,{passive:true}));
+  setInterval(()=>{
+    if(el.scrollLeft<=0||Date.now()-touched<STRIP_IDLE) return;
+    try{ el.scrollTo({left:0,behavior:"smooth"}); }
+    catch(e){ el.scrollLeft=0; }
+  },15000);
+});
+
 function hourDetail(label,b,s){
   showDetail(
     `${label} &middot; ${ICON_LABEL[s.icon]||s.icon}`,
