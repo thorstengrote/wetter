@@ -237,7 +237,12 @@ header{
 .day.trend{opacity:.72;border-style:dashed}
 .day .name{font-size:13px;font-weight:750;color:#f5f7f9}
 .day .icon{min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.day .icon{position:relative}
 .day .icon .wicon{width:48px;height:48px;max-width:100%;max-height:100%;display:block}
+.day .icon .wf{position:absolute;top:0;right:2px;line-height:0}
+.day .icon .wf1{color:#aeb8c5}
+.day .icon .wf2{color:#ff6b5e}
+.day .icon .wf .wflag{width:13px;height:16px;display:block}
 .day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .day .lbl{gap:2.5px;letter-spacing:-.15px}
 
@@ -498,6 +503,37 @@ function lbl(kind,text,accent){
 function windSignificant(speed,gust){
   speed=Number(speed||0); gust=Number(gust||0);
   return gust>=35||speed>=20;
+}
+/*
+  Windfahne auf der Tageskachel, in zwei Stufen wie bei WetterOnline: dort
+  hat die Fahne graue Streifen bei maessigem Wind und rote, wenn es deutlich
+  windiger wird.
+
+  Die Zeile unter dem Symbol faerbt sich schon ab 35 km/h in Boen ein, das
+  ist fuer ein Zeichen am Symbol zu frueh. Die Fahne orientiert sich an der
+  Beaufortskala und an den Warnstufen des Deutschen Wetterdienstes:
+
+    Stufe 1, grau    ab 38 km/h Boen oder 24 km/h Mittel   (Windstaerke 6)
+    Stufe 2, rot     ab 55 km/h Boen oder 34 km/h Mittel   (nahe der
+                     DWD-Warnschwelle fuer Windboen, Windstaerke 7 bis 8)
+*/
+function windLevel(speed,gust){
+  speed=Number(speed||0); gust=Number(gust||0);
+  if(gust>=55||speed>=34) return 2;
+  if(gust>=38||speed>=24) return 1;
+  return 0;
+}
+/* Wimpel am Mast mit Streifen. Zwei Streifen bei Stufe 1, drei bei Stufe 2. */
+function windPennant(level){
+  const streifen = level>=2
+    ? `<path d="M4.4 2.4 L14.6 4.6 L4.4 6.4 Z" fill="currentColor"/>`+
+      `<path d="M4.4 7.2 L14.6 9.4 L4.4 11.2 Z" fill="currentColor"/>`+
+      `<path d="M4.4 12.0 L11.4 13.6 L4.4 15.2 Z" fill="currentColor"/>`
+    : `<path d="M4.4 2.8 L14.6 5.0 L4.4 6.8 Z" fill="currentColor"/>`+
+      `<path d="M4.4 7.8 L11.4 9.4 L4.4 11.0 Z" fill="currentColor"/>`;
+  return `<svg class="wflag" viewBox="0 0 16 20" aria-hidden="true">`+
+    `<path d="M3.2 1.4v17.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`+
+    streifen+`</svg>`;
 }
 /* Always speed and gust, always the same shape. The unit lives in the panel
    title, not on 21 individual cards. */
@@ -786,8 +822,22 @@ function dayVerdict(hrs,daylightH){
   else if(v.mm>=1)                               { v.icon="drizzle"; v.text="zeitweise etwas Regen"; }
   else if((v.mm>=0.4||v.wetHours>=3)&&v.ratio<0.7)
                                                  { v.icon="drizzle"; v.text="zeitweise etwas Regen"; }
-  else if(v.ratio>=0.55)                         { v.icon="clear";   v.text="überwiegend sonnig"; }
-  else if(v.ratio>=0.25)                         { v.icon="partly";  v.text="teils sonnig"; }
+  /*
+    Sonne und Wolken zusammen entscheiden, nicht die Sonne allein.
+
+    sunshine_duration zaehlt jede Stunde, in der die direkte Strahlung
+    120 W/m2 uebersteigt, und das schafft die Sonne auch durch duenne hohe
+    Bewoelkung. Am 21.09.2026 meldete ICON deshalb 73 Prozent Sonnenanteil
+    bei 83 Prozent mittlerer Bewoelkung, und die Tageskachel zeigte pralle
+    Sonne, waehrend fast jede Stundenkachel den Sonne-Wolken-Mix zeigte.
+    Tage mit ganz unterschiedlichem Himmel sahen dadurch gleich aus.
+
+    Fuer die volle Sonne muessen jetzt beide Groessen stimmen. cloudAvg
+    wurde vorher zwar berechnet, aber nie benutzt.
+  */
+  else if(v.ratio>=0.60&&v.cloudAvg<=55)         { v.icon="clear";   v.text="überwiegend sonnig"; }
+  else if((v.ratio>=0.25&&v.cloudAvg<=85)||v.cloudAvg<=70)
+                                                 { v.icon="partly";  v.text="teils sonnig"; }
   else if(v.fog&&v.ratio<0.1)                    { v.icon="fog";     v.text="trüb und neblig"; }
   else                                           { v.icon="cloud";   v.text="überwiegend bewölkt"; }
   return v;
@@ -963,7 +1013,10 @@ function renderDays(icon,trend,uvDay){
     e.className="day"+(s.trend?" trend":"");
     e.innerHTML=
       `<div class=name>${pos===0?"Heute":dow(d.time[i])}</div>`+
-      `<div class=icon>${weatherIcon(v.icon)}</div>`+
+      `<div class=icon>${weatherIcon(v.icon)}`+
+        (()=>{const wl=windLevel(info.wmax,info.gmax);
+              return wl?`<span class="wf wf${wl}" title="${wl>1?"stürmisch":"windig"}">${windPennant(wl)}</span>`:"";})()+
+      `</div>`+
       `<div class=temps>${deg(info.maxT)}/${deg(info.minT)}</div>`+
       lbl("drop",pct(info.pp),info.pp>=10?"rain":"")+
       lbl("sun",`${n1(info.sunh)}${NB}h`,info.sunh>=1?"sun":"")+
