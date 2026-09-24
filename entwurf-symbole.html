@@ -1,0 +1,796 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Entwurf: zusammengesetzte Wettersymbole</title>
+<style>
+:root{
+  --bg:#0f141c; --panel:#1a2230; --panel2:#222d3d; --panel3:#28344699;
+  --line:#4b5a70; --text:#eef2f6; --dim:#aab4c2; --yellow:#ffd65a;
+  --wsize:48px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+     font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+     padding:24px 28px 70px}
+h1{font-size:21px;margin:0 0 4px}
+h2{font-size:15px;margin:36px 0 10px;color:#cfd8e3;text-transform:uppercase;
+   letter-spacing:.6px;font-weight:700}
+p.note{color:var(--dim);max-width:76ch;margin:0 0 6px}
+code{background:#1b2331;padding:1px 5px;border-radius:4px;font-size:12.5px}
+.karte{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+       padding:16px 18px;margin-top:10px}
+
+.reihe{display:flex;gap:9px;flex-wrap:wrap}
+.probe{background:linear-gradient(180deg,#222d3d,#1a2230);border:1px solid var(--line);
+       border-radius:11px;padding:9px 5px;width:118px;text-align:center}
+.probe svg.w{width:60px;height:60px;display:block;margin:0 auto}
+.probe .n{font-size:11px;color:#f2f5f8;font-weight:700;margin-top:5px}
+.probe .s{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums}
+
+table.m{border-collapse:collapse}
+table.m th{font-size:10.5px;color:var(--dim);font-weight:700;padding:4px 7px;
+           text-transform:uppercase;letter-spacing:.4px}
+table.m th.l{text-align:right;white-space:nowrap}
+table.m td{padding:3px}
+table.m svg.w{width:60px;height:60px;display:block}
+table.m td .z{background:linear-gradient(180deg,#222d3d,#1a2230);
+              border:1px solid #3b4759;border-radius:9px;padding:3px}
+
+/* ---------- Layoutnachbau, 12 Spalten wie die Stundenleiste ---------- */
+.steuer{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin:10px 0 14px}
+.steuer label{font-size:12.5px;color:var(--dim)}
+.steuer input[type=range]{width:170px;vertical-align:middle}
+
+.buehne{background:#0b0f16;border:1px solid #2b3545;border-radius:10px;padding:9px;
+        width:100%;max-width:1240px}
+.innen{display:flex;flex-direction:column;gap:7px;height:520px}
+.kopf{font-size:9px;color:#8f9bab;letter-spacing:.5px;margin:0 0 3px 2px;
+      text-transform:uppercase;white-space:nowrap;overflow:hidden}
+.kartentitel{position:absolute;left:8px;bottom:7px;font-size:9px;letter-spacing:.5px;
+             text-transform:uppercase;color:#cfd8e3;background:#0f141cc9;
+             border:1px solid #33405380;border-radius:6px;padding:3px 7px;
+             white-space:nowrap}
+.gitter{display:grid;grid-template-columns:repeat(12,1fr);gap:5px;min-height:0}
+.block{display:flex;flex-direction:column;min-height:0}
+.block>.gitter{flex:1 1 auto}
+
+.kachel{background:linear-gradient(180deg,var(--panel3),var(--panel2));
+        border:1px solid #46546a;border-radius:8px;padding:5px 1px 4px;text-align:center;
+        display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;
+        align-items:center;min-width:0;min-height:0}
+.kachel .t{font-size:10px;color:#d5dce4;font-weight:600}
+.kachel .ic{display:flex;align-items:center;justify-content:center;min-height:0;
+            overflow:hidden;position:relative}
+.kachel .ic svg.w{width:var(--wsize);height:var(--wsize);display:block}
+.kachel .deg{font-size:14px;font-weight:750}
+
+.tag{background:linear-gradient(180deg,#222d3d,#1a2230);border:1px solid var(--line);
+     border-radius:11px;padding:6px 3px;text-align:center;min-width:0;min-height:0;
+     display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;align-items:center}
+.tag .name{font-size:12px;font-weight:750}
+.tag .ic{position:relative;display:flex;align-items:center;justify-content:center;
+         min-height:0;overflow:hidden}
+.tag .ic svg.w{width:var(--wsize);height:var(--wsize);display:block}
+.tag .temps{font-size:13px;font-weight:750;white-space:nowrap}
+
+/* Windfahne und Frost als Beigaben am Symbol */
+
+/*
+  Die Wertzeilen sind ein einziges Raster, nicht drei einzeln zentrierte
+  Zeilen. Beide Spalten richten sich nach ihrem breitesten Inhalt, dadurch
+  stehen Zeichen unter Zeichen und Ziffer unter Ziffer. Zentriert wird erst
+  der Block als Ganzes, und der sitzt damit mittig unter der Temperatur.
+
+  Der Zwischenschritt mit fester Blockbreite war falsch: der Block stand zwar
+  mittig, der Inhalt darin aber links, und damit wirkte alles nach links
+  verrutscht.
+*/
+.werte{display:grid;grid-template-columns:auto auto;column-gap:3.5px;
+       justify-content:center;align-items:center;
+       font-size:9.5px;color:#9fb0c4;white-space:nowrap;letter-spacing:-.15px}
+.werte .i{display:flex;align-items:center;justify-content:center;line-height:0}
+.werte .v{text-align:left}
+.werte .rain{color:#7fc9ff} .werte .sun{color:var(--yellow)} .werte .wind{color:#ffb27f}
+.werte svg.mi{width:9px;height:9px;display:block}
+.werte svg.mi.sock{width:12px;height:8.4px}
+
+/* drei Tagesabschnitte */
+.drei{display:flex;flex-direction:column;gap:7px;align-items:center;justify-content:center}
+.drei .z{display:flex;align-items:center;gap:4px}
+.drei .z svg.w{width:var(--wsize);height:var(--wsize);display:block}
+.drei .z i{font-size:10.5px;font-weight:750;font-style:normal;
+           font-variant-numeric:tabular-nums;min-width:22px;text-align:left}
+.drei .z u{text-decoration:none;color:#7f8c9c;line-height:0;display:block;
+           width:15px;display:flex;align-items:center;justify-content:center}
+.drei .z u svg{width:14px;height:14px;display:block}
+.drei .z u.uhr{font-size:9px;font-weight:700;color:#8b98a8;line-height:1;
+               font-variant-numeric:tabular-nums}
+.drei .z u.wort{width:11px;font-size:7.5px;font-weight:700;color:#8b98a8;
+                writing-mode:vertical-rl;letter-spacing:.2px;line-height:1;
+                white-space:nowrap;justify-content:flex-start}
+/* Farbschiene: Daemmerung, Tageslicht, Abend. Wiederholt sich in jeder
+   Kachel und ueberlebt deshalb das Wischen durch 14 Tage. */
+.drei .z s{text-decoration:none;width:3px;height:var(--wsize);border-radius:2px;
+           display:block;flex:0 0 3px}
+.drei .z s.t0{background:linear-gradient(180deg,#2f4a6d,#6d8fbd)}
+.drei .z s.t1{background:linear-gradient(180deg,#8fb3dd,#ffd98a)}
+.drei .z s.t2{background:linear-gradient(180deg,#c98a5a,#3a3550)}
+
+/*
+  Feste Legendenspalte. Sie belegt eine der zwoelf Spalten, dadurch bleibt die
+  Ausrichtung zwischen Stunden- und Tagesleiste erhalten, und sie liegt
+  ausserhalb des Scrollbereichs, steht also auch beim Wischen durch 14 Tage.
+*/
+/*
+  Die Legende steht senkrecht und ist deshalb nur gut zwanzig Pixel breit. Sie
+  haengt im Kartenblock und nicht als eigene Rasterspalte, damit die sieben
+  Tageskacheln genau auf den letzten sieben der zwoelf Spalten bleiben und
+  weiter mit der Stundenleiste fluchten. Ausserhalb des Scrollbereichs bleibt
+  sie beim Wischen durch 14 Tage stehen.
+*/
+.tag.legende{background:none;border:none;padding:6px 0;flex:0 0 22px;width:22px}
+.tag.legende .name,.tag.legende .temps,.tag.legende .werte{visibility:hidden}
+.tag.legende .drei{width:100%}
+.tag.legende .zeile{height:var(--wsize);display:flex;align-items:center;
+                    justify-content:center;font-size:8.5px;font-weight:700;
+                    color:#93a0b0;letter-spacing:.3px;white-space:nowrap;
+                    writing-mode:vertical-rl}
+.tag .temps span{font-variant-numeric:tabular-nums}
+
+/* Simulator */
+.sim{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.regler{display:flex;flex-direction:column;gap:8px;min-width:250px}
+.regler label{font-size:12.5px;color:var(--dim);display:flex;flex-direction:column;gap:2px}
+.regler label b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:700}
+.regler label.kasten{flex-direction:row;align-items:center;gap:7px}
+.regler input[type=range]{width:100%}
+.ergebnis{display:flex;gap:12px;flex:1 1 auto}
+.seite{background:#131a24;border:1px solid #33405380;border-radius:10px;padding:12px 14px;
+       min-width:200px;text-align:center;flex:1 1 0}
+.seite.neu{border-color:#4c7a5f}
+.seite .titel{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#8f9bab;
+              margin-bottom:8px}
+.seite svg.w{width:104px;height:104px;display:block;margin:0 auto}
+.seite .lbl2{font-size:13.5px;font-weight:700;margin-top:8px}
+.seite .regel{font-size:11px;color:#8f9bab;margin-top:5px;white-space:pre-line;
+              font-family:ui-monospace,Menlo,monospace;line-height:1.45}
+#beispiele button{background:#243044;color:#e7edf4;border:1px solid #46546a;border-radius:7px;
+                  padding:5px 10px;font-size:12px;cursor:pointer}
+#beispiele button:hover{background:#2c3a52}
+.stellreihe{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.stellreihe label{font-size:12px;color:var(--dim);display:flex;flex-direction:column;gap:2px}
+.stellreihe label b{color:var(--text);font-variant-numeric:tabular-nums}
+.stellreihe input{width:125px}
+.uebersicht{border-collapse:collapse;width:100%}
+.uebersicht th{font-size:10.5px;color:#8f9bab;text-transform:uppercase;letter-spacing:.4px;
+               text-align:left;padding:4px 8px;border-bottom:1px solid #2b3545}
+.uebersicht td{padding:5px 8px;font-size:12.5px;border-bottom:1px solid #1e2734;vertical-align:middle}
+.uebersicht td.z{font-variant-numeric:tabular-nums;color:var(--dim)}
+.uebersicht svg.w{width:46px;height:46px;display:block}
+</style>
+
+<h1>Entwurf: zusammengesetzte Wettersymbole</h1>
+<p class="note">Nur zum Anschauen, der Kiosk ist unberührt. Die Kachelinhalte entsprechen
+der laufenden Fassung aus dem Repo: Tageskachel mit Name, Symbol, Windfahne, Höchst- und
+Tiefstwert, Regenrisiko, Sonnenstunden und Wind, Stundenkachel mit Uhrzeit, Symbol,
+Temperatur, Regenrisiko und Wind.</p>
+
+<h2>1. Himmelsskala</h2>
+<p class="note">Fünf Stufen. Die Wolke wächst und schiebt sich vor die Sonne, beide Größen
+ändern sich mit. Genau diese Abstufung gilt auch, wenn etwas herunterfällt.</p>
+<div class="karte"><div class="reihe" id="skala"></div></div>
+
+<h2>2. Himmel mal Niederschlag</h2>
+<p class="note">Die Sonnen- und Wolkengröße variiert in jeder Spalte gleich, nur der
+Niederschlag kommt dazu. Die Stärke steckt in der Länge der Striche und der Zahl der
+Flocken, nicht in der Farbe.</p>
+<div class="karte"><table class="m" id="matrix"></table></div>
+
+<h2>3. Wind und Frost im Symbol</h2>
+<p class="note">Beides steckt jetzt im Symbol selbst, nicht daneben. Der Windsack oben
+rechts, weiß mit grauen Streifen ab Böen 38 km/h, weiß mit roten ab 55. Der Frostkristall
+oben links, blass bei Bodenfrost bis 3 Grad, kräftig unter null.</p>
+<div class="karte"><div class="reihe" id="beigaben"></div></div>
+
+<h2>4. Layout</h2>
+<p class="note">Die Temperaturen neben den Symbolen sind raus. Der zweite Wert in der
+Temperaturzeile ist jetzt das Tief der Nacht, die an diesem Abend beginnt, nicht mehr das
+Kalendertief. Zwölf Spalten für alles: die Stundenleiste hat zwölf Kacheln, darunter
+belegt die Karte fünf Spalten und die sieben Tage je eine. Dadurch stehen die Tageskacheln
+genau über den Stundenkacheln. Statt der Beschriftung Vormittag, Nachmittag, Abend steht
+neben jedem Symbol die Temperatur dieses Abschnitts.</p>
+<div class="steuer">
+  <label>Höhe der Stundenleiste
+    <input type="range" id="split" min="24" max="52" value="36">
+    <span id="splitv" style="font-variant-numeric:tabular-nums"></span></label>
+  <label>Symbolgröße
+    <input type="range" id="wsize" min="26" max="70" value="48">
+    <span id="wsizev" style="font-variant-numeric:tabular-nums"></span></label>
+  <label><input type="radio" name="var" value="eins"> ein Symbol, wie heute</label>
+  <label><input type="radio" name="var" value="drei"> drei Symbole, ohne Legende</label>
+  <label><input type="radio" name="var" value="spalte" checked> feste Spalte links</label>
+  <label><input type="radio" name="var" value="bogen"> Sonnenbogen links in Heute</label>
+  <label><input type="radio" name="var" value="uhr"> Uhrzeiten links in Heute</label>
+  <label><input type="radio" name="var" value="wort"> Wörter einmal links in Heute</label>
+  <label><input type="radio" name="var" value="schiene"> Farbschiene in jeder Kachel</label>
+</div>
+<div class="buehne"><div class="innen" id="innen">
+  <div class="block" id="bstunden">
+    <div class="kopf">12 Stunden · Wischen für mehr · Kachel antippen = alle Werte | Regenrisiko · Wind/Böen in km/h</div>
+    <div class="gitter" id="hours"></div>
+  </div>
+  <div class="block" style="flex:1 1 auto">
+    <div class="gitter" style="flex:1 1 auto">
+      <div style="grid-column:span 5;display:flex;gap:5px;min-width:0;min-height:0">
+        <div style="flex:1 1 auto;background:#1d2a20;border:1px solid #33405360;
+                    border-radius:10px;position:relative;display:flex;align-items:center;
+                    justify-content:center;color:#3d5a45;font-size:12px;letter-spacing:1px;
+                    min-width:0">KARTE
+          <!-- Der Titel sitzt jetzt in der Karte, so wie dort schon die
+               Zeitmarke sitzt. Damit steht zwischen Stunden- und Tagesleiste
+               keine Textzeile mehr. -->
+          <div class="kartentitel">Wetterentwicklung · jetzt → +6 Stunden</div>
+        </div>
+        <div id="legende" class="tag legende"></div>
+      </div>
+      <div style="grid-column:span 7;display:grid;grid-template-columns:repeat(7,1fr);gap:5px;min-height:0"
+           id="tage"></div>
+    </div>
+  </div>
+</div></div>
+
+<h2>5. Alle Symbole</h2>
+<div class="karte"><div class="reihe" id="alle"></div></div>
+
+<h2>6. Wetter simulieren</h2>
+<p class="note">Links die Rohdaten von Open-Meteo, rechts was heute daraus würde und was
+der Entwurf daraus macht. Die Schwellen sind Schieber, darunter reagieren alle
+Beispieltage gleichzeitig.</p>
+<div class="karte">
+  <div class="steuer" id="beispiele"></div>
+  <div class="sim">
+    <div class="regler">
+      <label>Sonnenanteil <b id="v_sonne"></b><input type="range" id="r_sonne" min="0" max="100" value="87"></label>
+      <label>mittlere Bewölkung <b id="v_wolke"></b><input type="range" id="r_wolke" min="0" max="100" value="86"></label>
+      <label>Niederschlag <b id="v_mm"></b><input type="range" id="r_mm" min="0" max="200" value="0"></label>
+      <label>nasse Stunden <b id="v_nass"></b><input type="range" id="r_nass" min="0" max="14" value="0"></label>
+      <label>Böen <b id="v_boe"></b><input type="range" id="r_boe" min="0" max="90" value="18"></label>
+      <label>Tiefstwert <b id="v_tmin"></b><input type="range" id="r_tmin" min="-15" max="25" value="12"></label>
+      <label class="kasten"><input type="checkbox" id="c_schnee"> Schnee im Code</label>
+      <label class="kasten"><input type="checkbox" id="c_blitz"> Gewitter im Code</label>
+      <label class="kasten"><input type="checkbox" id="c_nebel"> Nebel im Code</label>
+    </div>
+    <div class="ergebnis">
+      <div class="seite"><div class="titel">heute</div><div id="alt_ic"></div>
+        <div class="lbl2" id="alt_txt"></div><div class="regel" id="alt_regel"></div></div>
+      <div class="seite neu"><div class="titel">Entwurf</div><div id="neu_ic"></div>
+        <div class="lbl2" id="neu_txt"></div><div class="regel" id="neu_regel"></div></div>
+    </div>
+  </div>
+</div>
+<div class="karte">
+  <div class="stellreihe">
+    <label>Gewicht Sonne <b id="v_gw"></b><input type="range" id="r_gw" min="0" max="100" value="60"></label>
+    <label>Schwelle sonnig <b id="v_s0"></b><input type="range" id="r_s0" min="50" max="99" value="85"></label>
+    <label>Schwelle üb. sonnig <b id="v_s1"></b><input type="range" id="r_s1" min="40" max="95" value="68"></label>
+    <label>Schwelle wechselnd <b id="v_s2"></b><input type="range" id="r_s2" min="20" max="80" value="45"></label>
+    <label>Schwelle üb. bewölkt <b id="v_s3"></b><input type="range" id="r_s3" min="5" max="60" value="22"></label>
+  </div>
+  <table class="uebersicht" id="uebersicht"></table>
+</div>
+
+<script>
+/* ==================================================================
+   Bausteine. Sonne, Mond und Wolke unveraendert aus dem Kiosk.
+   Niederschlag neu, weil er jetzt in der Groesse mitwandern muss.
+================================================================== */
+const SUN=`<circle cx="32" cy="32" r="10" fill="#FFD65A"/>
+  <g stroke="#FFD65A" stroke-width="3" stroke-linecap="round">
+    <path d="M32 7v7M32 50v7M7 32h7M50 32h7M14.3 14.3l5 5M44.7 44.7l5 5M49.7 14.3l-5 5M19.3 44.7l-5 5"/>
+  </g>`;
+const MOON=`<g transform="translate(-6 0)"><path d="M40 14 A18 18 0 1 0 40 50 A22 22 0 0 1 40 14 Z" fill="#E9EEF6"/></g>`;
+const STARS=`<g fill="#C9D6EA"><circle cx="48" cy="16" r="2"/><circle cx="55" cy="27" r="1.5"/><circle cx="44" cy="30" r="1.2"/></g>`;
+const CLOUD_D=`M18 45h28c8 0 14-5 14-12s-6-12-13-12c-2 0-4 .4-5.7 1.3C38.4 16.8 33.2 14 27.5 14 19 14 12 21 12 29.5v.6C6.8 31.3 3 35.8 3 41c0 2.5.8 4.8 2.3 6.8C8 44.7 12.5 45 18 45z`;
+const CLOUD =`<path d="${CLOUD_D}" fill="#E8EDF3"/>`;
+const CLOUD_G=`<path d="${CLOUD_D}" fill="#B8C2CF"/>`;
+const NEBEL=`<g stroke="#C7D0DA" stroke-width="3" stroke-linecap="round">
+    <path d="M10 42h44M14 49h36M19 56h26"/></g>`;
+const BLITZ=`<path d="M34 42h10l-8 10h6L29 63l4-13h-7z" fill="#FFD65A"/>`;
+
+/*
+  Regen: die Staerke steckt in der Laenge der Striche und ihrer Zahl, nicht in
+  der Farbe. Aus vier Metern Entfernung ist Laenge lesbar, ein Blauton nicht.
+  Die Striche haengen unter dem Wolkenrand bei y = 47 und laufen schraeg.
+*/
+function regen(stufe){
+  const P={niesel:{n:3,lang:5,dick:3,farbe:"#8FD8FF"},
+           regen:{n:3,lang:9,dick:4,farbe:"#65C7FF"},
+           viel:{n:4,lang:12,dick:4.5,farbe:"#65C7FF"}}[stufe];
+  if(!P) return "";
+  const breite=P.n===4?36:26, start=32-breite/2;
+  let d="";
+  for(let i=0;i<P.n;i++){
+    const x=start+i*(breite/(P.n-1));
+    d+=`M${x} 48l-${P.lang*0.38} ${P.lang}`;
+  }
+  return `<g stroke="${P.farbe}" stroke-width="${P.dick}" stroke-linecap="round"><path d="${d}"/></g>`;
+}
+/* Schnee: mehr Flocken statt laengerer Striche. */
+function schnee(stufe){
+  const n=stufe==="viel"?5:3;
+  const breite=n===5?42:26, start=32-breite/2, r=n===5?3.6:4.4;
+  let d="";
+  for(let i=0;i<n;i++){
+    const x=start+i*(breite/(n-1)), y=51+(i%2)*3;
+    d+=`M${x} ${y-r}v${2*r}M${x-r} ${y}h${2*r}`;
+  }
+  return `<g stroke="#D9F2FF" stroke-width="${n===5?2.4:3}" stroke-linecap="round"><path d="${d}"/></g>`;
+}
+
+/*
+  Windsack statt Wimpel.
+
+  Der Wimpel war eine Notloesung und las sich aus der Entfernung wie ein
+  Ausrufezeichen. Ein Windsack ist das Zeichen, das jeder vom Flugplatz und
+  von der Autobahnbruecke kennt, und er hat die Streifen schon eingebaut:
+  weiss und grau bei Wind, weiss und rot bei Sturm.
+
+  Gezeichnet im eigenen 20er-Raster, damit er sich als Ganzes in die
+  Wetterkachel setzen laesst.
+*/
+function windsack(stufe){
+  if(!stufe) return "";
+  const zweite = stufe>=2 ? "#FF5B4E" : "#AEB8C5";
+  /* Laenger und flacher als zuvor. Der kurze Stummel las sich als heller
+     Fleck, die Streifung war bei 48 Pixel Symbolgroesse nicht mehr zu
+     erkennen und damit auch nicht, ob grau oder rot. Vier Baender ueber die
+     volle Laenge, das aeusserste farbig, weil die Spitze am besten sichtbar
+     ist. */
+  const x0=3.6, x1=23.4;
+  const kanten=[0,1,2,3,4].map(i=>x0+(x1-x0)*i/4);
+  const h=x=>5.6-3.6*(x-x0)/(x1-x0);
+  let baender="";
+  for(let i=0;i<4;i++){
+    const a=kanten[i], b=kanten[i+1];
+    baender+=`<path d="M${a.toFixed(2)} ${(7-h(a)).toFixed(2)}L${b.toFixed(2)} ${(7-h(b)).toFixed(2)}`+
+             `L${b.toFixed(2)} ${(7+h(b)).toFixed(2)}L${a.toFixed(2)} ${(7+h(a)).toFixed(2)}Z"`+
+             ` fill="${i%2?zweite:"#FFFFFF"}" stroke="#222B38" stroke-width=".55"/>`;
+  }
+  return `<g>
+    <path d="M2.0 1.0v18.4" stroke="#222B38" stroke-width="3.3" stroke-linecap="round"/>
+    <path d="M2.0 1.0v18.4" stroke="#E8EDF3" stroke-width="1.9" stroke-linecap="round"/>
+    ${baender}
+    <path d="M3.6 1.4L3.6 12.6" stroke="#E8EDF3" stroke-width="1.2" stroke-linecap="round"/>
+  </g>`;
+}
+function windLevel(speed,gust){
+  speed=Number(speed||0); gust=Number(gust||0);
+  if(gust>=55||speed>=34) return 2;
+  if(gust>=38||speed>=24) return 1;
+  return 0;
+}
+/*
+  Frost: ein Kristall oben links, erst unter null Grad. Bei Bodenfrost bis drei
+  Grad bleibt er blass, unter null wird er kraeftig.
+*/
+function frostKristall(stufe){
+  if(!stufe) return "";
+  const farbe = stufe>=2 ? "#5FB7FF" : "#9EC9E8";
+  return `<g stroke="${farbe}" stroke-width="1.7" stroke-linecap="round">
+    <path d="M9 1.6v14.8M2.6 5.3l12.8 7.8M15.4 5.3L2.6 13.1"/>
+    <path d="M6.9 3.4 9 5.1l2.1-1.7M6.9 14.6 9 12.9l2.1 1.7
+             M3.3 7.9 3.0 5.5l2.4.1M14.7 7.9l.3-2.4-2.4.1
+             M3.3 10.5 3.0 12.9l2.4-.1M14.7 10.5l.3 2.4-2.4-.1" stroke-width="1.3"/>
+  </g>`;
+}
+function frostLevel(tmin){
+  tmin=Number(tmin);
+  if(!isFinite(tmin)) return 0;
+  if(tmin<0) return 2;
+  if(tmin<=3) return 1;
+  return 0;
+}
+
+/*
+  Temperaturfarbe wie bei WetterOnline: warm nach rot, mild nach gruen, kalt
+  nach blau. Stufen statt weichem Verlauf, weil benachbarte Werte sich sonst
+  nicht unterscheiden lassen.
+*/
+function tempFarbe(t){
+  t=Number(t);
+  if(!isFinite(t)) return "#dbe3ec";
+  if(t>=30) return "#FF3B30";
+  if(t>=25) return "#FF6A3D";
+  if(t>=20) return "#FF9A3C";
+  if(t>=16) return "#E8C13C";
+  if(t>=5)  return "#4CC76A";
+  if(t>=0)  return "#5FD0C8";
+  if(t>=-8) return "#58B0FF";
+  return "#8E9BFF";
+}
+
+/* ==================================================================
+   Zusammensetzen.
+
+   himmel 0 klar .. 4 bedeckt. Die Wolken- und Sonnengroesse haengt allein an
+   dieser Stufe, auch wenn Niederschlag dazukommt. Frueher lag bei Regen immer
+   dieselbe graue Wolke im Bild und der Himmel war nicht mehr ablesbar.
+
+   Der Niederschlag wird unter den Wolkenrand gehaengt und folgt der Wolke in
+   Groesse und Lage, sonst haengen die Tropfen bei kleiner Wolke in der Luft.
+================================================================== */
+const HIMMEL=[
+  {sonne:[0,0,1],       wolke:null},
+  {sonne:[-1,-3,.88],   wolke:[20,22,.52]},
+  {sonne:[-2,-3,.80],   wolke:[7,8,.82]},
+  {sonne:[-1,0,.60],    wolke:[1,2,.98]},
+  {sonne:null,          wolke:[0,1,1]}
+];
+function g(t,inhalt){
+  if(!t) return inhalt;
+  return `<g transform="translate(${t[0]} ${t[1]}) scale(${t[2]})">${inhalt}</g>`;
+}
+/* Lage des Niederschlags aus der Wolkenlage ableiten */
+function nassLage(w){
+  const [tx,ty,sc]=w;
+  const mitteX=31.5*sc+tx, unten=47.5*sc+ty;
+  const ds=Math.max(.66,sc);
+  return [mitteX-32*ds, unten+1.5-48*ds, ds];
+}
+function symbol(himmel,nass,blitz,nacht,extra){
+  extra=extra||{};
+  himmel=Math.max(0,Math.min(4,himmel));
+  if(nass||blitz) himmel=Math.max(himmel,1);   /* es braucht eine Wolke */
+  const h=HIMMEL[himmel];
+  const teile=[];
+  if(h.sonne){
+    if(nacht){ teile.push(STARS); teile.push(g(h.sonne,MOON)); }
+    else teile.push(g(h.sonne,SUN));
+  }
+  if(h.wolke) teile.push(g(h.wolke,(nass||blitz)?CLOUD_G:CLOUD));
+  if(h.wolke&&(nass||blitz)){
+    const l=nassLage(h.wolke);
+    if(nass==="schnee"||nass==="schnee-viel") teile.push(g(l,schnee(nass==="schnee-viel"?"viel":"")));
+    else if(nass) teile.push(g(l,regen(nass)));
+    if(blitz) teile.push(g(l,BLITZ));
+  }
+  /* Wind und Frost gehoeren ins Symbol, nicht daneben. Zuletzt gezeichnet,
+     damit sie ueber Wolke und Sonne liegen. */
+  if(extra.frost) teile.push(`<g transform="translate(0 0) scale(.95)">${frostKristall(extra.frost)}</g>`);
+  if(extra.wind)  teile.push(`<g transform="translate(37 0) scale(1.05)">${windsack(extra.wind)}</g>`);
+  return `<svg class="w" viewBox="0 0 64 64" aria-hidden="true">${teile.join("")}</svg>`;
+}
+function symbolNebel(){
+  return `<svg class="w" viewBox="0 0 64 64">${g([0,-2,.95],CLOUD_G)}${g([0,-2,.95],NEBEL)}</svg>`;
+}
+
+/* ---------- kleine Zeilensymbole, unveraendert aus dem Kiosk ---------- */
+function mi(kind){
+  const a='viewBox="0 0 16 16" aria-hidden="true"';
+  if(kind==="drop") return `<svg class="mi" ${a}><path d="M8 1.5c2.7 3.4 4.1 5.7 4.1 7.5a4.1 4.1 0 0 1-8.2 0C3.9 7.2 5.3 4.9 8 1.5z" fill="currentColor"/></svg>`;
+  if(kind==="sun")  return `<svg class="mi" ${a}><circle cx="8" cy="8" r="3.1" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 .8v2.1M8 13.1v2.1M.8 8h2.1M13.1 8h2.1M2.9 2.9l1.5 1.5M11.6 11.6l1.5 1.5M13.1 2.9l-1.5 1.5M4.4 11.6l-1.5 1.5"/></g></svg>`;
+  if(kind==="sock") return `<svg class="mi sock" viewBox="0 0 20 14" aria-hidden="true"><path d="M2.3 1.2v11.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.7 2.4 L17.4 4.7 L14.7 10.2 L3.7 8.6 Z" fill="currentColor" opacity=".9"/></svg>`;
+  return "";
+}
+const NB=" ";
+/* Ein Raster fuer alle Wertzeilen einer Kachel, siehe .werte im Stil oben. */
+function werte(zeilen){
+  return `<div class="werte">`+zeilen.map(([kind,text,akzent])=>{
+    const k=akzent?" "+akzent:"";
+    return `<span class="i${k}">${mi(kind)}</span><span class="v${k}">${text}</span>`;
+  }).join("")+`</div>`;
+}
+const n1=v=>Number(v||0).toLocaleString("de-DE",{minimumFractionDigits:1,maximumFractionDigits:1});
+</script>
+
+<script>
+const NAMEN=["sonnig","überwiegend sonnig","wechselnd","überwiegend bewölkt","bedeckt"];
+const KURZ =["klar","üb. sonnig","wechselnd","üb. bewölkt","bedeckt"];
+
+/* ---- 1. Skala ---- */
+document.getElementById("skala").innerHTML=
+  NAMEN.map((n,i)=>`<div class="probe">${symbol(i,"",false,false)}
+    <div class="n">${n}</div><div class="s">Stufe ${i}</div></div>`).join("");
+
+/* ---- 2. Matrix ---- */
+const ARTEN=[["","trocken"],["niesel","Niesel"],["regen","Regen"],["viel","viel Regen"],
+             ["schnee","Schnee"],["schnee-viel","viel Schnee"],["gewitter","Gewitter"]];
+(function(){
+  let t="<tr><th></th>"+ARTEN.map(a=>`<th>${a[1]}</th>`).join("")+"</tr>";
+  for(let h=0;h<5;h++){
+    t+=`<tr><th class="l">${NAMEN[h]}</th>`;
+    for(const [k] of ARTEN){
+      const blitz=k==="gewitter";
+      t+=`<td><div class="z">${symbol(h,blitz?"regen":k,blitz,false)}</div></td>`;
+    }
+    t+="</tr>";
+  }
+  document.getElementById("matrix").innerHTML=t;
+})();
+
+/* ---- 3. Wind und Frost ---- */
+(function(){
+  const f=[[2,"",0,10,"ruhig"],[2,"",40,10,"Böen 40, weiß und grau"],
+           [2,"",60,10,"Böen 60, weiß und rot"],[3,"regen",65,8,"Regen und Sturm"],
+           [1,"",12,2,"Bodenfrost, Tief 2 Grad"],[4,"schnee",20,-6,"Schnee und Frost"],
+           [0,"",58,-3,"Sonne, Sturm und Frost"]];
+  document.getElementById("beigaben").innerHTML=f.map(([h,n,boe,tmin,txt])=>
+    `<div class="probe">${symbol(h,n,false,false,{wind:windLevel(0,boe),frost:frostLevel(tmin)})}
+     <div class="n">${txt}</div></div>`).join("");
+})();
+
+/* ---- 4. Layout ---- */
+/* Uhrzeit, Himmelsstufe, Niederschlag, Temperatur, Regenrisiko, Wind, Boeen */
+const STUNDEN=[
+  ["09:00",2,"",19,0,6,15],["10:00",1,"",21,0,7,16],["11:00",1,"",22,0,7,16],
+  ["12:00",2,"",23,0,8,18],["13:00",2,"",24,0,8,18],["14:00",3,"",24,10,9,20],
+  ["15:00",3,"niesel",23,35,11,26],["16:00",3,"regen",22,60,14,38],["17:00",2,"",21,20,12,30],
+  ["18:00",2,"",19,5,9,22],["19:00",1,"",17,0,7,16],["20:00",4,"",15,0,5,12]
+];
+const T=t=>`<span style="color:${tempFarbe(t)}">${t}°</span>`;
+
+document.getElementById("hours").innerHTML=STUNDEN.map(([z,h,n,t,pp,w,b])=>
+  `<div class="kachel"><div class="t">${z}</div>
+   <div class="ic">${symbol(h,n,false,false,{wind:windLevel(w,b),frost:frostLevel(t)})}</div>
+   <div class="deg">${T(t)}</div>
+   ${werte([["drop",pp+NB+"%",pp>=10?"rain":""],
+            ["sock",w+"/"+b,(b>=35||w>=20)?"wind":""]])}</div>`).join("");
+
+/*
+  Name, drei Abschnitte [stufe, nass], Hoechstwert, Nachttief, Regenrisiko,
+  Sonnenstunden, Wind, Boeen.
+
+  Das Nachttief ist bewusst nicht temperature_2m_min. Dieser Wert gilt fuer den
+  Kalendertag ab Mitternacht und stammt damit fast immer aus den Stunden vor
+  dem Aufstehen, gehoert also zur Nacht davor. Wer abends auf die Kachel
+  schaut, will wissen, wie kalt es in der kommenden Nacht wird. Gerechnet wird
+  deshalb ueber die Stundenwerte von Sonnenuntergang bis Sonnenaufgang am
+  naechsten Morgen. Fuer den letzten Tag der Reihe fehlt der Morgen danach,
+  dort bleibt es beim Kalendertief.
+*/
+const TAGE=[
+  ["Heute",[[2,""],[1,""],[2,""]],       19, 9, 0, 9.1, 8,17],
+  ["Fr",   [[1,""],[0,""],[1,""]],       22, 7, 0,11.0, 5,17],
+  ["Sa",   [[2,""],[3,"niesel"],[2,""]], 23, 8,33, 6.5,10,21],
+  ["So",   [[1,""],[2,""],[1,""]],       26,11,10,10.4, 8,19],
+  ["Mo",   [[3,""],[4,"regen"],[3,""]],  28,14,50, 6.3,14,40],
+  ["Di",   [[2,""],[2,""],[3,""]],       31,15,20,10.2,10,27],
+  ["Mi",   [[3,""],[1,""],[2,""]],        8,-3, 0,10.9, 9,18]
+];
+/*
+  Tageszeit ohne das Wort "Vormittag" auf jeder Kachel. Vier Wege, alle im
+  Entwurf umschaltbar.
+
+  Der Sonnenbogen zeichnet die Bahn der Sonne: tief im Osten, hoch am Mittag,
+  tief im Westen. Anders als ein Auf- und Abwaertspfeil behauptet er nicht,
+  es ginge um Sonnenaufgang und Sonnenuntergang.
+*/
+function bogenZeichen(i){
+  const bahn=`<path d="M1.5 12.5A7.5 7.5 0 0 1 16.5 12.5" fill="none"
+    stroke="currentColor" stroke-width="1.3" opacity=".45"/>`;
+  const boden=`<path d="M1 13.6h16" stroke="currentColor" stroke-width="1.3"
+    stroke-linecap="round" opacity=".45"/>`;
+  const pos=[[3.6,10.8],[9,5.4],[14.4,10.8]][i];
+  return `<svg viewBox="0 0 18 16" aria-hidden="true">${bahn}${boden}
+    <circle cx="${pos[0]}" cy="${pos[1]}" r="2.6" fill="#FFD65A"/></svg>`;
+}
+const UHR=["9","14","19"], WORT=["Vormittag","Nachmittag","Abend"];
+
+function legende(art,i){
+  if(art==="bogen")   return `<u>${bogenZeichen(i)}</u>`;
+  if(art==="uhr")     return `<u class="uhr">${UHR[i]}</u>`;
+  if(art==="wort")    return `<u class="wort">${WORT[i]}</u>`;
+  return "";
+}
+function tagSymbole(art,ab,erste,extra){
+  if(art==="eins"){
+    const m=ab[1];
+    return `<div class="ic">${symbol(m[0],m[1],false,false,extra)}</div>`;
+  }
+  const nurErste=(art==="bogen"||art==="uhr"||art==="wort");
+  return `<div class="drei">`+ab.map(([h,n],i)=>
+    `<div class="z">`+
+    (art==="schiene"?`<s class="t${i}"></s>`:(nurErste&&erste?legende(art,i):""))+
+    `${symbol(h,n,false,false,i===1?extra:{})}</div>`
+  ).join("")+`</div>`;
+}
+/* Die Legendenspalte spiegelt den Aufbau einer Tageskachel, damit ihre drei
+   Zeilen genau neben den drei Symbolen stehen. Name, Temperatur und Werte
+   bleiben als unsichtbare Platzhalter stehen und halten die Hoehen. */
+function zeichneLegende(an){
+  const e=document.getElementById("legende");
+  e.style.display=an?"":"none";
+  if(!an) return;
+  e.innerHTML=`<div class="name">&nbsp;</div>
+    <div class="ic"><div class="drei">`+
+    WORT.map(w=>`<div class="zeile">${w}</div>`).join("")+
+    `</div></div>
+    <div class="temps">0°/0°</div>
+    <div class="werte"><span class="i"></span><span class="v">0</span>
+      <span class="i"></span><span class="v">0</span>
+      <span class="i"></span><span class="v">0</span></div>`;
+}
+function zeichneTage(){
+  const art=document.querySelector('input[name=var]:checked').value;
+  zeichneLegende(art==="spalte");
+  document.getElementById("tage").innerHTML=TAGE.map(([name,ab,tmax,tnacht,pp,sonne,w,b],k)=>{
+    const extra={wind:windLevel(w,b),frost:frostLevel(tnacht)};
+    return `<div class="tag"><div class="name">${name}</div>
+      <div class="ic">${tagSymbole(art,ab,k===0,extra)}</div>
+      <div class="temps">${T(tmax)}<span style="color:#7a8798">/</span>${T(tnacht)}</div>
+      ${werte([["drop",pp+NB+"%",pp>=10?"rain":""],
+               ["sun",n1(sonne)+NB+"h",sonne>=1?"sun":""],
+               ["sock",w+"/"+b,(b>=35||w>=20)?"wind":""]])}</div>`;
+  }).join("");
+}
+function split(){
+  const v=Number(document.getElementById("split").value);
+  document.getElementById("splitv").textContent=v+NB+"%";
+  document.getElementById("bstunden").style.flex="0 0 "+v+"%";
+}
+/* Eine Groesse fuer alle Wettersymbole. Stundenkachel, Tageskachel und die
+   drei Abschnitte teilen sich denselben Wert, sonst wirkt dieselbe Lage je
+   nach Kachel unterschiedlich wichtig. */
+function groesse(){
+  const v=Number(document.getElementById("wsize").value);
+  document.getElementById("wsizev").textContent=v+NB+"px";
+  document.documentElement.style.setProperty("--wsize",v+"px");
+}
+document.getElementById("split").addEventListener("input",split);
+document.getElementById("wsize").addEventListener("input",groesse);
+groesse();
+for(const r of document.querySelectorAll('input[name=var]'))
+  r.addEventListener("change",zeichneTage);
+split(); zeichneTage();
+
+/* ---- 5. alle Symbole ---- */
+(function(){
+  let h="";
+  for(let i=0;i<5;i++)
+    for(const [k,n] of ARTEN){
+      const blitz=k==="gewitter";
+      h+=`<div class="probe">${symbol(i,blitz?"regen":k,blitz,false)}
+          <div class="n">${KURZ[i]}</div><div class="s">${n}</div></div>`;
+    }
+  h+=`<div class="probe">${symbolNebel()}<div class="n">Nebel</div><div class="s">eigener Fall</div></div>`;
+  for(let i=0;i<5;i++)
+    h+=`<div class="probe">${symbol(i,"",false,true)}<div class="n">${KURZ[i]}</div><div class="s">Nacht</div></div>`;
+  document.getElementById("alle").innerHTML=h;
+})();
+</script>
+
+<script>
+/* ==================================================================
+   6. Simulator: heutige Regeln gegen den Entwurf.
+================================================================== */
+let SCHWELLEN=[0.85,0.68,0.45,0.22];
+let GEWICHT=0.6;
+
+function urteilAlt(d){
+  if(d.blitz) return {ic:symbol(4,"regen",true,false),txt:"Gewitterneigung",regel:"Regel 1: Gewittercode"};
+  if(d.schnee) return {ic:symbol(4,"schnee",false,false),txt:"Schnee",regel:"Regel 2: Schneecode"};
+  if(d.mm>=2||(d.nass>=4&&d.mm>=1))
+    return {ic:symbol(4,"regen",false,false),txt:"regnerisch",regel:`Regel 3: ${d.mm.toFixed(1)} mm`};
+  if(d.mm>=1) return {ic:symbol(4,"niesel",false,false),txt:"zeitweise etwas Regen",regel:"Regel 4: mm >= 1"};
+  if((d.mm>=0.4||d.nass>=3)&&d.sonne<0.7)
+    return {ic:symbol(4,"niesel",false,false),txt:"zeitweise etwas Regen",regel:"Regel 5: schwaches Signal"};
+  if(d.sonne>=0.60&&d.wolke<=55)
+    return {ic:symbol(0,"",false,false),txt:"überwiegend sonnig",
+            regel:`Regel 6: Sonne ${(d.sonne*100)|0} >= 60, Wolken ${d.wolke} <= 55`};
+  if((d.sonne>=0.25&&d.wolke<=85)||d.wolke<=70)
+    return {ic:symbol(2,"",false,false),txt:"teils sonnig",regel:`Regel 7: Wolken ${d.wolke} <= 85`};
+  if(d.nebel&&d.sonne<0.1) return {ic:symbolNebel(),txt:"trüb und neblig",regel:"Regel 8: Nebel"};
+  return {ic:symbol(4,"",false,false),txt:"überwiegend bewölkt",
+          regel:`Regel 9: Rest. Die ${(d.sonne*100)|0} % Sonne kommen hier nicht mehr vor`};
+}
+
+function urteilNeu(d){
+  if(d.nebel&&d.sonne<0.1)
+    return {ic:symbolNebel(),txt:"trüb und neblig",regel:"Nebel bleibt ein eigener Fall",stufe:4};
+  const wert=GEWICHT*d.sonne+(1-GEWICHT)*(1-d.wolke/100);
+  let stufe=4;
+  for(let i=0;i<4;i++) if(wert>=SCHWELLEN[i]){ stufe=i; break; }
+  const roh=stufe;
+
+  let nass="",blitz=false;
+  if(d.blitz){ blitz=true; nass="regen"; }
+  else if(d.schnee) nass=d.mm>=3?"schnee-viel":"schnee";
+  else if(d.mm>=5) nass="viel";
+  else if(d.mm>=1.5) nass="regen";
+  else if(d.mm>=0.4||d.nass>=3) nass="niesel";
+  if(nass||blitz) stufe=Math.max(stufe,1);
+
+  const ZUSATZ={niesel:" mit etwas Regen",regen:" mit Regen",viel:" mit viel Regen",
+                schnee:" mit Schnee","schnee-viel":" mit viel Schnee"};
+  const txt=NAMEN[stufe]+(blitz?" mit Gewitterneigung":(ZUSATZ[nass]||""));
+  let regel=`Wert = ${GEWICHT.toFixed(2)}·${d.sonne.toFixed(2)} + ${(1-GEWICHT).toFixed(2)}·${(1-d.wolke/100).toFixed(2)} = ${wert.toFixed(2)}\nStufe ${roh}, ${NAMEN[roh]}`;
+  if((nass||blitz)&&stufe!==roh) regel+=`\nNiederschlag hebt auf Stufe ${stufe}`;
+  return {ic:symbol(stufe,nass,blitz,false,extras(d)),txt,regel,stufe,nass,blitz};
+}
+
+function lesen(){
+  const z=id=>Number(document.getElementById(id).value);
+  return {sonne:z("r_sonne")/100, wolke:z("r_wolke"), mm:z("r_mm")/10, nass:z("r_nass"),
+          boe:z("r_boe"), tmin:z("r_tmin"),
+          schnee:document.getElementById("c_schnee").checked,
+          blitz:document.getElementById("c_blitz").checked,
+          nebel:document.getElementById("c_nebel").checked};
+}
+function extras(d){ return {wind:windLevel(0,d.boe),frost:frostLevel(d.tmin)}; }
+function sim(){
+  const d=lesen();
+  document.getElementById("v_sonne").textContent=(d.sonne*100).toFixed(0)+NB+"%";
+  document.getElementById("v_wolke").textContent=d.wolke+NB+"%";
+  document.getElementById("v_mm").textContent=d.mm.toFixed(1)+NB+"mm";
+  document.getElementById("v_nass").textContent=d.nass;
+  document.getElementById("v_boe").textContent=d.boe+NB+"km/h";
+  document.getElementById("v_tmin").textContent=d.tmin+"°";
+  const a=urteilAlt(d), n=urteilNeu(d);
+  document.getElementById("alt_ic").innerHTML=`<div style="width:104px;margin:0 auto">${a.ic}</div>`;
+  document.getElementById("alt_txt").textContent=a.txt;
+  document.getElementById("alt_regel").textContent=a.regel;
+  document.getElementById("neu_ic").innerHTML=
+    `<div style="width:104px;margin:0 auto">${n.ic}</div>`;
+  document.getElementById("neu_txt").textContent=n.txt;
+  document.getElementById("neu_regel").textContent=n.regel;
+}
+
+const BEISPIELE=[
+  ["Di 29.09., dein Fall",  87,86, 0,0,18, 12],
+  ["Mi 30.09.",             93,60, 0,0,18, 16],
+  ["Mo 28.09.",             54,78, 0,2,40, 15],
+  ["praller Sonnentag",     94,18, 0,0,12,  9],
+  ["grauer Novembertag",     6,97, 0,0,25,  2],
+  ["Sonne mit Schauer",     71,62, 8,3,30, 13],
+  ["Landregen",             12,96,65,9,45,  8],
+  ["Hitzegewitter abends",  78,52,40,2,35, 18],
+  ["Schneetag",              9,94,30,7,30, -4,{schnee:true}],
+  ["Sturmtief",             22,92,80,10,72, 6],
+  ["Frostklare Nacht",      88,14, 0,0,10, -7]
+];
+document.getElementById("beispiele").innerHTML=
+  BEISPIELE.map((b,i)=>`<button data-i="${i}">${b[0]}</button>`).join("");
+document.getElementById("beispiele").addEventListener("click",e=>{
+  const b=BEISPIELE[Number(e.target.dataset.i)];
+  if(!b) return;
+  const f=b[7]||{};
+  const setz=(id,v)=>document.getElementById(id).value=v;
+  setz("r_sonne",b[1]); setz("r_wolke",b[2]); setz("r_mm",b[3]); setz("r_nass",b[4]);
+  setz("r_boe",b[5]); setz("r_tmin",b[6]);
+  document.getElementById("c_schnee").checked=!!f.schnee;
+  document.getElementById("c_blitz").checked=!!(f.blitz||b[0].indexOf("Gewitter")>=0);
+  document.getElementById("c_nebel").checked=!!f.nebel;
+  allesNeu();
+});
+
+function stellLesen(){
+  GEWICHT=Number(document.getElementById("r_gw").value)/100;
+  SCHWELLEN=[0,1,2,3].map(i=>Number(document.getElementById("r_s"+i).value)/100);
+  document.getElementById("v_gw").textContent=GEWICHT.toFixed(2);
+  for(let i=0;i<4;i++) document.getElementById("v_s"+i).textContent=SCHWELLEN[i].toFixed(2);
+}
+function uebersicht(){
+  let h=`<tr><th>Tag</th><th>Sonne</th><th>Wolken</th><th>mm</th><th>Böen</th><th>Tief</th>
+         <th>heute</th><th></th><th>Entwurf</th><th></th><th>Wert</th></tr>`;
+  for(const b of BEISPIELE){
+    const f=b[7]||{};
+    const d={sonne:b[1]/100,wolke:b[2],mm:b[3]/10,nass:b[4],boe:b[5],tmin:b[6],
+             schnee:!!f.schnee,blitz:!!(f.blitz||b[0].indexOf("Gewitter")>=0),nebel:!!f.nebel};
+    const a=urteilAlt(d), n=urteilNeu(d);
+    const wert=GEWICHT*d.sonne+(1-GEWICHT)*(1-d.wolke/100);
+    h+=`<tr><td>${b[0]}</td><td class="z">${b[1]}${NB}%</td><td class="z">${b[2]}${NB}%</td>
+        <td class="z">${d.mm.toFixed(1)}</td><td class="z">${b[5]}</td><td class="z">${b[6]}°</td>
+        <td>${a.ic}</td><td style="color:#8f9bab">${a.txt}</td>
+        <td>${n.ic}</td>
+        <td>${n.txt}</td><td class="z">${wert.toFixed(2)}</td></tr>`;
+  }
+  document.getElementById("uebersicht").innerHTML=h;
+}
+function allesNeu(){ stellLesen(); sim(); uebersicht(); }
+for(const id of ["r_gw","r_s0","r_s1","r_s2","r_s3"])
+  document.getElementById(id).addEventListener("input",allesNeu);
+for(const id of ["r_sonne","r_wolke","r_mm","r_nass","r_boe","r_tmin"])
+  document.getElementById(id).addEventListener("input",allesNeu);
+for(const id of ["c_schnee","c_blitz","c_nebel"])
+  document.getElementById(id).addEventListener("change",allesNeu);
+allesNeu();
+</script>

@@ -23,6 +23,7 @@
   --line:#3a4657;
   --blue:#6ec8ff;
   --yellow:#ffd45c;
+  --orange:#ffb27f;
 }
 *{box-sizing:border-box}
 html,body{
@@ -32,10 +33,17 @@ html,body{
   overflow:hidden
 }
 body{padding:12px 16px 10px}
+/*
+  Eine Breite und eine Symbolgroesse fuer Stunden- wie Tageskacheln. Vorher
+  war das Symbol in der Stundenkachel 38 Pixel gross und auf der Tageskachel
+  48, dieselbe Wetterlage wirkte dadurch je nach Kachel unterschiedlich
+  wichtig.
+*/
+:root{--kachel:calc((100vw - 108px)/12); --wsize:clamp(44px,8vh,104px)}
 #app{
   height:100%;
   display:grid;
-  grid-template-rows:auto minmax(0,1fr) minmax(0,1fr);
+  grid-template-rows:auto 36fr 64fr;
   gap:9px
 }
 header{
@@ -132,22 +140,22 @@ header{
   width:max-content;
 }
 .hour{
-  width:calc((100vw - 64px - 44px)/12);
-  flex:0 0 calc((100vw - 64px - 44px)/12);
+  width:var(--kachel);
+  flex:0 0 var(--kachel);
   background:linear-gradient(180deg,var(--panel3),var(--panel2));
   border:1px solid #46546a;
   border-radius:8px;
   padding:6px 1px 4px;
   text-align:center;
   display:grid;
-  grid-template-rows:auto minmax(0,1fr) auto auto auto;
+  grid-template-rows:auto minmax(0,1fr) auto auto;
   align-items:center;
   min-width:0
 }
 .hour.night{background:linear-gradient(180deg,#161d29,#111722);border-color:#364254}
 .hour .t{font-size:11px;color:#d5dce4;font-weight:600;font-variant-numeric:tabular-nums}
 .hour .icon{line-height:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.hour .icon .wicon{width:38px;height:38px;max-width:100%;max-height:100%;display:block}
+.hour .icon .wicon{width:var(--wsize);height:var(--wsize);max-width:100%;max-height:100%;display:block}
 .hour .deg{font-size:16px;font-weight:750;line-height:20px;font-variant-numeric:tabular-nums}
 
 /* Tap any tile to see every value the model delivers for it. */
@@ -177,7 +185,16 @@ header{
 .diag .rows.two{grid-template-columns:auto minmax(0,1fr)}
 .diag .close{position:absolute;right:16px;top:12px;color:#9dabbb;font-size:11px}
 
-.bottom-grid{display:grid;grid-template-columns:48% 52%;gap:9px;min-height:0}
+/*
+  Stunden- und Tagesleiste stehen auf demselben Zwoelferraster: die Karte
+  belegt fuenf Spalten, die sieben Tage je eine. Dadurch steht jede
+  Tageskachel genau unter einer Stundenkachel. Die elf Pixel Zuschlag gleichen
+  den Rand der Kaesten aus, der breiter ist als der Kachelabstand.
+*/
+.bottom-grid{display:grid;grid-template-columns:calc(5*var(--kachel) + 11px) minmax(0,1fr);
+             gap:9px;min-height:0}
+.linkezelle{display:flex;gap:4px;min-width:0;min-height:0}
+.linkezelle .radarbox{flex:1 1 auto;min-width:0}
 .radarbox{
   background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
   padding:9px 9px 7px;min-height:0;overflow:hidden;position:relative;
@@ -199,6 +216,13 @@ header{
   position:absolute;z-index:800;right:10px;bottom:9px;background:rgba(5,8,12,.82);
   border-radius:6px;padding:4px 7px;font-size:9px;color:#d5dee8
 }
+/* Der Titel sass in einer eigenen Zeile ueber der Karte und kostete dort
+   Hoehe. Unten links und unten rechts liegen Zeitmarke und Legende, deshalb
+   oben links. */
+.radar-titel{
+  position:absolute;z-index:800;left:10px;top:9px;background:rgba(5,8,12,.82);
+  border-radius:6px;padding:4px 8px;font-size:9.5px;letter-spacing:.3px;color:#cfd8e3
+}
 .radar-msg{
   position:absolute;z-index:801;left:50%;top:50%;transform:translate(-50%,-50%);
   background:rgba(5,8,12,.92);border:1px solid #536276;border-radius:8px;
@@ -218,19 +242,19 @@ header{
 .days{
   height:100%;
   display:flex;
-  gap:8px;
+  gap:4px;
   width:max-content;
 }
 .day{
-  width:calc((52vw - 52px - 48px)/7);
-  flex:0 0 calc((52vw - 52px - 48px)/7);
+  width:var(--kachel);
+  flex:0 0 var(--kachel);
   background:linear-gradient(180deg,#222d3d,#1a2230);
   border:1px solid #4b5a70;
   border-radius:11px;
   padding:7px 3px;
   text-align:center;
   display:grid;
-  grid-template-rows:auto minmax(0,1fr) auto auto auto auto;
+  grid-template-rows:auto minmax(0,1fr) auto auto;
   align-items:center;
   min-width:0
 }
@@ -238,13 +262,36 @@ header{
 .day .name{font-size:13px;font-weight:750;color:#f5f7f9}
 .day .icon{min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .day .icon{position:relative}
-.day .icon .wicon{width:48px;height:48px;max-width:100%;max-height:100%;display:block}
-.day .icon .wf{position:absolute;top:0;right:2px;line-height:0}
-.day .icon .wf1{color:#aeb8c5}
-.day .icon .wf2{color:#ff6b5e}
-.day .icon .wf .wflag{width:13px;height:16px;display:block}
+.day .icon .wicon{width:var(--wsize);height:var(--wsize);max-width:100%;max-height:100%;display:block}
 .day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .day .lbl{gap:2.5px;letter-spacing:-.15px}
+
+/* Drei Tagesabschnitte untereinander: Vormittag, Nachmittag, Abend. */
+.teile{display:flex;flex-direction:column;gap:7px;align-items:center;justify-content:center}
+.teile .wicon{width:var(--wsize);height:var(--wsize);display:block}
+.day .temps .slash{color:#7a8798}
+
+/*
+  Alle Wertzeilen einer Kachel in einem Raster. Einzeln zentrierte Zeilen
+  standen treppenartig versetzt, weil die Werte verschieden breit sind.
+*/
+.werte{display:grid;grid-template-columns:auto auto;column-gap:3.5px;align-items:center;
+       justify-content:center;font-size:11px;color:#9fb0c4;white-space:nowrap;
+       letter-spacing:-.15px;line-height:1.45}
+.werte .i{display:flex;align-items:center;justify-content:center;line-height:0}
+.werte .v{text-align:left;font-variant-numeric:tabular-nums}
+.werte .rain{color:var(--blue)} .werte .sun{color:var(--yellow)} .werte .wind{color:var(--orange)}
+.werte .mi{width:11px;height:11px;display:block}
+.werte .mi.sock{width:14px;height:10px}
+
+/* Legendenspalte: senkrechte Woerter, ausserhalb des Scrollbereichs. */
+.day.legende{background:none;border:none;box-shadow:none;flex:0 0 24px;width:24px;
+             padding:7px 0;opacity:.95}
+.day.legende .name,.day.legende .temps,.day.legende .werte{visibility:hidden}
+.day.legende .teile{width:100%}
+.day.legende .zeile{height:var(--wsize);display:flex;align-items:center;justify-content:center;
+                    font-size:9px;font-weight:700;color:#93a0b0;letter-spacing:.3px;
+                    white-space:nowrap;writing-mode:vertical-rl}
 
 /* shown until the page runs without browser chrome; any tap takes it there,
    and this is a real target so a deliberate tap cannot miss */
@@ -283,23 +330,38 @@ header{
 </header>
 
 <section class="box">
-  <div class="title">12 STUNDEN &middot; WISCHEN F&Uuml;R MEHR &middot; KACHEL ANTIPPEN = ALLE WERTE &nbsp;|&nbsp; REGENRISIKO &middot; WIND/B&Ouml;EN IN KM/H</div>
   <div class="hourly-scroll" id="hourlyScroll"><div class="hours" id="hours"></div></div>
-  
 </section>
 
 <section class="bottom-grid">
-  <div class="radarbox">
-    <div class="title">WETTERENTWICKLUNG &middot; JETZT &rarr; +6 STUNDEN &middot; DWD ICON</div>
-    <div class="radar-stage">
-      <div id="cloudMap"></div>
-      <div class="radar-time" id="radarTime">Wolken laden&hellip;</div>
-      <div class="radar-legend" id="radarLegend">grau = Wolken &middot; blau/gelb/rot = Niederschlag</div>
-      <div class="radar-msg" id="radarMsg"></div>
+  <div class="linkezelle">
+    <div class="radarbox">
+      <div class="radar-stage">
+        <div id="cloudMap"></div>
+        <div class="radar-titel">WETTERENTWICKLUNG &middot; JETZT &rarr; +6 STUNDEN &middot; DWD ICON</div>
+        <div class="radar-time" id="radarTime">Wolken laden&hellip;</div>
+        <div class="radar-legend" id="radarLegend">grau = Wolken &middot; blau/gelb/rot = Niederschlag</div>
+        <div class="radar-msg" id="radarMsg"></div>
+      </div>
+    </div>
+    <!-- Feste Legende fuer die drei Tagesabschnitte. Sie steht ausserhalb des
+         Scrollbereichs und bleibt beim Wischen durch 14 Tage stehen. Der
+         Aufbau spiegelt eine Tageskachel, damit die Woerter genau neben den
+         Symbolen sitzen. -->
+    <div class="day legende" aria-hidden="true">
+      <div class="name">&nbsp;</div>
+      <div class="icon"><div class="teile">
+        <div class="zeile">Vormittag</div>
+        <div class="zeile">Nachmittag</div>
+        <div class="zeile">Abend</div>
+      </div></div>
+      <div class="temps">0&deg;/0&deg;</div>
+      <div class="werte"><span class="i"></span><span class="v">0</span>
+        <span class="i"></span><span class="v">0</span>
+        <span class="i"></span><span class="v">0</span></div>
     </div>
   </div>
   <div class="box">
-    <div class="title">7 TAGE &middot; WISCHEN F&Uuml;R 14 &middot; GESTRICHELT = TREND &middot; ANTIPPEN = ALLE WERTE</div>
     <div class="days-scroll" id="daysScroll"><div class="days" id="days"></div></div>
   </div>
 </section>
@@ -312,42 +374,165 @@ header{
 <script>
 const LAT=50.76,LON=7.00,REFRESH_MS=600000;
 
-function weatherIcon(type, cls="wicon"){
-  const common=`class="${cls}" viewBox="0 0 64 64" aria-hidden="true"`;
-  const sun=`<circle cx="32" cy="32" r="10" fill="#FFD65A"/>
-    <g stroke="#FFD65A" stroke-width="3" stroke-linecap="round">
-      <path d="M32 7v7M32 50v7M7 32h7M50 32h7M14.3 14.3l5 5M44.7 44.7l5 5M49.7 14.3l-5 5M19.3 44.7l-5 5"/>
-    </g>`;
-  const moon=`<g transform="translate(-6 0)"><path d="M40 14 A18 18 0 1 0 40 50 A22 22 0 0 1 40 14 Z" fill="#E9EEF6"/></g>`;
-  const stars=`<g fill="#C9D6EA"><circle cx="48" cy="16" r="2"/><circle cx="55" cy="27" r="1.5"/><circle cx="44" cy="30" r="1.2"/></g>`;
-  const cloud=`<path d="M18 45h28c8 0 14-5 14-12s-6-12-13-12c-2 0-4 .4-5.7 1.3C38.4 16.8 33.2 14 27.5 14 19 14 12 21 12 29.5v.6C6.8 31.3 3 35.8 3 41c0 2.5.8 4.8 2.3 6.8C8 44.7 12.5 45 18 45z" fill="#E8EDF3"/>`;
-  const cloudDark=`<path d="M18 45h28c8 0 14-5 14-12s-6-12-13-12c-2 0-4 .4-5.7 1.3C38.4 16.8 33.2 14 27.5 14 19 14 12 21 12 29.5v.6C6.8 31.3 3 35.8 3 41c0 2.5.8 4.8 2.3 6.8C8 44.7 12.5 45 18 45z" fill="#B8C2CF"/>`;
-  const rain=`<g stroke="#65C7FF" stroke-width="4" stroke-linecap="round">
-      <path d="M20 49l-3 7M32 49l-3 7M44 49l-3 7"/>
-    </g>`;
-  const drizzle=`<g stroke="#8FD8FF" stroke-width="3" stroke-linecap="round">
-      <path d="M22 50l-2 5M32 50l-2 5M42 50l-2 5"/>
-    </g>`;
-  const snow=`<g stroke="#D9F2FF" stroke-width="3" stroke-linecap="round">
-      <path d="M20 51v8M16 55h8M32 51v8M28 55h8M44 51v8M40 55h8"/>
-    </g>`;
-  const fog=`<g stroke="#C7D0DA" stroke-width="3" stroke-linecap="round">
-      <path d="M10 42h44M14 49h36M19 56h26"/>
-    </g>`;
-  const lightning=`<path d="M34 42h10l-8 10h6L29 63l4-13h-7z" fill="#FFD65A"/>`;
+/*
+  Wettersymbole werden zusammengesetzt, nicht aus einer festen Liste gewaehlt.
 
-  if(type==="clear")        return `<svg ${common}>${sun}</svg>`;
-  if(type==="partly")       return `<svg ${common}>${sun}<g transform="translate(7 8) scale(.82)">${cloud}</g></svg>`;
-  if(type==="night_clear")  return `<svg ${common}>${stars}${moon}</svg>`;
-  if(type==="night_partly") return `<svg ${common}>${moon}<g transform="translate(7 8) scale(.82)">${cloud}</g></svg>`;
-  if(type==="cloud")        return `<svg ${common}>${cloud}</svg>`;
-  if(type==="fog")          return `<svg ${common}>${cloudDark}${fog}</svg>`;
-  if(type==="drizzle")      return `<svg ${common}>${cloud}${drizzle}</svg>`;
-  if(type==="rain")         return `<svg ${common}>${cloudDark}${rain}</svg>`;
-  if(type==="snow")         return `<svg ${common}>${cloudDark}${snow}</svg>`;
-  if(type==="storm")        return `<svg ${common}>${cloudDark}${rain}${lightning}</svg>`;
-  return `<svg ${common}>${sun}<g transform="translate(7 8) scale(.82)">${cloud}</g></svg>`;
+  Zwei Achsen, die sich nicht gegenseitig verdraengen: der Himmel in fuenf
+  Stufen von klar bis bedeckt, und was herunterfaellt. Vorher gewann genau ein
+  Name aus acht, deshalb loeschte ein einzelner Regentropfen die gesamte
+  Himmelsinformation und ein sonniger Tag mit einem Schauer sah aus wie
+  Dauerregen. Wind und Frost sitzen als Zeichen im selben Bild.
+
+  Aufruf entweder mit einem alten Namen ("clear", "rain", ...) oder mit
+  {sky, wet, storm, night, wind, frost}.
+*/
+const SKY_SUN=`<circle cx="32" cy="32" r="10" fill="#FFD65A"/>
+  <g stroke="#FFD65A" stroke-width="3" stroke-linecap="round">
+    <path d="M32 7v7M32 50v7M7 32h7M50 32h7M14.3 14.3l5 5M44.7 44.7l5 5M49.7 14.3l-5 5M19.3 44.7l-5 5"/>
+  </g>`;
+const SKY_MOON=`<g transform="translate(-6 0)"><path d="M40 14 A18 18 0 1 0 40 50 A22 22 0 0 1 40 14 Z" fill="#E9EEF6"/></g>`;
+const SKY_STARS=`<g fill="#C9D6EA"><circle cx="48" cy="16" r="2"/><circle cx="55" cy="27" r="1.5"/><circle cx="44" cy="30" r="1.2"/></g>`;
+const SKY_CLOUD_D=`M18 45h28c8 0 14-5 14-12s-6-12-13-12c-2 0-4 .4-5.7 1.3C38.4 16.8 33.2 14 27.5 14 19 14 12 21 12 29.5v.6C6.8 31.3 3 35.8 3 41c0 2.5.8 4.8 2.3 6.8C8 44.7 12.5 45 18 45z`;
+const SKY_CLOUD =`<path d="${SKY_CLOUD_D}" fill="#E8EDF3"/>`;
+const SKY_CLOUD_G=`<path d="${SKY_CLOUD_D}" fill="#B8C2CF"/>`;
+const SKY_FOG=`<g stroke="#C7D0DA" stroke-width="3" stroke-linecap="round">
+    <path d="M10 42h44M14 49h36M19 56h26"/></g>`;
+const SKY_BOLT=`<path d="M34 42h10l-8 10h6L29 63l4-13h-7z" fill="#FFD65A"/>`;
+
+/* Staerke ueber Laenge und Zahl der Striche, nicht ueber die Farbe: aus vier
+   Metern ist Laenge lesbar, ein Blauton nicht. */
+function nassStriche(art){
+  const P={niesel:{n:3,lang:5,dick:3,farbe:"#8FD8FF"},
+           regen:{n:3,lang:9,dick:4,farbe:"#65C7FF"},
+           viel:{n:4,lang:12,dick:4.5,farbe:"#65C7FF"}}[art];
+  if(!P) return "";
+  const breite=P.n===4?36:26, start=32-breite/2;
+  let d="";
+  for(let i=0;i<P.n;i++) d+=`M${start+i*(breite/(P.n-1))} 48l-${(P.lang*0.38).toFixed(1)} ${P.lang}`;
+  return `<g stroke="${P.farbe}" stroke-width="${P.dick}" stroke-linecap="round"><path d="${d}"/></g>`;
 }
+function nassFlocken(viel){
+  const n=viel?5:3, breite=viel?42:26, start=32-breite/2, r=viel?3.6:4.4;
+  let d="";
+  for(let i=0;i<n;i++){
+    const x=start+i*(breite/(n-1)), y=51+(i%2)*3;
+    d+=`M${x} ${y-r}v${2*r}M${x-r} ${y}h${2*r}`;
+  }
+  return `<g stroke="#D9F2FF" stroke-width="${viel?2.4:3}" stroke-linecap="round"><path d="${d}"/></g>`;
+}
+/*
+  Windsack statt Wimpel: das Zeichen vom Flugplatz, mit der Streifung schon
+  eingebaut. Weiss und grau bei Wind, weiss und rot bei Sturm. Duenne dunkle
+  Kontur, sonst verschwindet er auf einer hellen Wolke.
+*/
+function windsack(stufe){
+  if(!stufe) return "";
+  const zweite=stufe>=2?"#FF5B4E":"#AEB8C5";
+  const x0=3.6,x1=23.4, h=x=>5.6-3.6*(x-x0)/(x1-x0);
+  let baender="";
+  for(let i=0;i<4;i++){
+    const a=x0+(x1-x0)*i/4, b=x0+(x1-x0)*(i+1)/4;
+    baender+=`<path d="M${a.toFixed(2)} ${(7-h(a)).toFixed(2)}L${b.toFixed(2)} ${(7-h(b)).toFixed(2)}`+
+             `L${b.toFixed(2)} ${(7+h(b)).toFixed(2)}L${a.toFixed(2)} ${(7+h(a)).toFixed(2)}Z"`+
+             ` fill="${i%2?zweite:"#FFFFFF"}" stroke="#222B38" stroke-width=".55"/>`;
+  }
+  return `<g><path d="M2.0 1.0v18.4" stroke="#222B38" stroke-width="3.3" stroke-linecap="round"/>`+
+    `<path d="M2.0 1.0v18.4" stroke="#E8EDF3" stroke-width="1.9" stroke-linecap="round"/>`+
+    baender+`<path d="M3.6 1.4L3.6 12.6" stroke="#E8EDF3" stroke-width="1.2" stroke-linecap="round"/></g>`;
+}
+function frostKristall(stufe){
+  if(!stufe) return "";
+  const farbe=stufe>=2?"#5FB7FF":"#9EC9E8";
+  return `<g stroke="${farbe}" stroke-width="1.7" stroke-linecap="round">
+    <path d="M9 1.6v14.8M2.6 5.3l12.8 7.8M15.4 5.3L2.6 13.1"/>
+    <path d="M6.9 3.4 9 5.1l2.1-1.7M6.9 14.6 9 12.9l2.1 1.7
+             M3.3 7.9 3.0 5.5l2.4.1M14.7 7.9l.3-2.4-2.4.1
+             M3.3 10.5 3.0 12.9l2.4-.1M14.7 10.5l.3 2.4-2.4-.1" stroke-width="1.3"/></g>`;
+}
+
+/* Lage von Sonne und Wolke je Himmelsstufe. Die Wolke waechst und schiebt
+   sich vor die Sonne, statt dass ein Symbol das andere ersetzt. */
+const SKY_LAGE=[
+  {sonne:[0,0,1],      wolke:null},
+  {sonne:[-1,-3,.88],  wolke:[20,22,.52]},
+  {sonne:[-2,-3,.80],  wolke:[7,8,.82]},
+  {sonne:[-1,0,.60],   wolke:[1,2,.98]},
+  {sonne:null,         wolke:[0,1,1]}
+];
+const svgG=(t,inhalt)=>t?`<g transform="translate(${t[0]} ${t[1]}) scale(${t[2]})">${inhalt}</g>`:inhalt;
+/* Der Niederschlag haengt am Wolkenrand und folgt der Wolke in Groesse und
+   Lage, sonst haengen die Tropfen bei kleiner Wolke in der Luft. */
+function nassLage(w){
+  const [tx,ty,sc]=w, mitteX=31.5*sc+tx, unten=47.5*sc+ty, ds=Math.max(.66,sc);
+  return [mitteX-32*ds, unten+1.5-48*ds, ds];
+}
+
+const LEGACY={
+  clear:{sky:0}, partly:{sky:2}, cloud:{sky:4},
+  night_clear:{sky:0,night:true}, night_partly:{sky:2,night:true},
+  fog:{fog:true}, drizzle:{sky:3,wet:"niesel"}, rain:{sky:4,wet:"regen"},
+  snow:{sky:4,wet:"schnee"}, storm:{sky:4,wet:"regen",storm:true}
+};
+
+function weatherIcon(spec, cls="wicon"){
+  if(typeof spec==="string") spec=LEGACY[spec]||{sky:2};
+  const common=`class="${cls}" viewBox="0 0 64 64" aria-hidden="true"`;
+  if(spec.fog) return `<svg ${common}>${svgG([0,-2,.95],SKY_CLOUD_G)}${svgG([0,-2,.95],SKY_FOG)}</svg>`;
+
+  let stufe=Math.max(0,Math.min(4,Number(spec.sky||0)));
+  const nass=spec.wet||"", blitz=!!spec.storm;
+  if(nass||blitz) stufe=Math.max(stufe,1);         /* es braucht eine Wolke */
+  const L=SKY_LAGE[stufe], teile=[];
+  if(L.sonne){
+    if(spec.night){ teile.push(SKY_STARS); teile.push(svgG(L.sonne,SKY_MOON)); }
+    else teile.push(svgG(L.sonne,SKY_SUN));
+  }
+  if(L.wolke) teile.push(svgG(L.wolke,(nass||blitz)?SKY_CLOUD_G:SKY_CLOUD));
+  if(L.wolke&&(nass||blitz)){
+    const lg=nassLage(L.wolke);
+    if(nass==="schnee"||nass==="schnee-viel") teile.push(svgG(lg,nassFlocken(nass==="schnee-viel")));
+    else if(nass) teile.push(svgG(lg,nassStriche(nass)));
+    if(blitz) teile.push(svgG(lg,SKY_BOLT));
+  }
+  if(spec.frost) teile.push(`<g transform="translate(0 0) scale(.95)">${frostKristall(spec.frost)}</g>`);
+  if(spec.wind)  teile.push(`<g transform="translate(37 0) scale(1.05)">${windsack(spec.wind)}</g>`);
+  return `<svg ${common}>${teile.join("")}</svg>`;
+}
+
+/*
+  Windstufe fuer den Windsack im Symbol, an der Beaufortskala und den
+  Warnstufen des DWD orientiert. Die Wertzeile faerbt sich schon ab 35 km/h in
+  Boeen ein, das ist fuer ein Zeichen am Symbol zu frueh.
+*/
+function windLevel(speed,gust){
+  speed=Number(speed||0); gust=Number(gust||0);
+  if(gust>=55||speed>=34) return 2;
+  if(gust>=38||speed>=24) return 1;
+  return 0;
+}
+/* Frost wie der Wind in zwei Stufen: Bodenfrost und echter Frost. */
+function frostLevel(tmin){
+  tmin=Number(tmin);
+  if(!isFinite(tmin)) return 0;
+  if(tmin<0) return 2;
+  if(tmin<=3) return 1;
+  return 0;
+}
+/* Temperaturfarbe: warm nach rot, mild nach gruen, kalt nach blau. Stufen
+   statt weichem Verlauf, sonst sind benachbarte Werte nicht zu trennen. */
+function tempFarbe(t){
+  t=Number(t);
+  if(!isFinite(t)) return "var(--text)";
+  if(t>=30) return "#FF3B30";
+  if(t>=25) return "#FF6A3D";
+  if(t>=20) return "#FF9A3C";
+  if(t>=16) return "#E8C13C";
+  if(t>=5)  return "#4CC76A";
+  if(t>=0)  return "#5FD0C8";
+  if(t>=-8) return "#58B0FF";
+  return "#8E9BFF";
+}
+const tempSpan=v=>`<span style="color:${tempFarbe(v)}">${deg(v)}</span>`;
 
 const ICON_LABEL={
   clear:"sonnig", partly:"sonnig mit Wolken", cloud:"bedeckt",
@@ -401,31 +586,42 @@ function skyDecision(o){
   const sunFrac=Math.max(0,Math.min(1,Number(o.sunSec||0)/3600));
   const brightness=Math.max(ratio,sunFrac*0.55);
 
-  const d={ratio,sunFrac,brightness,clearSky,day};
+  /*
+    Himmelsstufe 0 bis 4 aus der Bewoelkung, nach oben korrigiert, wenn die
+    Strahlung trotz gemeldeter Wolken hoch ist. Damit bekommen auch die
+    Stundenkacheln die fuenf Abstufungen statt nur klar, Mix und bedeckt.
+  */
+  let stufe = tot<15?0 : tot<40?1 : tot<65?2 : tot<88?3 : 4;
+  if(day&&brightness>=0.70&&stufe>1) stufe=1;
+  const d={ratio,sunFrac,brightness,clearSky,day,stufe};
 
-  if([95,96,99].includes(code))                 return {...d,icon:"storm",   why:"WMO-Code "+code+" = Gewitter"};
-  if([71,73,75,77,85,86].includes(code))        return {...d,icon:"snow",    why:"WMO-Code "+code+" = Schnee"};
-  if([61,63,65,66,67,80,81,82].includes(code))  return {...d,icon:"rain",    why:"WMO-Code "+code+" = Regen"};
-  if(precip>=0.3)                               return {...d,icon:"rain",    why:n1(precip)+NB+"mm Niederschlag"};
-  if([51,53,55,56,57].includes(code)||precip>0) return {...d,icon:"drizzle", why:"leichter Niederschlag ("+n1(precip)+NB+"mm)"};
-  if([45,48].includes(code))                    return {...d,icon:"fog",     why:"WMO-Code "+code+" = Nebel"};
-  if(pop>=75)                                   return {...d,icon:"rain",    why:"Regenrisiko "+pop+" %"};
+  /* Der Name bleibt fuer die Beschriftung erhalten, dazu kommt die Vorschrift
+     fuer das zusammengesetzte Symbol. */
+  const mit=(icon,spec,why)=>({...d,icon,spec:{sky:stufe,night:!day,...spec},why});
+
+  if([95,96,99].includes(code))                 return mit("storm",  {wet:"regen",storm:true}, "WMO-Code "+code+" = Gewitter");
+  if([71,73,75,77,85,86].includes(code))        return mit("snow",   {wet:precip>=3?"schnee-viel":"schnee"}, "WMO-Code "+code+" = Schnee");
+  if([61,63,65,66,67,80,81,82].includes(code))  return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, "WMO-Code "+code+" = Regen");
+  if(precip>=0.3)                               return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, n1(precip)+NB+"mm Niederschlag");
+  if([51,53,55,56,57].includes(code)||precip>0) return mit("drizzle",{wet:"niesel"}, "leichter Niederschlag ("+n1(precip)+NB+"mm)");
+  if([45,48].includes(code))                    return mit("fog",    {fog:true}, "WMO-Code "+code+" = Nebel");
+  if(pop>=75)                                   return mit("rain",   {wet:"regen"}, "Regenrisiko "+pop+" %");
 
   if(!day){
-    if(tot<25)  return {...d,icon:"night_clear", why:"Nacht, "+Math.round(tot)+" % Bewölkung"};
-    if(tot<75)  return {...d,icon:"night_partly",why:"Nacht, "+Math.round(tot)+" % Bewölkung"};
-    return        {...d,icon:"cloud",            why:"Nacht, "+Math.round(tot)+" % Bewölkung"};
+    if(tot<25)  return mit("night_clear", {sky:0}, "Nacht, "+Math.round(tot)+" % Bewölkung");
+    if(tot<75)  return mit("night_partly",{sky:2}, "Nacht, "+Math.round(tot)+" % Bewölkung");
+    return        mit("cloud",            {sky:4}, "Nacht, "+Math.round(tot)+" % Bewölkung");
   }
 
   /* near sunrise and sunset the long atmospheric path depresses the radiation
      ratio, so a nearly cloud-free sky is trusted on cloud cover alone */
   if(tot<25)
-    return {...d,icon:"clear", why:`nur ${Math.round(tot)} % Bewölkung`};
+    return mit("clear", {}, `nur ${Math.round(tot)} % Bewölkung`);
   if(brightness>=0.70&&tot<50)
-    return {...d,icon:"clear", why:`Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel, nur ${Math.round(tot)} % Bewölkung`};
+    return mit("clear", {}, `Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel, nur ${Math.round(tot)} % Bewölkung`);
   if(brightness>=0.40||tot<75)
-    return {...d,icon:"partly",why:`Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel bei ${Math.round(tot)} % Bewölkung`};
-  return   {...d,icon:"cloud", why:`nur ${(brightness*100).toFixed(0)} % Helligkeit bei ${Math.round(tot)} % Bewölkung`};
+    return mit("partly",{}, `Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel bei ${Math.round(tot)} % Bewölkung`);
+  return   mit("cloud", {}, `nur ${(brightness*100).toFixed(0)} % Helligkeit bei ${Math.round(tot)} % Bewölkung`);
 }
 
 /*
@@ -497,43 +693,23 @@ const pct=v=>Math.round(Number(v||0))+NB+"%";
 const deg=v=>Math.round(Number(v||0))+"°";
 
 /* one label row: icon, value, and a colour only when the value is notable */
-function lbl(kind,text,accent){
-  return `<div class="lbl${accent?" "+accent:""}">${mi(kind)}<span>${text}</span></div>`;
+/*
+  Alle Wertzeilen einer Kachel in einem einzigen Raster.
+
+  Einzeln zentrierte Zeilen standen treppenartig versetzt, weil "0 %",
+  "10,9 h" und "14/40" verschieden breit sind. Hier richten sich beide Spalten
+  nach ihrem breitesten Inhalt, dadurch steht Zeichen unter Zeichen und Ziffer
+  unter Ziffer, und zentriert wird nur der Block als Ganzes.
+*/
+function werteBlock(zeilen){
+  return `<div class="werte">`+zeilen.map(([kind,text,akzent])=>{
+    const k=akzent?" "+akzent:"";
+    return `<span class="i${k}">${mi(kind)}</span><span class="v${k}">${text}</span>`;
+  }).join("")+`</div>`;
 }
 function windSignificant(speed,gust){
   speed=Number(speed||0); gust=Number(gust||0);
   return gust>=35||speed>=20;
-}
-/*
-  Windfahne auf der Tageskachel, in zwei Stufen wie bei WetterOnline: dort
-  hat die Fahne graue Streifen bei maessigem Wind und rote, wenn es deutlich
-  windiger wird.
-
-  Die Zeile unter dem Symbol faerbt sich schon ab 35 km/h in Boen ein, das
-  ist fuer ein Zeichen am Symbol zu frueh. Die Fahne orientiert sich an der
-  Beaufortskala und an den Warnstufen des Deutschen Wetterdienstes:
-
-    Stufe 1, grau    ab 38 km/h Boen oder 24 km/h Mittel   (Windstaerke 6)
-    Stufe 2, rot     ab 55 km/h Boen oder 34 km/h Mittel   (nahe der
-                     DWD-Warnschwelle fuer Windboen, Windstaerke 7 bis 8)
-*/
-function windLevel(speed,gust){
-  speed=Number(speed||0); gust=Number(gust||0);
-  if(gust>=55||speed>=34) return 2;
-  if(gust>=38||speed>=24) return 1;
-  return 0;
-}
-/* Wimpel am Mast mit Streifen. Zwei Streifen bei Stufe 1, drei bei Stufe 2. */
-function windPennant(level){
-  const streifen = level>=2
-    ? `<path d="M4.4 2.4 L14.6 4.6 L4.4 6.4 Z" fill="currentColor"/>`+
-      `<path d="M4.4 7.2 L14.6 9.4 L4.4 11.2 Z" fill="currentColor"/>`+
-      `<path d="M4.4 12.0 L11.4 13.6 L4.4 15.2 Z" fill="currentColor"/>`
-    : `<path d="M4.4 2.8 L14.6 5.0 L4.4 6.8 Z" fill="currentColor"/>`+
-      `<path d="M4.4 7.8 L11.4 9.4 L4.4 11.0 Z" fill="currentColor"/>`;
-  return `<svg class="wflag" viewBox="0 0 16 20" aria-hidden="true">`+
-    `<path d="M3.2 1.4v17.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`+
-    streifen+`</svg>`;
 }
 /* Always speed and gust, always the same shape. The unit lives in the panel
    title, not on 21 individual cards. */
@@ -707,6 +883,11 @@ function dayDetail(label,d,note){
   showDetail(label, "",
     [
       ["Höchst / Tiefst",         `${n1(d.maxT)} / ${n1(d.minT)}${NB}°C`],
+      /* Die Kachel zeigt das Tief der kommenden Nacht, nicht das Kalendertief.
+         Hier steht beides nebeneinander, damit der Unterschied sichtbar ist. */
+      ["Tief kommende Nacht",     d.nachtEcht
+          ? `${n1(d.nachtT)}${NB}°C (Sonnenuntergang bis Sonnenaufgang)`
+          : `${n1(d.nachtT)}${NB}°C (Kalendertag, Nacht reicht über die Vorhersage hinaus)`],
       ["gefühlt Höchst / Tiefst", `${orDash(d.appMax,n1)} / ${orDash(d.appMin,n1)}${NB}°C`],
       ["Niederschlag",            `${n1(d.mm)}${NB}mm`],
       ["Niederschlagsstunden",    orDash(d.ph,v=>`${n0(v)}${NB}h`)],
@@ -717,6 +898,7 @@ function dayDetail(label,d,note){
       ["Sonnenaufgang",           d.sr||"–"],
       ["Sonnenuntergang",         d.ss||"–"],
       ["Strahlungssumme",         orDash(d.radsum,v=>`${n1(v)}${NB}MJ/m²`)],
+      ["Tagesabschnitte",         (d.teile||[]).map(t=>`${t.key}: ${TAG_NAMEN[t.spec.sky]}`).join(" · ")||"–"],
       ["Wind höchstens",          `${n0(d.wmax)}${NB}km/h`],
       ["Böen höchstens",          `${n0(d.gmax)}${NB}km/h`],
       ["Windrichtung",            dirText(d.wdir)],
@@ -761,7 +943,7 @@ const ICON_URL=
 const TREND_URL=
   `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}`+
   `&models=best_match`+
-  `&hourly=uv_index,weather_code,precipitation,precipitation_probability,`+
+  `&hourly=uv_index,temperature_2m,weather_code,precipitation,precipitation_probability,`+
     `cloud_cover,sunshine_duration,cape`+
   `&daily=${DAILY_VARS},uv_index_max`+
   `&forecast_days=14&timezone=Europe%2FBerlin`;
@@ -811,35 +993,25 @@ function dayVerdict(hrs,daylightH){
   v.ratio=daylightH>0?Math.min(1,v.sunH/daylightH):0;
 
   /*
-    Amount decides first, because that is what one actually notices. Counting
-    wet hours alone made a day with twelve hours of sunshine and 0.6 mm spread
-    thinly across six hours come out as a rain day. A weak signal therefore
-    only counts when the day is not sunny anyway.
-  */
-  if(v.storm)                                    { v.icon="storm";   v.text="Gewitterneigung"; }
-  else if(v.snow)                                { v.icon="snow";    v.text="Schnee"; }
-  else if(v.mm>=2||(v.wetHours>=4&&v.mm>=1))     { v.icon="rain";    v.text="regnerisch"; }
-  else if(v.mm>=1)                               { v.icon="drizzle"; v.text="zeitweise etwas Regen"; }
-  else if((v.mm>=0.4||v.wetHours>=3)&&v.ratio<0.7)
-                                                 { v.icon="drizzle"; v.text="zeitweise etwas Regen"; }
-  /*
-    Sonne und Wolken zusammen entscheiden, nicht die Sonne allein.
+    Der Himmel entscheidet, der Niederschlag kommt dazu.
 
-    sunshine_duration zaehlt jede Stunde, in der die direkte Strahlung
-    120 W/m2 uebersteigt, und das schafft die Sonne auch durch duenne hohe
-    Bewoelkung. Am 21.09.2026 meldete ICON deshalb 73 Prozent Sonnenanteil
-    bei 83 Prozent mittlerer Bewoelkung, und die Tageskachel zeigte pralle
-    Sonne, waehrend fast jede Stundenkachel den Sonne-Wolken-Mix zeigte.
-    Tage mit ganz unterschiedlichem Himmel sahen dadurch gleich aus.
-
-    Fuer die volle Sonne muessen jetzt beide Groessen stimmen. cloudAvg
-    wurde vorher zwar berechnet, aber nie benutzt.
+    Frueher gewann genau eine von neun Regeln, und Niederschlag stand in
+    derselben Reihe wie Sonne und Wolken. Dadurch loeschte ein einzelner
+    Regentropfen die gesamte Himmelsinformation: ein sonniger Tag mit einem
+    Schauer am Nachmittag sah aus wie Dauerregen. Jetzt sind es zwei Achsen,
+    die sich nicht gegenseitig verdraengen.
   */
-  else if(v.ratio>=0.60&&v.cloudAvg<=55)         { v.icon="clear";   v.text="überwiegend sonnig"; }
-  else if((v.ratio>=0.25&&v.cloudAvg<=85)||v.cloudAvg<=70)
-                                                 { v.icon="partly";  v.text="teils sonnig"; }
-  else if(v.fog&&v.ratio<0.1)                    { v.icon="fog";     v.text="trüb und neblig"; }
-  else                                           { v.icon="cloud";   v.text="überwiegend bewölkt"; }
+  if(v.fog&&v.ratio<0.1){
+    v.icon="fog"; v.text="trüb und neblig"; v.spec={fog:true}; v.sky=4; v.wet="";
+  }else{
+    const stufe=himmelStufe(v.ratio,v.cloudAvg);
+    const art=nassArt(v.mm,v.wetHours,v.snow);
+    v.sky=(art||v.storm)?Math.max(stufe,1):stufe;
+    v.wet=art;
+    v.spec={sky:v.sky,wet:art,storm:v.storm};
+    v.text=TAG_NAMEN[v.sky]+(v.storm?" mit Gewitterneigung":(NASS_TEXT[art]||""));
+    v.icon=nassName(art,v.storm)||(v.sky<=1?"clear":v.sky<=3?"partly":"cloud");
+  }
   return v;
 }
 
@@ -948,6 +1120,98 @@ function dayNarrative(v,info,isToday){
 }
 
 /* pull one day out of an hourly series, in the shape dayVerdict expects */
+/*
+  Himmelsstufe eines Tages oder Tagesabschnitts.
+
+  Sonne und Bewoelkung werden gewichtet zusammengefasst, statt nacheinander
+  abgefragt. Die alte Kette hatte eine Klippe: oberhalb von 85 Prozent
+  Bewoelkung kam der Sonnenanteil gar nicht mehr vor, dadurch landete ein Tag
+  mit 87 Prozent Sonne bei "bedeckt", waehrend der Nachbartag mit 93 Prozent
+  den Mix bekam. sunshine_duration zaehlt jede Stunde mit ueber 120 W/m2
+  direkter Strahlung, und das schafft die Sonne auch durch duenne hohe
+  Bewoelkung, deshalb darf keine der beiden Groessen allein entscheiden.
+*/
+const TAG_GEWICHT=0.6;
+const TAG_SCHWELLEN=[0.85,0.68,0.45,0.22];
+const TAG_NAMEN=["sonnig","überwiegend sonnig","wechselnd","überwiegend bewölkt","bedeckt"];
+const NASS_TEXT={niesel:" mit etwas Regen",regen:" mit Regen",viel:" mit viel Regen",
+                 schnee:" mit Schnee","schnee-viel":" mit viel Schnee"};
+
+const himmelWert=(ratio,cloud)=>TAG_GEWICHT*ratio+(1-TAG_GEWICHT)*(1-cloud/100);
+function himmelStufe(ratio,cloud){
+  const w=himmelWert(ratio,cloud);
+  for(let i=0;i<4;i++) if(w>=TAG_SCHWELLEN[i]) return i;
+  return 4;
+}
+/* Nachts gibt es keinen Sonnenanteil, dort entscheidet die Bewoelkung allein. */
+const wolkenStufe=c=>c<15?0:c<40?1:c<65?2:c<88?3:4;
+function nassArt(mm,nasseStunden,schnee){
+  if(schnee) return mm>=3?"schnee-viel":"schnee";
+  if(mm>=5) return "viel";
+  if(mm>=1.5) return "regen";
+  if(mm>=0.4||nasseStunden>=3) return "niesel";
+  return "";
+}
+function nassName(nass,blitz){
+  if(blitz) return "storm";
+  if(!nass) return "";
+  if(nass.startsWith("schnee")) return "snow";
+  return nass==="niesel"?"drizzle":"rain";
+}
+
+/* Drei Abschnitte, aus denen die Tageskachel ihre drei Symbole bekommt. */
+const TAGESTEILE=[
+  {key:"Vormittag",  von:6,  bis:11},
+  {key:"Nachmittag", von:12, bis:17},
+  {key:"Abend",      von:18, bis:23}
+];
+function teilUrteil(hrs,teil,srH,ssH){
+  const win=hrs.filter(h=>h.hour>=teil.von&&h.hour<=teil.bis);
+  if(!win.length) return null;
+  let mm=0,sun=0,cloud=0,nass=0,schnee=false,blitz=false,hell=0;
+  for(const h of win){
+    const c=Number(h.code||0), m=Number(h.precip||0);
+    mm+=m; sun+=Number(h.sunSec||0)/3600; cloud+=Number(h.cloud||0);
+    if(m>=0.1||WET.includes(c)) nass++;
+    if(WMO_SNOW.includes(c)) schnee=true;
+    if(WMO_STORM.includes(c)) blitz=true;
+    const mitte=h.hour+0.5;
+    if(!(srH>=0&&ssH>=0)||(mitte>=srH&&mitte<=ssH)) hell++;
+  }
+  cloud/=win.length;
+  const nacht=hell===0;
+  const ratio=hell>0?Math.min(1,sun/hell):0;
+  const stufe=nacht?wolkenStufe(cloud):himmelStufe(ratio,cloud);
+  const art=nassArt(mm,nass,schnee);
+  return {...teil,mm,cloud,ratio,nacht,
+          spec:{sky:(art||blitz)?Math.max(stufe,1):stufe,wet:art,storm:blitz,night:nacht}};
+}
+
+/*
+  Tief der Nacht, die an diesem Abend beginnt.
+
+  temperature_2m_min gilt fuer den Kalendertag ab Mitternacht und stammt damit
+  fast immer aus den Stunden vor dem Aufstehen, gehoert also zur Nacht davor.
+  Wer abends auf die Wand schaut, will wissen, wie kalt es gleich wird.
+  Gerechnet wird deshalb von Sonnenuntergang bis Sonnenaufgang am naechsten
+  Morgen. Fehlt der Morgen danach, weil die Reihe endet, bleibt es beim
+  Kalendertief.
+*/
+function nachtTief(H,tagIso,ssH,naechsterTagIso,naechstesSrH,rueckfall){
+  if(!H||!H.time||!(ssH>=0)) return {wert:rueckfall,echt:false};
+  let min=null;
+  for(let k=0;k<H.time.length;k++){
+    const t=H.time[k], tag=t.slice(0,10), std=Number(t.slice(11,13));
+    const v=H.temperature_2m?.[k];
+    if(v==null) continue;
+    const drin = (tag===tagIso && std>=Math.floor(ssH))
+              || (naechsterTagIso && tag===naechsterTagIso && std<=Math.ceil(naechstesSrH>=0?naechstesSrH:7));
+    if(drin && (min===null||v<min)) min=v;
+  }
+  if(min===null) return {wert:rueckfall,echt:false};
+  return {wert:min,echt:true};
+}
+
 function hoursOfDay(H,dayIso){
   const out=[];
   if(!H||!H.time) return out;
@@ -960,6 +1224,7 @@ function hoursOfDay(H,dayIso){
       pop:H.precipitation_probability?.[k],
       cloud:H.cloud_cover?.[k],
       sunSec:H.sunshine_duration?.[k],
+      temp:H.temperature_2m?.[k],
       cape:H.cape?.[k]
     });
   }
@@ -1004,23 +1269,40 @@ function renderDays(icon,trend,uvDay){
     };
 
     /* judge the day from its own hourly series, 05:00 to 23:00 */
-    const hrs=hoursOfDay(s.trend?trend?.hourly:icon.hourly,d.time[i]);
+    const H=s.trend?trend?.hourly:icon.hourly;
+    const hrs=hoursOfDay(H,d.time[i]);
     const v=dayVerdict(hrs,info.daylight);
     info.verdict=v;
     info.day=d.time[i];
 
+    const stunde=t=>{ const m=/T(\d\d):(\d\d)/.exec(t||""); return m?Number(m[1])+Number(m[2])/60:-1; };
+    const srH=stunde(d.sunrise?.[i]), ssH=stunde(d.sunset?.[i]);
+    info.teile=TAGESTEILE.map(t=>teilUrteil(hrs,t,srH,ssH)).filter(Boolean);
+
+    /* Tief der kommenden Nacht statt des Kalendertiefs, siehe nachtTief() */
+    const naechster=d.time[i+1]||null;
+    const nt=nachtTief(H,d.time[i],ssH,naechster,stunde(d.sunrise?.[i+1]),info.minT);
+    info.nachtT=nt.wert; info.nachtEcht=nt.echt;
+
     const e=document.createElement("div");
     e.className="day"+(s.trend?" trend":"");
+    /* Wind und Frost gehoeren an das mittlere der drei Symbole, damit sie
+       einmal je Kachel erscheinen und nicht dreimal. */
+    const beigaben={wind:windLevel(info.wmax,info.gmax),frost:frostLevel(info.nachtT)};
+    const symbole = info.teile.length===3
+      ? `<div class=teile>`+info.teile.map((t,k)=>
+          `<div class=teil>${weatherIcon(k===1?{...t.spec,...beigaben}:t.spec)}</div>`).join("")+`</div>`
+      : weatherIcon({...v.spec,...beigaben});
+
     e.innerHTML=
       `<div class=name>${pos===0?"Heute":dow(d.time[i])}</div>`+
-      `<div class=icon>${weatherIcon(v.icon)}`+
-        (()=>{const wl=windLevel(info.wmax,info.gmax);
-              return wl?`<span class="wf wf${wl}" title="${wl>1?"stürmisch":"windig"}">${windPennant(wl)}</span>`:"";})()+
-      `</div>`+
-      `<div class=temps>${deg(info.maxT)}/${deg(info.minT)}</div>`+
-      lbl("drop",pct(info.pp),info.pp>=10?"rain":"")+
-      lbl("sun",`${n1(info.sunh)}${NB}h`,info.sunh>=1?"sun":"")+
-      lbl("sock",windText(info.wmax,info.gmax),windSignificant(info.wmax,info.gmax)?"wind":"");
+      `<div class=icon>${symbole}</div>`+
+      `<div class=temps>${tempSpan(info.maxT)}<span class=slash>/</span>${tempSpan(info.nachtT)}</div>`+
+      werteBlock([
+        ["drop",pct(info.pp),info.pp>=10?"rain":""],
+        ["sun",`${n1(info.sunh)}${NB}h`,info.sunh>=1?"sun":""],
+        ["sock",windText(info.wmax,info.gmax),windSignificant(info.wmax,info.gmax)?"wind":""]
+      ]);
 
     const label=pos===0
       ? "Heute, "+new Date(d.time[i]+"T12:00").toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit"})
@@ -1229,10 +1511,12 @@ async function loadWeather(){
       e.className="hour"+(dec.day?"":" night");
       e.innerHTML=
         `<div class=t>${hh(ts[i])}</div>`+
-        `<div class=icon>${weatherIcon(dec.icon)}</div>`+
-        `<div class=deg>${deg(blk.temp)}</div>`+
-        lbl("drop",pct(blk.pop),Number(blk.pop||0)>=10?"rain":"")+
-        lbl("sock",windText(blk.wind,blk.gust),windSignificant(blk.wind,blk.gust)?"wind":"");
+        `<div class=icon>${weatherIcon(dec.spec||dec.icon)}</div>`+
+        `<div class=deg>${tempSpan(blk.temp)}</div>`+
+        werteBlock([
+          ["drop",pct(blk.pop),Number(blk.pop||0)>=10?"rain":""],
+          ["sock",windText(blk.wind,blk.gust),windSignificant(blk.wind,blk.gust)?"wind":""]
+        ]);
       const label=new Date(ts[i]).toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit"})+
         ", "+hh(ts[i])+" Uhr";
       e.addEventListener("click",()=>hourDetail(label,blk,dec));
