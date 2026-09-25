@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solar im Banner &ndash; Entwurf</title>
+<style>
+:root{
+  --bg:#0d131b; --karte:#141c26; --rand:#2b3745; --text:#e8eef5; --muted:#8b97a6;
+  --gruen:#3ddc97; --gelb:#ffd166; --rot:#ff7b6b; --blau:#63b3ff; --tuerkis:#4fd6c9;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+     font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+     padding-block:24px;padding-left:16px;padding-right:16px}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:15px;margin:32px 0 10px;color:#c5ced8;font-weight:700}
+p.lead{color:var(--muted);margin:0 0 20px;max-width:760px}
+.hinweis{color:var(--muted);font-size:12.5px;margin:6px 0 0;max-width:640px}
+
+/* ---- Bedienung ---- */
+.regler{background:var(--karte);border:1px solid var(--rand);border-radius:12px;
+        padding:14px;display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;
+        position:sticky;top:0;z-index:5}
+.regler label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.regler input[type=range]{width:180px}
+.regler select{background:#0f1720;color:var(--text);border:1px solid var(--rand);
+               border-radius:7px;padding:5px 7px;font-size:13px}
+.wert{color:var(--text);font-variant-numeric:tabular-nums;font-weight:650}
+.zahlen{margin-left:auto;display:flex;gap:16px;font-size:12px;color:var(--muted);
+        text-align:right;flex-wrap:wrap}
+.zahlen b{display:block;font-size:15px;color:var(--text);font-weight:700;
+          font-variant-numeric:tabular-nums}
+
+/* ---- Bannernachbau, Masse aus index.html ---- */
+.buehne{margin-top:14px;overflow-x:auto}
+.tablet{width:1280px;background:#0b1017;padding:8px;border-radius:14px}
+header{
+  background:linear-gradient(180deg,#171f2a,#111821);
+  border:1px solid #4a586b;border-radius:15px;padding:10px 14px;
+  display:grid;grid-template-columns:auto auto 1fr auto;gap:0;align-items:stretch;
+  box-shadow:0 0 0 1px rgba(255,255,255,.025) inset
+}
+header.ohne{grid-template-columns:auto auto 1fr}
+/* Jede Zelle gleich eingerueckt, die Trennlinie laeuft ueber die volle Hoehe.
+   Gleicher Abstand links und rechts der Linie, damit nichts kippt. */
+.zelle{display:flex;align-items:center;padding:2px 17px}
+.zelle:first-child{padding-left:2px}
+.zelle:last-child{padding-right:2px}
+.zelle + .zelle{border-left:1px solid #3a4756}
+.place{font-size:21px;font-weight:700}
+.clock{font-size:38px;font-weight:750;line-height:1}
+.date{font-size:12px;color:var(--muted);margin-top:3px}
+.current{gap:12px}
+.current .temp{font-size:34px;font-weight:750}
+.current .details{font-size:13px;line-height:1.5;color:#c9d2dc}
+.today{flex-direction:column;align-items:flex-start}
+.today .summary{font-size:17px;font-weight:700}
+.today .sub{font-size:12px;color:#c5ced8;margin-top:3px}
+.today .extra{font-size:12px;color:#c5ced8;margin-top:4px}
+.inl{white-space:nowrap}
+.wicon{width:58px;height:58px;display:block}
+
+/* ---- Solarblock ---- */
+.solar{display:flex;align-items:center;gap:12px;min-height:68px}
+.solar .zahl{font-variant-numeric:tabular-nums}
+.kopf{font-size:10px;font-weight:700;letter-spacing:.4px;color:#8b97a6;
+      text-transform:uppercase;white-space:nowrap}
+.gross{font-size:23px;font-weight:750;line-height:1.05;font-variant-numeric:tabular-nums}
+.klein{font-size:11.5px;color:#c5ced8;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ---- Galerie ---- */
+.galerie{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+         margin-top:8px}
+.karte{background:var(--karte);border:1px solid var(--rand);border-radius:12px;padding:14px}
+.karte h3{margin:0 0 3px;font-size:14px}
+.karte .was{color:var(--muted);font-size:12px;margin:0 0 12px}
+.karte .rahmen{background:linear-gradient(180deg,#171f2a,#111821);
+               border:1px solid #4a586b;border-radius:11px;padding:9px 12px;
+               display:flex;justify-content:center}
+.karte .note{color:var(--muted);font-size:11.5px;margin:10px 0 0}
+
+/* ---- Detailansicht, Masse und Anmutung wie .diag in index.html ---- */
+.sdetail{
+  background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:14px;
+  padding:15px 22px 13px;color:#e6ecf3;font-size:15px;line-height:1.6
+}
+.sdetail.schwebend{position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
+  transform:translateY(-50%);max-height:93%;overflow:auto;display:none;cursor:pointer}
+.sdetail.schwebend.on{display:block}
+.sdetail .schliessen{float:right;font-size:11px;color:#7d8896}
+.sdetail h4{margin:0 0 2px;font-size:21px;font-weight:750;color:#fff}
+.sdetail .unter{color:#8b97a6;font-size:12.5px;margin-bottom:12px}
+
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.kpi{background:#131c26;border:1px solid #29343f;border-radius:10px;padding:8px 11px}
+.kpi .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b97a6}
+.kpi .z{font-size:25px;font-weight:750;line-height:1.15;font-variant-numeric:tabular-nums}
+.kpi .n{font-size:11.5px;color:#8b97a6;font-variant-numeric:tabular-nums}
+
+.sgrid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:14px}
+.block{background:#111925;border:1px solid #263141;border-radius:10px;padding:10px 12px}
+.block .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+          color:#8b97a6;margin-bottom:7px}
+.block + .block{margin-top:12px}
+.leg{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:#c5ced8;margin-top:7px}
+.leg i{display:inline-block;width:10px;height:10px;border-radius:2.5px;margin-right:5px;
+       vertical-align:-1px}
+.paare{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 14px;font-size:13px}
+.paare .k{color:#9dabbb;white-space:nowrap}
+.paare .v{font-weight:650;font-variant-numeric:tabular-nums;text-align:right}
+.sdetail .quelle{margin-top:11px;font-size:11px;color:#7d8896}
+</style>
+</head>
+<body>
+
+<h1>Solardaten im Banner</h1>
+<p class="lead">
+Sechs Entwürfe für den rechten Teil der Kopfzeile. Alle laufen mit derselben
+Simulation, oben umschaltbar. Die Ertragskurven stammen aus der echten
+Einstrahlungsvorhersage für Uedorf, umgerechnet mit 14 kWh je kWh/m², dem
+Faktor aus dem 23. und dem 25. September.
+</p>
+
+<div class="regler">
+  <label>Uhrzeit <span class="wert" id="wUhr">13:30</span>
+    <input type="range" id="rUhr" min="4" max="22" step="0.25" value="13.5"></label>
+  <label>Tag
+    <select id="rTag">
+      <option value="klar">klar (25.9., 59 kWh)</option>
+      <option value="wechsel">wechselhaft (26.9., 49 kWh)</option>
+      <option value="trueb">trüb (20.9., 8 kWh)</option>
+    </select></label>
+  <label>Akku um Mitternacht <span class="wert" id="wSoc">28 %</span>
+    <input type="range" id="rSoc" min="5" max="100" step="1" value="28"></label>
+  <label>Hausverbrauch <span class="wert" id="wLast">0,92 kW</span>
+    <input type="range" id="rLast" min="0.3" max="3" step="0.05" value="1"></label>
+  <div class="zahlen">
+    <div>PV<b id="zPv">–</b></div>
+    <div>Akku<b id="zAkku">–</b></div>
+    <div>Überschuss<b id="zUeber">–</b></div>
+    <div>Rest heute<b id="zRest">–</b></div>
+  </div>
+</div>
+
+<h2>Im Banner, ganze Breite</h2>
+<label style="font-size:12px;color:#8b97a6">Entwurf
+  <select id="rVariante" style="background:#0f1720;color:#e8eef5;border:1px solid #2b3745;
+          border-radius:7px;padding:5px 7px;font-size:13px;margin-left:6px">
+    <option value="0">1 &middot; Tagesbogen</option>
+    <option value="1">2 &middot; Stundenstreifen</option>
+    <option value="2">3 &middot; Akkuring und Waage</option>
+    <option value="3">4 &middot; Flussbild</option>
+    <option value="4">5 &middot; Sparsam</option>
+    <option value="5" selected>6 &middot; Ohne Zahlen</option>
+    <option value="-1">ohne Solar, wie heute</option>
+  </select></label>
+
+<div class="buehne">
+  <div class="tablet">
+    <header id="bannerEcht">
+      <div class="zelle">
+        <div>
+          <div class="place">Uedorf</div>
+          <div class="clock" id="bClock">13:30</div>
+          <div class="date">Donnerstag, 25. September</div>
+        </div>
+      </div>
+      <div class="zelle current">
+        <div id="bIcon"></div>
+        <div class="temp">21&deg;</div>
+        <div class="details" id="bDetails"></div>
+      </div>
+      <div class="zelle today">
+        <div class="summary">Heute sonnig, 12&ndash;23&nbsp;&deg;C</div>
+        <div class="sub" id="bSub"></div>
+        <div class="extra" id="bExtra"></div>
+      </div>
+      <div class="zelle solar" id="bSolar"></div>
+    </header>
+  </div>
+</div>
+
+<h2>Die Entwürfe nebeneinander</h2>
+<div class="galerie" id="galerie"></div>
+
+<h2>Detailansicht, ein Tipp auf den Solarblock</h2>
+<p class="lead" style="margin-bottom:10px">
+Unten dauerhaft sichtbar, damit sie sich ohne Klicken beurteilen lässt. Im
+Banner öffnet sie sich beim Antippen und schließt beim nächsten Tipp, genau
+wie die Wetterkarte.
+</p>
+<div class="sdetail" id="sVorschau"></div>
+
+<div class="sdetail schwebend" id="sSchwebend"></div>
+
+<script>
+/* ============================================================
+   Simulation
+   ============================================================ */
+
+/* Stundenwerte in kW, aus shortwave_radiation der echten Vorhersage
+   fuer 50.76/7.00, mal 14 kWh je kWh/m2, gedeckelt auf 10 kW. */
+const KURVEN={
+  klar:    [0,0,0,0,0,0,0,0,.17,1.64,3.68,5.57,7.08,8.11,8.32,7.94,6.87,5.28,3.29,1.26,.06,0,0,0],
+  wechsel: [0,0,0,0,0,0,0,0,.15,1.41,3.40,5.40,6.82,5.24,7.59,6.87,5.10,3.95,2.35,.84,.03,0,0,0],
+  trueb:   [0,0,0,0,0,0,0,0,.05,.22,.48,.77,1.02,1.15,1.04,.81,.55,.33,.16,.05,0,0,0,0]
+};
+const AKKU_KWH=10.0, AKKU_MAX_KW=5.0;
+
+/* Hausverbrauch ueber den Tag: Grundlast, Morgenspitze, Abendspitze.
+   Der Regler skaliert das Profil, er setzt keinen festen Wert mehr. Nur so
+   haben die Kurven in der Detailansicht ueberhaupt etwas zu erzaehlen. */
+const HAUS_PROFIL=[.30,.28,.27,.27,.28,.36,.72,1.45,1.15,.82,.74,.80,
+                   1.10,.92,.78,.76,.84,1.25,2.10,2.30,1.55,1.02,.58,.38];
+
+const S={uhr:13.5, tag:"klar", socStart:28, lastF:1.0};
+
+const hausBei=h=>HAUS_PROFIL[Math.max(0,Math.min(23,Math.floor(h)))]*S.lastF;
+
+const kurve=()=>KURVEN[S.tag];
+
+function pvBei(h){
+  const k=kurve(), i=Math.floor(h), f=h-i;
+  const a=k[Math.max(0,Math.min(23,i))]||0, b=k[Math.max(0,Math.min(23,i+1))]||0;
+  return a+(b-a)*f;
+}
+function restHeute(){
+  const k=kurve(); let s=0;
+  for(let h=Math.ceil(S.uhr);h<24;h++) s+=k[h]||0;
+  const i=Math.floor(S.uhr);
+  s+=(k[i]||0)*(1-(S.uhr-i));
+  return s;
+}
+function bisJetzt(){
+  const k=kurve(); let s=0;
+  for(let h=0;h<Math.floor(S.uhr);h++) s+=k[h]||0;
+  s+=(k[Math.floor(S.uhr)]||0)*(S.uhr-Math.floor(S.uhr));
+  return s;
+}
+
+/* Wie verteilt sich die Leistung in einer Stunde?  Reihenfolge wie in der
+   Anlage: erst das Haus, dann der Akku, der Rest geht ins Netz. Abends
+   umgekehrt, erst der Akku, dann das Netz. */
+function stunde(pv,haus,soc){
+  const ausHaus=Math.min(pv,haus);
+  const rest=pv-haus;
+  let akku=0, einspeisung=0, netzBezug=0;
+  if(rest>0){
+    akku=Math.min(rest, AKKU_MAX_KW, Math.max(0,(100-soc)/100*AKKU_KWH));
+    einspeisung=rest-akku;
+  }else{
+    const ausAkku=Math.min(-rest, AKKU_MAX_KW, Math.max(0,(soc-5)/100*AKKU_KWH));
+    akku=-ausAkku;
+    netzBezug=-rest-ausAkku;
+  }
+  return {pv,haus,ausHaus,akku,einspeisung,netzBezug,uebrig:einspeisung};
+}
+
+/* Der ganze Tag am Stueck. Vor der aktuellen Stunde steht die Messung, danach
+   die Hochrechnung. Der Ladezustand ergibt sich daraus und wird nicht mehr
+   getrennt eingestellt. */
+let SIM=null;
+function simuliereTag(){
+  const k=kurve();
+  let soc=S.socStart;
+  const tag=[];
+  for(let h=0;h<24;h++){
+    const pv = h<Math.floor(S.uhr) ? gemessenBei(h) : (k[h]||0);
+    const e=stunde(pv, hausBei(h), soc);
+    soc=Math.max(0,Math.min(100, soc+e.akku/AKKU_KWH*100));
+    tag.push({...e, h, socEnde:soc, gemessen:h<Math.floor(S.uhr)});
+  }
+  return tag;
+}
+const socBei=h=>{
+  const i=Math.max(0,Math.min(23,Math.floor(h)));
+  return i===0?S.socStart:SIM[i-1].socEnde;
+};
+
+function lage(){
+  const soc=socBei(S.uhr);
+  return {...stunde(pvBei(S.uhr), hausBei(S.uhr), soc), soc};
+}
+
+const kw=v=>v.toFixed(v<10?2:1).replace(".",",");
+const kwh=v=>v.toFixed(1).replace(".",",");
+
+/* ============================================================
+   Bausteine
+   ============================================================ */
+
+/* Aufrechte Batterie, ohne Zahl. Die Trennlinien machen aus dem Balken einen
+   Stapel, damit man den Stand auch ohne Ziffer grob ablesen kann. */
+function batterie(soc,laedt,b=23,h=46){
+  const kappe=3.5, innenOben=kappe+2.6, innenUnten=h-2.6;
+  const innenH=innenUnten-innenOben;
+  const fuell=innenH*Math.max(0,Math.min(100,soc))/100;
+  const farbe=soc>=50?"#3ddc97":soc>=25?"#ffd166":"#ff7b6b";
+  let linien="";
+  for(let i=1;i<5;i++){
+    const y=innenUnten-innenH*i/5;
+    linien+=`<line x1="2.8" y1="${y.toFixed(1)}" x2="${b-2.8}" y2="${y.toFixed(1)}"
+                   stroke="#111821" stroke-width="1.8"/>`;
+  }
+  const blitz=laedt?`<path d="M${b/2+2.4} ${h/2-7.5}l-5.6 8.4h3.6l-1.6 6.6 5.6-8.6h-3.6z"
+                           fill="#0d131b" opacity=".85"/>`:"";
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block">
+    <rect x="${b/2-4}" y="0" width="8" height="${kappe+1}" rx="1.6" fill="#5b6b7d"/>
+    <rect x="0.9" y="${kappe}" width="${b-1.8}" height="${h-kappe-0.9}" rx="4"
+          fill="#1b232e" stroke="#6b7a8c" stroke-width="1.5"/>
+    <rect x="2.8" y="${(innenUnten-fuell).toFixed(1)}" width="${b-5.6}"
+          height="${fuell.toFixed(1)}" rx="1.6" fill="${farbe}"/>
+    ${linien}${blitz}
+  </svg>`;
+}
+
+function akkuRing(soc,groesse=46,strich=6){
+  const r=(groesse-strich)/2, u=2*Math.PI*r, an=u*soc/100;
+  const farbe=soc>=70?"var(--gruen)":soc>=35?"var(--gelb)":"var(--rot)";
+  return `<svg width="${groesse}" height="${groesse}" viewBox="0 0 ${groesse} ${groesse}" style="display:block">
+    <circle cx="${groesse/2}" cy="${groesse/2}" r="${r}" fill="none" stroke="#2c3846" stroke-width="${strich}"/>
+    <circle cx="${groesse/2}" cy="${groesse/2}" r="${r}" fill="none" stroke="${farbe}"
+            stroke-width="${strich}" stroke-linecap="round"
+            stroke-dasharray="${an} ${u-an}" transform="rotate(-90 ${groesse/2} ${groesse/2})"/>
+    <text x="${groesse/2}" y="${groesse/2+4}" text-anchor="middle"
+          font-size="${groesse*0.3}" font-weight="750" fill="#e8eef5"
+          font-family="inherit">${Math.round(soc)}</text>
+  </svg>`;
+}
+
+/* Tagesbogen: was war, was kommt noch, wo stehen wir */
+function tagesbogen(b=196,h=52){
+  const k=kurve(), von=4, bis=22, max=10;
+  const x=t=>(t-von)/(bis-von)*b;
+  const y=v=>h-4-(v/max)*(h-10);
+  let pfad="", i=0;
+  for(let t=von;t<=bis;t+=0.25){ pfad+=(i++?"L":"M")+x(t).toFixed(1)+" "+y(pvBei(t)).toFixed(1); }
+  /* gefuellter Teil bis jetzt */
+  let fl="M"+x(von)+" "+y(0);
+  for(let t=von;t<=S.uhr;t+=0.25) fl+="L"+x(t).toFixed(1)+" "+y(pvBei(t)).toFixed(1);
+  fl+="L"+x(Math.min(S.uhr,bis)).toFixed(1)+" "+y(0)+"Z";
+  const jx=x(Math.max(von,Math.min(bis,S.uhr)));
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block">
+    <defs><linearGradient id="gv" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd166" stop-opacity=".85"/>
+      <stop offset="1" stop-color="#ffd166" stop-opacity=".12"/></linearGradient></defs>
+    <line x1="0" y1="${y(0)}" x2="${b}" y2="${y(0)}" stroke="#33404f" stroke-width="1"/>
+    <path d="${fl}" fill="url(#gv)"/>
+    <path d="${pfad}" fill="none" stroke="#ffd166" stroke-width="1.6"
+          stroke-opacity=".55" stroke-dasharray="3 2.5"/>
+    <path d="${fl}" fill="none" stroke="#ffd166" stroke-width="1.8"/>
+    <line x1="${jx}" y1="2" x2="${jx}" y2="${y(0)}" stroke="#e8eef5" stroke-width="1" stroke-opacity=".5"/>
+    <circle cx="${jx}" cy="${y(pvBei(S.uhr))}" r="3" fill="#fff"/>
+  </svg>`;
+}
+
+/* Stundenstreifen.
+   Links vom Jetzt-Strich steht, was tatsaechlich erzeugt wurde, rechts davon
+   die Hochrechnung aus der Einstrahlung. In der Simulation weicht die
+   "Messung" bewusst von der Vorhersage ab, damit man sieht, dass die beiden
+   Haelften aus verschiedenen Quellen kommen. Im Betrieb kommt die linke
+   Haelfte aus mitgeschriebenen Stundenwerten der Anlage. */
+const STREIFEN_VON=5, STREIFEN_BIS=21, STREIFEN_BH=8, STREIFEN_ABST=3;
+const STREIFEN_B=(STREIFEN_BIS-STREIFEN_VON)*(STREIFEN_BH+STREIFEN_ABST)+STREIFEN_BH;
+
+function gemessenBei(t){
+  const v=kurve()[t]||0;
+  if(!v) return 0;
+  const r=Math.sin(t*12.9898+S.tag.length*7.233)*43758.5453;
+  return Math.max(0, v*(0.84+(r-Math.floor(r))*0.32));
+}
+
+function streifen(hoehe=50){
+  const von=STREIFEN_VON, bis=STREIFEN_BIS, max=10;
+  const bh=STREIFEN_BH, abst=STREIFEN_ABST;
+  let s="";
+  for(let t=von;t<=bis;t++){
+    const vorbei=t<Math.floor(S.uhr);
+    const v=vorbei?gemessenBei(t):(kurve()[t]||0);
+    const hh=Math.max(1.5,(v/max)*(hoehe-6));
+    const x=(t-von)*(bh+abst);
+    const ueber=v-hausBei(t);
+    const farbe=ueber>1.0?"#3ddc97":ueber>0?"#9ad9b5":"#5b6b7d";
+    s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${bh}" height="${hh.toFixed(1)}"
+             rx="2" fill="${farbe}" opacity="${vorbei?1:.30}"/>`;
+    if(!vorbei) s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${bh}"
+             height="${hh.toFixed(1)}" rx="2" fill="none" stroke="${farbe}"
+             stroke-width="1" stroke-opacity=".55"/>`;
+  }
+  const jx=(Math.max(von,Math.min(bis+1,S.uhr))-von)*(bh+abst)-abst/2;
+  s+=`<line x1="${jx.toFixed(1)}" y1="0" x2="${jx.toFixed(1)}" y2="${hoehe}"
+            stroke="#e8eef5" stroke-width="1" stroke-opacity=".45"/>`;
+  return `<svg width="${STREIFEN_B}" height="${hoehe}" viewBox="0 0 ${STREIFEN_B} ${hoehe}"
+               style="display:block">${s}</svg>`;
+}
+
+/* Kleine Sinnbilder, 10x10, fuer Haus, Akku und Netz. */
+const MINI={
+  haus:`<path d="M1 9.2V4.4L5 1.1l4 3.3v4.8z" fill="currentColor"/>`,
+  akku:`<rect x="2.4" y="2.3" width="5.2" height="6.9" rx="1.1" fill="currentColor"/>
+        <rect x="3.9" y="1" width="2.2" height="1.5" rx=".5" fill="currentColor"/>`,
+  netz:`<g stroke="currentColor" stroke-width="1.15" fill="none" stroke-linecap="round">
+          <path d="M1.7 9.2 5 1.3l3.3 7.9M2.9 6.4h4.2M3.7 4.3h2.6"/></g>`,
+  /* Netz zeigt Geld, nicht Technik: gruen bringt Einspeiseverguetung,
+     rot kostet Bezug. */
+  euro:`<text x="5" y="8.1" text-anchor="middle" font-size="10.2" font-weight="750"
+              fill="currentColor" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"
+        >&#8364;</text>`,
+  /* Quelle der Zeile: neutral Strom, weil abends der Akku speist und nicht die Sonne */
+  strom:`<path d="M6.3 .7 2.3 5.9h2.6L4.0 9.3 7.9 4.0H5.4z" fill="currentColor"/>`
+};
+const mini=(art,farbe,gr=10)=>`<svg width="${gr}" height="${gr}" viewBox="0 0 10 10"
+  style="display:block;color:${farbe};flex:0 0 auto">${MINI[art]}</svg>`;
+
+/* Der Balken zeigt die Richtung selbst, ohne dass daneben Text stehen muss.
+   Tagsueber fliesst Strom aus der Erzeugung in drei Ziele, der Pfeil zeigt
+   nach rechts in den Balken hinein. Abends kehrt sich das um: der Balken zeigt
+   dann die Quellen, der Pfeil zeigt nach links ins Haus, und ein roter Rahmen
+   sagt, dass es gerade Geld kostet. Der Balken bleibt an derselben Stelle,
+   nur Sinnbild und Pfeilrichtung wechseln. */
+const ICON_SPALTE=25;
+
+function wohin(gesamtBreite=184,h=19){
+  const l=lage();
+  /* Umgeschaltet wird danach, ob die Erzeugung das Haus deckt, nicht danach,
+     ob Netzstrom fliesst. Abends deckt oft der Akku, dann fliesst kein
+     Netzstrom, und der Balken muss trotzdem die Quellen zeigen. */
+  const bezug=l.pv+0.02<l.haus;
+  const teuer=l.netzBezug>0.02;
+  const b=gesamtBreite-ICON_SPALTE;
+
+  let teile, endIcon, endFarbe;
+  if(bezug){
+    teile=[[l.ausHaus,             "#ffd166", "strom"],
+           [Math.max(0,-l.akku),   "#4fd6c9", "akku"],
+           [l.netzBezug,           "#ff7b6b", "euro"]];
+    endIcon="haus"; endFarbe="#63b3ff";
+  }else{
+    teile=[[l.ausHaus,             "#63b3ff", "haus"],
+           [Math.max(0,l.akku),    "#4fd6c9", "akku"],
+           [l.einspeisung,         "#3ddc97", "euro"]];
+    endIcon="strom"; endFarbe="#ffd166";
+  }
+  const summe=Math.max(teile.reduce((a,[v])=>a+v,0), 0.3);
+
+  const gr=Math.min(13,h-4), sk=gr/10;
+  let x=0, s="";
+  for(const [v,f,art] of teile){
+    const w=v/summe*b;
+    if(w<0.6) continue;
+    s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${h}" fill="${f}"/>`;
+    if(w>=gr+4){
+      s+=`<g transform="translate(${(x+w/2-gr/2).toFixed(1)} ${(h/2-gr/2).toFixed(1)}) scale(${sk.toFixed(2)})"
+              color="#101720" opacity=".92">${MINI[art]}</g>`;
+    }
+    x+=w;
+  }
+  /* Roter Rahmen nur, wenn es wirklich Geld kostet. Der Akku, der abends das
+     Haus versorgt, ist kein Anlass zur Warnung. */
+  const rahmen=teuer?`<rect x=".6" y=".6" width="${b-1.2}" height="${h-1.2}" rx="3.4"
+                            fill="none" stroke="#ff7b6b" stroke-width="1.2" opacity=".9"/>`:"";
+  const pfeil=bezug
+    ? `<path d="M9 5H3M5 2.4 1.6 5 5 7.6"/>`
+    : `<path d="M0 5h6M4 2.4 7.4 5 4 7.6"/>`;
+
+  return `<div style="display:flex;align-items:center;gap:4px">
+    ${mini(endIcon,endFarbe,11)}
+    <svg width="10" height="10" viewBox="0 0 10 10" style="display:block;flex:0 0 auto">
+      <g fill="none" stroke="${teuer?"#ff9a8c":"#8b97a6"}" stroke-width="1.3"
+         stroke-linecap="round" stroke-linejoin="round">${pfeil}</g></svg>
+    <svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+         style="display:block;border-radius:4px;overflow:hidden;flex:0 0 auto">
+      <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${s}${rahmen}</svg>
+  </div>`;
+}
+
+/* Waage: ein Balken, aufgeteilt nach dem, was gerade passiert */
+function waage(b=186,h=16){
+  const l=lage();
+  const gesamt=Math.max(l.pv, l.haus, 0.4);
+  const teile=[
+    [l.ausHaus, "#63b3ff", "Haus"],
+    [Math.max(0,l.akku), "#4fd6c9", "Akku"],
+    [l.einspeisung, "#3ddc97", "Netz"],
+  ];
+  let x=0, s="";
+  for(const [v,f] of teile){
+    const w=v/gesamt*b;
+    if(w>0.5) s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${h}" fill="${f}"/>`;
+    x+=w;
+  }
+  if(l.netzBezug>0.02){
+    const w=l.netzBezug/gesamt*b;
+    s+=`<rect x="${x.toFixed(1)}" y="0" width="${Math.max(2,w).toFixed(1)}" height="${h}" fill="#ff7b6b"/>`;
+  }
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block;border-radius:4px;overflow:hidden">
+    <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${s}</svg>`;
+}
+
+/* Flussbild: Sonne, Haus, Akku, Netz.  Pfeilstaerke zeigt die Leistung. */
+function fluss(b=200,h=58){
+  const l=lage();
+  const dicke=v=>Math.max(1, Math.min(6, 1+v*0.8));
+  const sx=22, hx=b/2, ax=b-24, nx=b-24;
+  const sy=16, hy=16, ay=46, ny=16;
+  const pfeil=(x1,y1,x2,y2,v,f)=>v<0.05?"":
+    `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${f}"
+           stroke-width="${dicke(v)}" stroke-linecap="round" opacity=".9"/>`;
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block">
+    ${pfeil(sx+13,sy,hx-13,hy,l.pv,"#ffd166")}
+    ${pfeil(hx+11,hy,nx-11,ny,l.einspeisung,"#3ddc97")}
+    ${pfeil(nx-11,ny,hx+11,hy,l.netzBezug,"#ff7b6b")}
+    ${pfeil(hx,hy+11,ax,ay-9,Math.abs(l.akku),l.akku>=0?"#4fd6c9":"#ffb86b")}
+    <circle cx="${sx}" cy="${sy}" r="11" fill="#2a3340" stroke="#ffd166" stroke-width="1.4"/>
+    <circle cx="${sx}" cy="${sy}" r="4.5" fill="#ffd166"/>
+    <rect x="${hx-11}" y="${hy-11}" width="22" height="22" rx="4" fill="#2a3340" stroke="#63b3ff" stroke-width="1.4"/>
+    <path d="M${hx-6} ${hy+4}v-6l6-5 6 5v6z" fill="#63b3ff"/>
+    <rect x="${nx-11}" y="${ny-11}" width="22" height="22" rx="4" fill="#2a3340" stroke="#8b97a6" stroke-width="1.4"/>
+    <path d="M${nx} ${ny-6}v12M${nx-5} ${ny-3}h10M${nx-5} ${ny+2}h10" stroke="#c5ced8" stroke-width="1.3"/>
+    <rect x="${ax-9}" y="${ay-9}" width="18" height="18" rx="3" fill="#2a3340" stroke="#4fd6c9" stroke-width="1.4"/>
+    <rect x="${ax-5}" y="${ay+3-(10*l.soc/100)}" width="10" height="${10*l.soc/100}" fill="#4fd6c9"/>
+  </svg>`;
+}
+
+/* ============================================================
+   Die fuenf Entwuerfe
+   ============================================================ */
+const ENTWUERFE=[
+ {name:"Tagesbogen",
+  was:"Der ganze Tag auf einen Blick, Vergangenheit gefüllt, Rest gestrichelt.",
+  note:"Beantwortet, ob heute noch etwas kommt. Braucht am meisten Platz, rund 250 px.",
+  bau(){const l=lage();return `
+    ${akkuRing(l.soc,46,6)}
+    <div>
+      <div class="kopf">Solar</div>
+      ${tagesbogen()}
+    </div>
+    <div style="text-align:right">
+      <div class="gross" style="color:${l.uebrig>0.3?"var(--gruen)":"var(--muted)"}">${kw(l.uebrig)}<span style="font-size:13px;font-weight:600"> kW</span></div>
+      <div class="klein">übrig</div>
+      <div class="klein" style="margin-top:5px;color:#8b97a6">noch ${kwh(restHeute())} kWh</div>
+    </div>`}},
+
+ {name:"Stundenstreifen",
+  was:"Eine Säule je Stunde. Grün heißt Überschuss, blass heißt Vorhersage.",
+  note:"Zeigt, wann heute Überschuss kommt, und passt in 220 px. Mein Favorit für die Steuerung später.",
+  bau(){const l=lage();return `
+    ${akkuRing(l.soc,44,6)}
+    <div>
+      <div class="kopf">Überschuss heute</div>
+      ${streifen()}
+    </div>
+    <div style="text-align:right">
+      <div class="gross" style="color:${l.uebrig>0.3?"var(--gruen)":"var(--muted)"}">${kw(l.uebrig)}<span style="font-size:13px;font-weight:600"> kW</span></div>
+      <div class="klein">noch ${kwh(restHeute())} kWh</div>
+    </div>`}},
+
+ {name:"Akkuring und Waage",
+  was:"Großer Ring für den Speicher, darunter ein Balken, wohin der Strom gerade geht.",
+  note:"Sehr ruhig, sagt aber nichts über später. Gut, wenn das Banner eng wird.",
+  bau(){const l=lage();return `
+    ${akkuRing(l.soc,54,7)}
+    <div>
+      <div class="kopf">Wohin der Strom geht</div>
+      ${wohin(158,19)}
+      <div class="klein" style="margin-top:5px;display:flex;gap:10px;align-items:center">
+        <span style="display:flex;gap:3px;align-items:center;color:#63b3ff">${mini("haus","#63b3ff",9)}${kw(l.ausHaus+l.netzBezug)}</span>
+        <span style="display:flex;gap:3px;align-items:center;color:#4fd6c9">${mini("akku","#4fd6c9",9)}${kw(Math.abs(l.akku))}</span>
+        <span style="display:flex;gap:3px;align-items:center;color:${l.netzBezug>0?"#ff7b6b":"#3ddc97"}">${mini("euro",l.netzBezug>0?"#ff7b6b":"#3ddc97",10)}${kw(l.netzBezug>0?l.netzBezug:l.einspeisung)}</span>
+      </div>
+    </div>`}},
+
+ {name:"Flussbild",
+  was:"Sonne, Haus, Netz, Speicher. Die Strichstärke ist die Leistung.",
+  note:"Am schnellsten zu erfassen, am wenigsten genau. Ohne Zahlen daneben zu wenig.",
+  bau(){const l=lage();return `
+    <div>
+      <div class="kopf">Energiefluss</div>
+      ${fluss()}
+    </div>
+    <div style="text-align:right">
+      <div class="gross">${Math.round(l.soc)}<span style="font-size:13px;font-weight:600"> %</span></div>
+      <div class="klein">${l.akku>0.05?"lädt "+kw(l.akku)+" kW":l.akku<-0.05?"gibt ab":"hält"}</div>
+      <div class="klein" style="margin-top:4px">noch ${kwh(restHeute())} kWh</div>
+    </div>`}},
+
+ {name:"Sparsam",
+  was:"Nur der Ring, ein Pfeil für die Richtung und eine Zahl.",
+  note:"Passt in 130 px und stört nie. Verschenkt die Vorhersage, die wir haben.",
+  bau(){const l=lage();
+    const rein=l.uebrig>0.05, raus=l.netzBezug>0.05;
+    return `
+    ${akkuRing(l.soc,48,6)}
+    <div>
+      <div class="gross" style="color:${rein?"var(--gruen)":raus?"var(--rot)":"var(--muted)"}">
+        ${rein?"▲":raus?"▼":"–"} ${kw(rein?l.uebrig:raus?l.netzBezug:0)}<span style="font-size:13px;font-weight:600"> kW</span>
+      </div>
+      <div class="klein">${rein?"Überschuss":raus?"aus dem Netz":"ausgeglichen"}</div>
+    </div>`}},
+
+ {name:"Ohne Zahlen",
+  was:"Batteriestapel, Stundensäulen, Richtungsbalken. Keine Überschrift, keine Ziffern.",
+  note:"Abends dreht sich der Balken um: Pfeil nach links ins Haus, roter Rahmen, weil Bezug Geld kostet. Schieb die Uhrzeit auf 20 Uhr.",
+  bau(){const l=lage();return `
+    ${batterie(l.soc, l.akku>0.05, 29, 68)}
+    <div>
+      ${streifen(44)}
+      <div style="margin-top:5px">${wohin(STREIFEN_B,19)}</div>
+    </div>`}}
+];
+
+/* ============================================================
+   Detailansicht
+   ============================================================ */
+const VERGUETUNG=0.082, ARBEITSPREIS=0.34;   /* EUR je kWh, spaeter einstellbar */
+const F_EIGEN="#63b3ff", F_AKKU="#4fd6c9", F_EIN="#3ddc97",
+      F_BEZUG="#ff7b6b", F_HAUS="#e8eef5", F_SOC="#ffd166";
+
+/* Vorhersage aus der Einstrahlung, Ist aus der Anlage. Fuer den 23. und den
+   25. sind die Ist-Werte echt, die uebrigen sind fuer den Entwurf gesetzt. */
+const WOCHE=[
+ {k:"Fr", d:"19.9.", prog:46.8, ist:49.1},
+ {k:"Sa", d:"20.9.", prog: 7.7, ist: 8.4},
+ {k:"So", d:"21.9.", prog:51.8, ist:53.6},
+ {k:"Mo", d:"22.9.", prog:42.6, ist:40.9},
+ {k:"Di", d:"23.9.", prog:54.5, ist:57.3},
+ {k:"Mi", d:"24.9.", prog:47.5, ist:46.0},
+ {k:"Do", d:"25.9.", prog:59.2, ist:null, heute:true},
+ {k:"Fr", d:"26.9.", prog:49.1, ist:null},
+ {k:"Sa", d:"27.9.", prog:54.6, ist:null}
+];
+
+function tagesBilanz(){
+  let pv=0,haus=0,eigen=0,laden=0,entladen=0,ein=0,bezug=0,bisher=0,spitze=0;
+  for(const e of SIM){
+    pv+=e.pv; haus+=e.haus; eigen+=e.ausHaus;
+    if(e.akku>0) laden+=e.akku; else entladen+=-e.akku;
+    ein+=e.einspeisung; bezug+=e.netzBezug;
+    if(e.gemessen) bisher+=e.pv;
+    spitze=Math.max(spitze,e.pv);
+  }
+  return {pv,haus,eigen,laden,entladen,ein,bezug,bisher,spitze,
+          quote: pv>0?(pv-ein)/pv*100:0,
+          autarkie: haus>0?(haus-bezug)/haus*100:0,
+          erloes: ein*VERGUETUNG,
+          ersparnis: (eigen+entladen)*ARBEITSPREIS,
+          kosten: bezug*ARBEITSPREIS};
+}
+
+/* Der Tag als gestapelte Flaeche: unten was das Haus direkt nimmt, darueber
+   was in den Akku geht, oben was ins Netz fliesst. Zusammen ergibt das die
+   Erzeugung. Die weisse Linie ist der Hausverbrauch, liegt sie ueber der
+   Flaeche, fehlt Strom und die Luecke wird rot. */
+function tagesChart(b=560,h=200){
+  const VON=4, BIS=22, MAX=10, padL=26, padR=30, padT=9, padB=17;
+  const iw=b-padL-padR, ih=h-padT-padB;
+  const x=t=>padL+(t-VON)/(BIS-VON)*iw;
+  const y=v=>padT+ih-(Math.max(0,v)/MAX)*ih;
+  const ys=p=>padT+ih-(p/100)*ih;
+  const std=[]; for(let t=VON;t<BIS;t++) std.push(SIM[t]);
+
+  const stufen=(unten,oben)=>{
+    let d="";
+    for(let i=0;i<oben.length;i++)
+      d+=(i?"L":"M")+x(VON+i).toFixed(1)+" "+y(oben[i]).toFixed(1)
+        +"L"+x(VON+i+1).toFixed(1)+" "+y(oben[i]).toFixed(1);
+    for(let i=oben.length-1;i>=0;i--)
+      d+="L"+x(VON+i+1).toFixed(1)+" "+y(unten[i]).toFixed(1)
+        +"L"+x(VON+i).toFixed(1)+" "+y(unten[i]).toFixed(1);
+    return d+"Z";
+  };
+  const s0=std.map(()=>0);
+  const s1=std.map(e=>e.ausHaus);
+  const s2=std.map(e=>e.ausHaus+Math.max(0,e.akku));
+  const s3=std.map(e=>e.pv);
+  /* Rot nur dort, wo der Verbrauch ueber der Erzeugung liegt. Vorher lief das
+     Band ueber den ganzen Tag und hat die gruene Flaeche stumpf gemacht. */
+  const hausO=std.map(e=>e.haus>e.pv?e.haus:e.pv);
+  const hausU=std.map(e=>e.haus>e.pv?e.pv:e.pv);
+
+  let netz="";
+  for(let kwv=2;kwv<=8;kwv+=2)
+    netz+=`<line x1="${padL}" y1="${y(kwv)}" x2="${b-padR}" y2="${y(kwv)}"
+                 stroke="#233040" stroke-width="1"/>
+           <text x="${padL-5}" y="${y(kwv)+3.5}" text-anchor="end" font-size="9"
+                 fill="#6c7b8c">${kwv}</text>`;
+  let stunden="";
+  for(let t=VON;t<=BIS;t+=3)
+    stunden+=`<text x="${x(t)}" y="${h-4}" text-anchor="middle" font-size="9"
+                    fill="#6c7b8c">${t}</text>`;
+  for(const p of [0,50,100])
+    stunden+=`<text x="${b-padR+5}" y="${ys(p)+3.5}" font-size="9"
+                    fill="#a08a45">${p===100?"100 %":p}</text>`;
+
+  let hausLinie="";
+  for(let i=0;i<std.length;i++)
+    hausLinie+=(i?"L":"M")+x(VON+i).toFixed(1)+" "+y(std[i].haus).toFixed(1)
+              +"L"+x(VON+i+1).toFixed(1)+" "+y(std[i].haus).toFixed(1);
+  let socLinie="";
+  for(let i=0;i<std.length;i++)
+    socLinie+=(i?"L":"M")+x(VON+i+1).toFixed(1)+" "+ys(std[i].socEnde).toFixed(1);
+
+  const jx=x(Math.max(VON,Math.min(BIS,S.uhr)));
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block;width:100%;height:auto">
+    ${netz}
+    <path d="${stufen(s0,s1)}" fill="${F_EIGEN}" opacity=".78"/>
+    <path d="${stufen(s1,s2)}" fill="${F_AKKU}" opacity=".78"/>
+    <path d="${stufen(s2,s3)}" fill="${F_EIN}" opacity=".70"/>
+    <path d="${stufen(hausU,hausO)}" fill="${F_BEZUG}" opacity=".30"/>
+    <path d="${hausLinie}" fill="none" stroke="${F_HAUS}" stroke-width="1.5" opacity=".85"/>
+    <path d="${socLinie}" fill="none" stroke="${F_SOC}" stroke-width="1.4"
+          stroke-dasharray="4 3" opacity=".9"/>
+    <line x1="${jx.toFixed(1)}" y1="${padT}" x2="${jx.toFixed(1)}" y2="${padT+ih}"
+          stroke="#e8eef5" stroke-width="1" stroke-opacity=".5"/>
+    <text x="${padL-5}" y="${padT+7}" text-anchor="end" font-size="9" fill="#6c7b8c">kW</text>
+    ${stunden}
+  </svg>`;
+}
+
+/* Wann ist heute wie viel uebrig?  Genau die Frage, die spaeter die
+   Poolpumpe stellt. Eine Zelle je Stunde, Farbe nach Einspeiseleistung. */
+function ueberschussBand(b=560,h=40){
+  const VON=5, BIS=21, n=BIS-VON+1, zw=b/n;
+  const stufe=v=>v<.2?["#1d2634","#55637a"]:v<1?["#2a5c48","#b9d8c9"]
+                 :v<2.5?["#2f8f68","#0d131b"]:v<4?["#3ddc97","#0d131b"]:["#8df4c8","#0d131b"];
+  let s="";
+  for(let i=0;i<n;i++){
+    const t=VON+i, e=SIM[t], [f,tf]=stufe(e.einspeisung);
+    s+=`<rect x="${(i*zw+.7).toFixed(1)}" y="0" width="${(zw-1.4).toFixed(1)}" height="${h-13}"
+             rx="2.5" fill="${f}" opacity="${e.gemessen?1:.55}"/>`;
+    if(zw>=21)
+      s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${(h-13)/2+4}" text-anchor="middle"
+                font-size="10.5" font-weight="700" fill="${tf}"
+                opacity="${e.einspeisung<.2?".8":"1"}">${e.einspeisung<.2?"":n1(e.einspeisung)}</text>`;
+    if(t%3===0 || t===VON)
+      s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${h-1}" text-anchor="middle"
+                font-size="9" fill="#6c7b8c">${t}</text>`;
+  }
+  const jx=(Math.max(VON,Math.min(BIS+1,S.uhr))-VON)*zw;
+  s+=`<line x1="${jx.toFixed(1)}" y1="-1" x2="${jx.toFixed(1)}" y2="${h-12}"
+            stroke="#e8eef5" stroke-width="1" stroke-opacity=".55"/>`;
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+               style="display:block;width:100%;height:auto">${s}</svg>`;
+}
+
+/* Neun Tage: was vorhergesagt war und was herauskam. So sieht man, wie gut
+   das Modell trifft, ohne eine Fehlerzahl lesen zu muessen. */
+function wocheChart(b=330,h=140){
+  const bil=tagesBilanz();
+  const daten=WOCHE.map(d=>({...d, ist: d.heute?bil.bisher:d.ist}));
+  const max=Math.max(...daten.map(d=>Math.max(d.prog,d.ist||0)))*1.12;
+  const padB=26, padT=6, ih=h-padB-padT, zw=b/daten.length;
+  let s="";
+  daten.forEach((d,i)=>{
+    const x=i*zw+zw*0.16, bw=zw*0.68;
+    const hp=(d.prog/max)*ih, hi=((d.ist||0)/max)*ih;
+    if(d.ist!=null){
+      s+=`<rect x="${x.toFixed(1)}" y="${(padT+ih-hi).toFixed(1)}" width="${bw.toFixed(1)}"
+               height="${hi.toFixed(1)}" rx="2.5" fill="${d.heute?F_SOC:F_EIN}" opacity=".9"/>`;
+      s+=`<line x1="${(x-2.5).toFixed(1)}" y1="${(padT+ih-hp).toFixed(1)}"
+                x2="${(x+bw+2.5).toFixed(1)}" y2="${(padT+ih-hp).toFixed(1)}"
+                stroke="#e8eef5" stroke-width="1.8" stroke-opacity=".85"/>`;
+    }else{
+      s+=`<rect x="${x.toFixed(1)}" y="${(padT+ih-hp).toFixed(1)}" width="${bw.toFixed(1)}"
+               height="${hp.toFixed(1)}" rx="2.5" fill="none" stroke="${F_EIN}"
+               stroke-width="1.2" stroke-opacity=".7" stroke-dasharray="3 2.5"/>`;
+    }
+    s+=`<text x="${(x+bw/2).toFixed(1)}" y="${h-13}" text-anchor="middle" font-size="9.5"
+              fill="${d.heute?"#e8eef5":"#8b97a6"}" font-weight="${d.heute?700:500}">${d.k}</text>`;
+    s+=`<text x="${(x+bw/2).toFixed(1)}" y="${h-2}" text-anchor="middle" font-size="9"
+              fill="#5d6b7c">${Math.round(d.ist!=null?d.ist:d.prog)}</text>`;
+  });
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+               style="display:block;width:100%;height:auto">${s}</svg>`;
+}
+
+/* Zwei Balken: woraus die Erzeugung besteht und woraus der Verbrauch. */
+function bilanzBalken(b=330){
+  const z=tagesBilanz();
+  const reihe=(titel,summe,teile)=>{
+    let x=0,s="";
+    for(const [v,f,art] of teile){
+      const w=summe>0?v/summe*b:0;
+      if(w<0.6) continue;
+      s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="20" fill="${f}"/>`;
+      if(w>=17) s+=`<g transform="translate(${(x+w/2-5.5).toFixed(1)} 4.5) scale(1.1)"
+                        color="#101720" opacity=".9">${MINI[art]}</g>`;
+      x+=w;
+    }
+    const zahlen=teile.filter(([v])=>v>0.05).map(([v,f])=>
+      `<span style="color:${f}">${kwh(v)}</span>`).join(" · ");
+    return `<div style="margin-bottom:9px">
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;color:#8b97a6">
+        <span>${titel}</span><span style="font-weight:700;color:#e8eef5">${kwh(summe)} kWh</span></div>
+      <svg width="${b}" height="20" viewBox="0 0 ${b} 20"
+           style="display:block;width:100%;height:auto;border-radius:4px;overflow:hidden;margin:3px 0 2px">
+        <rect x="0" y="0" width="${b}" height="20" fill="#222c38"/>${s}</svg>
+      <div style="font-size:11px;font-variant-numeric:tabular-nums">${zahlen}</div></div>`;
+  };
+  return reihe("Erzeugung geht nach", z.pv,
+           [[z.eigen,F_EIGEN,"haus"],[z.laden,F_AKKU,"akku"],[z.ein,F_EIN,"euro"]])
+       + reihe("Verbrauch kommt aus", z.haus,
+           [[z.eigen,F_SOC,"strom"],[z.entladen,F_AKKU,"akku"],[z.bezug,F_BEZUG,"euro"]]);
+}
+
+function solarDetailHTML(schliessbar){
+  const z=tagesBilanz(), l=lage();
+  const abw=z.pv>0?(z.bisher+0)/1:0;
+  const restKwh=SIM.filter(e=>!e.gemessen).reduce((a,e)=>a+e.pv,0);
+  const fenster=SIM.filter(e=>e.einspeisung>=1.5).map(e=>e.h);
+  const fensterText=fenster.length
+    ? `${fenster[0]}–${fenster[fenster.length-1]} Uhr, ${fenster.length} Stunden über 1,5 kW`
+    : "heute kein nennenswerter Überschuss";
+  const kpi=(t,z2,n,farbe)=>`<div class="kpi"><div class="t">${t}</div>
+      <div class="z"${farbe?` style="color:${farbe}"`:""}>${z2}</div><div class="n">${n}</div></div>`;
+
+  return (schliessbar?`<span class="schliessen">antippen zum Schließen</span>`:"")+
+  `<h4>Solar heute</h4>
+   <div class="unter">Donnerstag, 25. September · 12,42 kWp · SUN2000-10KTL-M1 mit 10 kWh Speicher</div>
+
+   <div class="kpis">
+     ${kpi("Erzeugt","<span>"+kwh(z.bisher)+"</span> <span style='font-size:14px;color:#8b97a6'>kWh</span>",
+           "Prognose heute "+kwh(z.pv)+" kWh",F_SOC)}
+     ${kpi("Noch erwartet",kwh(restKwh)+" <span style='font-size:14px;color:#8b97a6'>kWh</span>",
+           fensterText)}
+     ${kpi("Eigenverbrauch",Math.round(z.quote)+" <span style='font-size:14px;color:#8b97a6'>%</span>",
+           "eingespeist "+kwh(z.ein)+" kWh",F_EIGEN)}
+     ${kpi("Autarkie",Math.round(z.autarkie)+" <span style='font-size:14px;color:#8b97a6'>%</span>",
+           "vom Netz "+kwh(z.bezug)+" kWh",F_EIN)}
+     ${kpi("Bilanz",(z.erloes+z.ersparnis-z.kosten).toFixed(2).replace(".",",")+
+           " <span style='font-size:14px;color:#8b97a6'>€</span>",
+           "Erlös "+z.erloes.toFixed(2).replace(".",",")+" · gespart "+
+           z.ersparnis.toFixed(2).replace(".",","))}
+   </div>
+
+   <div class="sgrid">
+     <div>
+       <div class="block">
+         <div class="t">Tagesverlauf · links gemessen, rechts gerechnet</div>
+         ${tagesChart()}
+         <div class="leg">
+           <span><i style="background:${F_EIGEN}"></i>direkt ins Haus</span>
+           <span><i style="background:${F_AKKU}"></i>in den Akku</span>
+           <span><i style="background:${F_EIN}"></i>ins Netz</span>
+           <span><i style="background:${F_BEZUG};opacity:.6"></i>aus dem Netz</span>
+           <span><i style="background:${F_HAUS}"></i>Hausverbrauch</span>
+           <span><i style="background:${F_SOC}"></i>Ladezustand</span>
+         </div>
+       </div>
+       <div class="block">
+         <div class="t">Überschuss je Stunde in kW · wann sich Verschieben lohnt</div>
+         ${ueberschussBand()}
+       </div>
+       <div class="block">
+         <div class="t">Wohin und woher, über den ganzen Tag</div>
+         ${bilanzBalken(520)}
+       </div>
+     </div>
+
+     <div>
+       <div class="block">
+         <div class="t">Neun Tage · Balken gemessen, Strich vorhergesagt</div>
+         ${wocheChart()}
+       </div>
+       <div class="block">
+         <div class="t">Zahlen</div>
+         <div class="paare">
+           <div class="k">Leistung jetzt</div><div class="v">${kw(l.pv)} kW</div>
+           <div class="k">Spitze heute</div><div class="v">${kw(z.spitze)} kW</div>
+           <div class="k">Akku geladen / entladen</div><div class="v">${kwh(z.laden)} / ${kwh(z.entladen)} kWh</div>
+           <div class="k">Ladezustand</div><div class="v">${Math.round(l.soc)} %</div>
+           <div class="k">Hausverbrauch heute</div><div class="v">${kwh(z.haus)} kWh</div>
+           <div class="k">Netzbezug</div><div class="v">${kwh(z.bezug)} kWh · ${z.kosten.toFixed(2).replace(".",",")} €</div>
+           <div class="k">Morgen erwartet</div><div class="v">${kwh(WOCHE[7].prog)} kWh</div>
+           <div class="k">Übermorgen erwartet</div><div class="v">${kwh(WOCHE[8].prog)} kWh</div>
+         </div>
+       </div>
+     </div>
+   </div>
+   <div class="quelle">Anlage über Modbus am SDongle · Vorhersage aus der Einstrahlung
+     von Open-Meteo, umgerechnet mit dem aus den Messwerten gelernten Faktor ·
+     Vergütung ${(VERGUETUNG*100).toFixed(1).replace(".",",")} ct, Arbeitspreis
+     ${(ARBEITSPREIS*100).toFixed(0)} ct je kWh</div>`;
+}
+
+const n1=v=>v.toFixed(1).replace(".",",");
+
+/* ============================================================
+   Zeichnen
+   ============================================================ */
+/* Die kleinen Zeichen aus index.html, damit die Zeilen im Banner so breit
+   werden wie in echt und die Ausrichtung ehrlich geprueft ist. */
+const WI={
+ drop:`<path d="M8 1.5c2.7 3.4 4.1 5.7 4.1 7.5a4.1 4.1 0 0 1-8.2 0C3.9 7.2 5.3 4.9 8 1.5z"/>`,
+ sun:`<circle cx="8" cy="8" r="3.3"/><g stroke="currentColor" stroke-width="1.5"
+        stroke-linecap="round" fill="none"><path d="M8 1.1v1.8M8 13.1v1.8M1.1 8h1.8M13.1 8h1.8
+        M3.2 3.2l1.3 1.3M11.5 11.5l1.3 1.3M12.8 3.2l-1.3 1.3M4.5 11.5l-1.3 1.3"/></g>`,
+ up:`<path d="M8 3.2 12.6 9H3.4z"/>`,
+ down:`<path d="M8 12.8 3.4 7h9.2z"/>`,
+ sock:`<path d="M2.4 2.2v11.6" stroke="currentColor" stroke-width="1.7" fill="none"
+         stroke-linecap="round"/><path d="M3.8 3.5 14.3 5.4 12.1 10.1 3.8 8.6Z"/>`,
+ bolt:`<path d="M9.5 1.2 4.1 9.1h3.4L6.4 14.8 12 6.9H8.5z"/>`
+};
+const wi=(k,c)=>`<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"
+  style="display:inline-block;vertical-align:-2px;fill:currentColor;color:${c||"inherit"}"
+  >${WI[k]}</svg>`;
+
+const SONNE=`<svg class="wicon" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="13" fill="#ffd166"/>
+  <g stroke="#ffd166" stroke-width="3.2" stroke-linecap="round">
+    <path d="M32 6v7M32 51v7M6 32h7M51 32h7M13.6 13.6l5 5M45.4 45.4l5 5M50.4 13.6l-5 5M18.6 45.4l-5 5"/>
+  </g></svg>`;
+
+function zeichne(){
+  SIM=simuliereTag();
+  const l=lage();
+  document.getElementById("wUhr").textContent=
+    String(Math.floor(S.uhr)).padStart(2,"0")+":"+String(Math.round((S.uhr%1)*60)).padStart(2,"0");
+  document.getElementById("wSoc").textContent=Math.round(S.socStart)+" %";
+  document.getElementById("wLast").textContent=kw(hausBei(S.uhr))+" kW";
+  document.getElementById("zPv").textContent=kw(l.pv)+" kW";
+  document.getElementById("zAkku").textContent=(l.akku>=0?"+":"")+kw(l.akku)+" kW";
+  document.getElementById("zUeber").textContent=kw(l.uebrig)+" kW";
+  document.getElementById("zRest").textContent=kwh(restHeute())+" kWh";
+  document.getElementById("bClock").textContent=
+    String(Math.floor(S.uhr)).padStart(2,"0")+":"+String(Math.round((S.uhr%1)*60)).padStart(2,"0");
+  document.getElementById("bIcon").innerHTML=SONNE;
+
+  /* Wortlaut wie in index.html, damit die Breiten stimmen */
+  document.getElementById("bDetails").innerHTML=
+    `sonnig<br>gefühlt 20&nbsp;°C · Wolken 12&nbsp;% · Sonne 88&nbsp;%<br>`+
+    `<span class="inl">${wi("sock")} Wind 11 km/h, Böen 24 km/h</span>`;
+  document.getElementById("bSub").innerHTML=
+    `<span class="inl">${wi("drop")} Regenrisiko bis 5&nbsp;%, 0,0&nbsp;mm</span>`+
+    ` · <span class="inl" style="color:#ffd166">${wi("sun")} 10,4&nbsp;h Sonne</span>`;
+  document.getElementById("bExtra").innerHTML=
+    `<span class="inl">${wi("up")} 07:26</span> · <span class="inl">${wi("down")} 19:28</span>`+
+    ` · <span class="inl">${wi("sock")} Wind bis 14 km/h, Böen 27 km/h</span>`+
+    ` · <span class="inl">${wi("bolt")} kein auffälliges Gewitterpotenzial</span>`;
+
+  const v=Number(document.getElementById("rVariante").value);
+  const kopf=document.getElementById("bannerEcht");
+  const solar=document.getElementById("bSolar");
+  if(v<0){ kopf.classList.add("ohne"); solar.style.display="none"; }
+  else { kopf.classList.remove("ohne"); solar.style.display="flex";
+         solar.innerHTML=ENTWUERFE[v].bau(); }
+
+  document.getElementById("sVorschau").innerHTML=solarDetailHTML(false);
+  const schwebend=document.getElementById("sSchwebend");
+  if(schwebend.classList.contains("on")) schwebend.innerHTML=solarDetailHTML(true);
+
+  document.getElementById("galerie").innerHTML=ENTWUERFE.map((e,i)=>`
+    <div class="karte">
+      <h3>${i+1} &middot; ${e.name}</h3>
+      <p class="was">${e.was}</p>
+      <div class="rahmen"><div class="solar" style="border:0;padding-left:0">${e.bau()}</div></div>
+      <p class="note">${e.note}</p>
+    </div>`).join("");
+}
+
+for(const [id,feld,art] of [["rUhr","uhr","z"],["rSoc","socStart","z"],["rLast","lastF","z"],
+                            ["rTag","tag","t"],["rVariante",null,"t"]]){
+  document.getElementById(id).addEventListener("input",e=>{
+    if(feld) S[feld]= art==="z" ? Number(e.target.value) : e.target.value;
+    zeichne();
+  });
+}
+/* Ein Tipp auf den Solarblock oeffnet das Detail, der naechste schliesst es.
+   Genau wie bei der Wetterkarte. */
+const schwebend=document.getElementById("sSchwebend");
+document.getElementById("bSolar").style.cursor="pointer";
+document.getElementById("bSolar").addEventListener("click",()=>{
+  schwebend.innerHTML=solarDetailHTML(true);
+  schwebend.classList.add("on");
+});
+schwebend.addEventListener("click",()=>schwebend.classList.remove("on"));
+
+zeichne();
+</script>
+</body>
+</html>
