@@ -1467,17 +1467,36 @@ const SOLAR=(()=>{
     prog=neu; progMorgen=sM; progUeber=sU;
   }
 
-  /* --- Daten der Anlage ------------------------------------------- */
+  /* --- Daten der Anlage -------------------------------------------
+
+     Zuerst beim Tablet selbst nachfragen. Dort laeuft wandsolar, liest die
+     Anlage ueber Modbus und liefert das Ergebnis auf 127.0.0.1:8099 aus.
+     Das ist erlaubt, obwohl diese Seite ueber HTTPS kommt: localhost und
+     127.0.0.1 gelten als vertrauenswuerdig und fallen nicht unter die
+     Sperre fuer gemischte Inhalte.
+
+     Antwortet dort nichts, wird solar.json neben der Seite gelesen. Das ist
+     der Weg fuer jeden anderen Browser und fuer die Arbeit am Rechner.
+  */
+  const QUELLEN=["http://127.0.0.1:8099/solar.json","solar.json"];
   async function holeDaten(){
-    try{
-      const r=await fetch("solar.json?t="+Date.now(),{cache:"no-store"});
-      if(!r.ok) throw new Error("HTTP "+r.status);
-      const d=await r.json();
-      jetzt=d.jetzt||null;
-      mess=d.stunden||{};
-      heuteKwh=Number(d.heute_kwh||0);
-      standZeit=d.zeit?new Date(d.zeit).getTime():Date.now();
-    }catch(e){ /* keine Daten, der Block bleibt weg */ }
+    for(const q of QUELLEN){
+      try{
+        const ab=new AbortController();
+        const uhr=setTimeout(()=>ab.abort(),2500);
+        const r=await fetch(q+(q.includes("?")?"&":"?")+"t="+Date.now(),
+                            {cache:"no-store",signal:ab.signal});
+        clearTimeout(uhr);
+        if(!r.ok) continue;
+        const d=await r.json();
+        if(!d||!d.jetzt) continue;
+        jetzt=d.jetzt;
+        mess=d.stunden||{};
+        heuteKwh=Number(d.heute_kwh||0);
+        standZeit=d.zeit?new Date(d.zeit).getTime():Date.now();
+        break;
+      }catch(e){ /* naechste Quelle */ }
+    }
     zeichne();
   }
 
