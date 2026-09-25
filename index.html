@@ -131,15 +131,19 @@ header.ohne-solar{grid-template-columns:auto auto 1fr}
 .kpi .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b97a6}
 .kpi .z{font-size:25px;font-weight:750;line-height:1.15;font-variant-numeric:tabular-nums}
 .kpi .n{font-size:11.5px;color:#8b97a6;font-variant-numeric:tabular-nums}
-.sgrid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:14px}
+/* Die Kaesten einer Zeile sind gleich hoch, sonst stehen Loecher zwischen
+   ihnen. Der Inhalt verteilt sich in der Hoehe, statt oben zu kleben. */
+.sgrid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);
+       gap:12px;align-items:stretch}
+.sgrid > .sblock{margin:0;display:flex;flex-direction:column}
 .sblock{background:#111925;border:1px solid #263141;border-radius:10px;padding:10px 12px}
 .sblock .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
            color:#8b97a6;margin-bottom:7px}
-.sblock + .sblock{margin-top:12px}
-.leg{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:#c5ced8;margin-top:7px}
+.leg{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:#c5ced8;margin-top:auto;padding-top:7px}
 .leg i{display:inline-block;width:10px;height:10px;border-radius:2.5px;margin-right:5px;
        vertical-align:-1px}
-.paare{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 14px;font-size:13px}
+.paare{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 14px;
+       font-size:13px;flex:1;align-content:space-between}
 .paare .k{color:#9dabbb;white-space:nowrap}
 .paare .v{font-weight:650;font-variant-numeric:tabular-nums;text-align:right}
 .sdetail .quelle{margin-top:11px;font-size:11px;color:#7d8896}
@@ -1744,31 +1748,20 @@ const SOLAR=(()=>{
               "Erlös "+z2(z.erloes)+" · gespart "+z2(z.ersparnis))}
       </div>
       <div class="sgrid">
-        <div>
-          <div class="sblock">
-            <div class="t">Tagesverlauf · links gemessen, rechts gerechnet</div>
-            ${tagesChart(ST)}
-            <div class="leg">
-              <span><i style="background:${F_EIGEN}"></i>direkt ins Haus</span>
-              <span><i style="background:${F_AKKU}"></i>in den Akku</span>
-              <span><i style="background:${F_EIN}"></i>ins Netz</span>
-              <span><i style="background:${F_BEZUG};opacity:.6"></i>aus dem Netz</span>
-              <span><i style="background:${F_HAUS}"></i>Hausverbrauch</span>
-              <span><i style="background:${F_SOC}"></i>Ladezustand</span>
-            </div>
-          </div>
-          <div class="sblock">
-            <div class="t">Überschuss je Stunde in kW · wann sich Verschieben lohnt</div>
-            ${band(ST)}
-          </div>
-          <div class="sblock">
-            <div class="t">Wohin und woher, über den ganzen Tag</div>
-            ${balken(z)}
+        <div class="sblock">
+          <div class="t">Tagesverlauf · links gemessen, rechts gerechnet</div>
+          ${tagesChart(ST)}
+          <div class="leg">
+            <span><i style="background:${F_EIGEN}"></i>direkt ins Haus</span>
+            <span><i style="background:${F_AKKU}"></i>in den Akku</span>
+            <span><i style="background:${F_EIN}"></i>ins Netz</span>
+            <span><i style="background:${F_BEZUG};opacity:.6"></i>aus dem Netz</span>
+            <span><i style="background:${F_HAUS}"></i>Hausverbrauch</span>
+            <span><i style="background:${F_SOC}"></i>Ladezustand</span>
           </div>
         </div>
-        <div>
-          <div class="sblock">
-            <div class="t">Zahlen</div>
+        <div class="sblock">
+          <div class="t">Zahlen</div>
             <div class="paare">
               <div class="k">Leistung jetzt</div><div class="v">${z3(l.pv)} kW</div>
               <div class="k">Hausverbrauch jetzt</div><div class="v">${z3(l.haus)} kW</div>
@@ -1781,8 +1774,16 @@ const SOLAR=(()=>{
               <div class="k">Übermorgen erwartet</div><div class="v">${z1(progUeber)} kWh</div>
               <div class="k">Grundpreis</div><div class="v">${z2(GRUNDPREIS_JAHR/365)} € am Tag</div>
               <div class="k">Stand der Messung</div><div class="v">${new Date(standZeit).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}</div>
-            </div>
           </div>
+        </div>
+
+        <div class="sblock">
+          <div class="t">Überschuss je Stunde in kW · wann sich Verschieben lohnt</div>
+          <div style="margin-block:auto">${band(ST,560,50)}</div>
+        </div>
+        <div class="sblock">
+          <div class="t">Wohin und woher, über den ganzen Tag</div>
+          ${balken(z)}
         </div>
       </div>
       <div class="quelle">Anlage über Modbus am SDongle · Vorhersage aus der Einstrahlung
@@ -1852,9 +1853,9 @@ const SOLAR=(()=>{
     for(let i=0;i<n;i++){
       const t=VON+i,e=ST[t],[f,tf]=stufe(e.ein);
       s+=`<rect x="${(i*zw+.7).toFixed(1)}" y="0" width="${(zw-1.4).toFixed(1)}"
-               height="${h-13}" rx="2.5" fill="${f}" opacity="${e.gemessen?1:.55}"/>`;
+               height="${h-14}" rx="3" fill="${f}" opacity="${e.gemessen?1:.55}"/>`;
       if(e.ein>=.2)
-        s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${(h-13)/2+4}" text-anchor="middle"
+        s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${(h-14)/2+4.5}" text-anchor="middle"
                   font-size="10.5" font-weight="700" fill="${tf}">${z1(e.ein)}</text>`;
       if(t%3===0||t===VON)
         s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${h-1}" text-anchor="middle"
@@ -1862,7 +1863,7 @@ const SOLAR=(()=>{
     }
     const nowH=new Date().getHours()+new Date().getMinutes()/60;
     const jx=(Math.max(VON,Math.min(BIS+1,nowH))-VON)*zw;
-    s+=`<line x1="${jx.toFixed(1)}" y1="-1" x2="${jx.toFixed(1)}" y2="${h-12}"
+    s+=`<line x1="${jx.toFixed(1)}" y1="-1" x2="${jx.toFixed(1)}" y2="${h-13}"
               stroke="#e8eef5" stroke-width="1" stroke-opacity=".55"/>`;
     return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
                  style="display:block;width:100%;height:auto">${s}</svg>`;
