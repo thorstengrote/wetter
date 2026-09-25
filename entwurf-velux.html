@@ -159,18 +159,23 @@ const huelle = inhalt =>
    einer Spitze jenseits des Rahmens. */
 const LUFT = "#8FD0FF";   /* Luft ist kuehl, der Panzer warm. So trennt sich beides. */
 
+function keil(x0,y0,x1,y1,w0,w1,kopf){
+  const dx=x1-x0, dy=y1-y0, n=Math.hypot(dx,dy);
+  const ux=dx/n, uy=dy/n, px=-uy, py=ux;
+  const P=(x,y)=>x.toFixed(2)+" "+y.toFixed(2);
+  const sx=x1-ux*kopf, sy=y1-uy*kopf;
+  return `<path d="M${P(x0+px*w0,y0+py*w0)}L${P(sx+px*w1,sy+py*w1)}`+
+         `L${P(sx+px*w1*1.8,sy+py*w1*1.8)}L${P(x1,y1)}`+
+         `L${P(sx-px*w1*1.8,sy-py*w1*1.8)}L${P(sx-px*w1,sy-py*w1)}`+
+         `L${P(x0-px*w0,y0-py*w0)}Z"/>`;
+}
+
 function windAt(spalt, m, f){
   if(spalt < 2.6) return "";
-  const strahl = (y, vonX) => {
-    const bisX = 21.2;
-    return `<path d="M${vonX} ${y.toFixed(2)}H${bisX}"/>
-            <path d="M${(bisX-1.9).toFixed(2)} ${(y-1.15).toFixed(2)}L${bisX} ${y.toFixed(2)}`+
-           `L${(bisX-1.9).toFixed(2)} ${(y+1.15).toFixed(2)}"/>`;
-  };
-  const abstand = Math.min(1.5, spalt/3);
-  return `<g stroke="${LUFT}" stroke-width="1.25" fill="none" stroke-linecap="round"
-             stroke-linejoin="round">
-    ${strahl(m-abstand, 4.6)}${strahl(m+abstand, 7.2)}</g>`;
+  return `<g fill="${LUFT}">
+    ${keil(12.8,m-1.0, 1.2,23.2, 0.20,0.95,2.1)}
+    ${keil(13.6,m+0.6, 6.8,23.6, 0.16,0.68,1.7)}
+    ${keil(11.6,m-1.9, 4.6,19.4, 0.12,0.40,1.1)}</g>`;
 }
 
 /* Bequemer Aufruf fuer alle Zeichen mit der normalen Oeffnung. Bei offen

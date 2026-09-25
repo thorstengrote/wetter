@@ -1593,16 +1593,33 @@ const VELUX=(()=>{
      waeren es gut vier, darin ist kein Wind mehr zu erkennen. */
   const zuAus=p=>p<=0?OEF.h:Math.min(OEF.h*(100-p)/100,OEF.h-6.0);
 
+  /* Ein Keil: hinten schmal, vorne breit, vorne eine Spitze. Die Verjuengung
+     ist der ganze Tiefeneindruck. Gleich dicke Striche wirken immer flach,
+     egal wohin sie zeigen. */
+  function keil(x0,y0,x1,y1,w0,w1,kopf){
+    const dx=x1-x0, dy=y1-y0, n=Math.hypot(dx,dy);
+    const ux=dx/n, uy=dy/n, px=-uy, py=ux;
+    const P=(x,y)=>x.toFixed(2)+" "+y.toFixed(2);
+    const sx=x1-ux*kopf, sy=y1-uy*kopf;
+    return `<path d="M${P(x0+px*w0,y0+py*w0)}L${P(sx+px*w1,sy+py*w1)}`+
+           `L${P(sx+px*w1*1.8,sy+py*w1*1.8)}L${P(x1,y1)}`+
+           `L${P(sx-px*w1*1.8,sy-py*w1*1.8)}L${P(sx-px*w1,sy-py*w1)}`+
+           `L${P(x0-px*w0,y0-py*w0)}Z"/>`;
+  }
+
+  /* Die Luft tritt hinter dem Fenster in den Schlitz und kommt nach vorne
+     heraus. Im Bild heisst das: die Strahlen beginnen klein und tief im
+     Schlitz, werden nach vorne breiter und laufen ueber die untere
+     Rahmenecke hinaus. Seitliche Striche gleicher Staerke koennen das
+     nicht zeigen, die bleiben immer in der Flaeche des Fensters. */
   function wind(zu){
     const spalt=OEF.h-zu;
     if(zu<OEF.h*0.3||spalt<2.6) return "";
-    const m=OEF.y+zu+spalt/2, ab=Math.min(1.5,spalt/3);
-    /* Die Luft muss durch den Schlitz hindurch und jenseits des Rahmens
-       wieder heraus, sonst weht sie nur seitlich daran vorbei. */
-    const strahl=(y,vonX)=>`<path d="M${vonX} ${y.toFixed(2)}H21.2"/>
-      <path d="M19.3 ${(y-1.15).toFixed(2)}L21.2 ${y.toFixed(2)}L19.3 ${(y+1.15).toFixed(2)}"/>`;
-    return `<g stroke="${LUFT}" stroke-width="1.25" fill="none" stroke-linecap="round"
-               stroke-linejoin="round">${strahl(m-ab,4.6)}${strahl(m+ab,7.2)}</g>`;
+    const m=OEF.y+zu+spalt/2;
+    return `<g fill="${LUFT}">
+      ${keil(12.8,m-1.0, 1.2,23.2, 0.20,0.95,2.1)}
+      ${keil(13.6,m+0.6, 6.8,23.6, 0.16,0.68,1.7)}
+      ${keil(11.6,m-1.9, 4.6,19.4, 0.12,0.40,1.1)}</g>`;
   }
 
   function zeichen(p,f,mitWind=true){
@@ -1908,7 +1925,19 @@ const SOLAR=(()=>{
       }else{
         const e=schritt(prog[h]||0,HAUS[h],soc);
         soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
-        out.push({...e,h,socEnde:soc,gemessen:false});
+        const eintrag={...e,h,socEnde:soc,gemessen:false};
+        if(h===jetztStd&&m){
+          /* Die laufende Stunde. Grau steht die Vorhersage fuer die ganze
+             Stunde, gruen waechst darin, was bisher wirklich erzeugt wurde.
+             Gerechnet wird als Arbeit: der bisherige Mittelwert mal dem Teil
+             der Stunde, der schon vorbei ist. Am Ende der Stunde stehen
+             beide auf derselben Skala, und man sieht, ob sie gehalten hat,
+             was sie versprach, oder darueber hinausging. */
+          const anteil=Math.min(1,new Date().getMinutes()/60);
+          eintrag.teil=Math.max(0,(+m.pv||0)*anteil);
+          eintrag.teilU=(+m.pv||0)-(+m.haus||0);
+        }
+        out.push(eintrag);
       }
     }
     /* Ladezustand der Vergangenheit ruecklaeufig aus den Akkufluessen */
@@ -1984,30 +2013,37 @@ const SOLAR=(()=>{
   const SVON=5,SBIS=21,SBH=8,SAB=3;
   const SB=(SBIS-SVON)*(SBH+SAB)+SBH;
   function streifen(ST,hoehe=44,morgen=false){
-    const jetztStd=new Date().getHours()+new Date().getMinutes()/60;
     let s="";
     for(let t=SVON;t<=SBIS;t++){
       const e=ST[t], v=e.pv, hh=Math.max(1.5,(v/10)*(hoehe-6));
       const x=(t-SVON)*(SBH+SAB);
+      /* Farbe sagt etwas ueber Gemessenes, sonst nichts. Gruen heisst: diese
+         Stunde ist gelaufen und hat mehr erzeugt, als das Haus gebraucht hat.
+         Eine Vorhersage hat noch gar nichts geladen und bleibt deshalb grau,
+         egal wie viel sie verspricht. */
       const u=v-e.haus;
-      const f=u>1.0?"#3ddc97":u>0?"#9ad9b5":"#5b6b7d";
+      const f=!e.gemessen ? "#5b6b7d" : u>1.0 ? "#3ddc97" : u>0 ? "#9ad9b5" : "#5b6b7d";
       s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${SBH}" height="${hh.toFixed(1)}"
                rx="2" fill="${f}" opacity="${e.gemessen?1:.30}"/>`;
+      /* Erst das Gewachsene, dann der Umriss der Vorhersage darueber. So
+         bleibt sichtbar, wo die Stunde versprochen hatte, auch wenn der
+         gruene Balken schon darueber hinausgewachsen ist. */
+      if(e.teil>0.02){
+        const th=Math.max(1.5,(e.teil/10)*(hoehe-6));
+        const tf=e.teilU>1.0?"#3ddc97":e.teilU>0?"#9ad9b5":"#8b97a6";
+        s+=`<rect x="${x}" y="${(hoehe-th).toFixed(1)}" width="${SBH}"
+                 height="${th.toFixed(1)}" rx="2" fill="${tf}"/>`;
+      }
       if(!e.gemessen) s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${SBH}"
-               height="${hh.toFixed(1)}" rx="2" fill="none" stroke="${f}"
-               stroke-width="1" stroke-opacity=".55"/>`;
+               height="${hh.toFixed(1)}" rx="2" fill="none" stroke="#c5ced8"
+               stroke-width="1" stroke-opacity="${e.teil>0.02?".8":".45"}"/>`;
     }
-    if(morgen){
-      /* Kein Jetzt-Strich, es liegt ja alles in der Zukunft. Stattdessen ein
-         Wort, sonst haelt man die blasse Kurve fuer den verpatzten heutigen
-         Tag. Es sitzt oben links, wo am Morgen ohnehin keine Saeule steht. */
-      s+=`<text x="0" y="8" font-size="8.5" font-weight="700"
+    /* Kein Jetzt-Strich mehr. Wo die gemessenen Saeulen aufhoeren und die
+       grauen anfangen, ist die Gegenwart, das zeigt der Streifen schon. Beim
+       naechsten Tag steht statt des Strichs ein Wort, sonst haelt man die
+       graue Kurve fuer den verpatzten heutigen Tag. */
+    if(morgen) s+=`<text x="0" y="8" font-size="8.5" font-weight="700"
                 fill="#8b97a6" letter-spacing=".3">morgen</text>`;
-    }else{
-      const jx=(Math.max(SVON,Math.min(SBIS+1,jetztStd))-SVON)*(SBH+SAB)-SAB/2;
-      s+=`<line x1="${jx.toFixed(1)}" y1="0" x2="${jx.toFixed(1)}" y2="${hoehe}"
-                stroke="#e8eef5" stroke-width="1" stroke-opacity=".45"/>`;
-    }
     return `<svg width="${SB}" height="${hoehe}" viewBox="0 0 ${SB} ${hoehe}"
                  style="display:block">${s}</svg>`;
   }
