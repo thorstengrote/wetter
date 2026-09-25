@@ -1538,6 +1538,7 @@ const SOLAR=(()=>{
      Der Grundpreis haengt nicht an der Erzeugung und steht deshalb nur
      nachrichtlich in den Zahlen, nicht in der Bilanz. */
   const VERGUETUNG=0.0782, ARBEITSPREIS=0.2455, GRUNDPREIS_JAHR=253.64;
+  const VOLL_KW=10.0;            /* volle Balkenlaenge, die Grenze des Wechselrichters */
   const ALT_MS=25*60*1000;       /* aelter als das, dann keine Anzeige */
 
   const F_EIGEN="#63b3ff", F_AKKU="#4fd6c9", F_EIN="#3ddc97",
@@ -1689,8 +1690,13 @@ const SOLAR=(()=>{
     haus:`<path d="M1 9.2V4.4L5 1.1l4 3.3v4.8z" fill="currentColor"/>`,
     akku:`<rect x="2.4" y="2.3" width="5.2" height="6.9" rx="1.1" fill="currentColor"/>
           <rect x="3.9" y="1" width="2.2" height="1.5" rx=".5" fill="currentColor"/>`,
+    /* Der Euro traegt ein Vorzeichen: Minus kostet, Plus bringt ein. */
     euro:`<text x="5" y="8.1" text-anchor="middle" font-size="10.2" font-weight="750"
                 fill="currentColor">&#8364;</text>`,
+    "euro+":`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750"
+                fill="currentColor">+&#8364;</text>`,
+    "euro-":`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750"
+                fill="currentColor">&#8722;&#8364;</text>`,
     strom:`<path d="M6.3 .7 2.3 5.9h2.6L4.0 9.3 7.9 4.0H5.4z" fill="currentColor"/>`
   };
   const mini=(a,f,g=10)=>`<svg width="${g}" height="${g}" viewBox="0 0 10 10"
@@ -1756,26 +1762,39 @@ const SOLAR=(()=>{
     if(knapp){
       teile=[[Math.min(pv,haus),"#ffd166","strom"],
              [Math.max(0,-akku),F_AKKU,"akku"],
-             [bez,F_BEZUG,"euro"]];
+             [bez,F_BEZUG,"euro-"]];
       endIkon="haus"; endFarbe=F_EIGEN;
     }else{
       teile=[[Math.min(pv,haus),F_EIGEN,"haus"],
              [Math.max(0,akku),F_AKKU,"akku"],
-             [ein,F_EIN,"euro"]];
+             [ein,F_EIN,"euro+"]];
       endIkon="strom"; endFarbe=F_SOC;
     }
-    const summe=Math.max(teile.reduce((a,[v])=>a+v,0),0.3);
+    /* Die Laenge ist die Leistung, voll heisst VOLL_KW. Damit sagt der Balken
+       nicht nur wohin, sondern auch wie viel. Die feinen Striche geben der
+       Laenge einen Bezug, sonst hiesse ein kurzer Balken nur "wenig". */
+    const summe=teile.reduce((a,[v])=>a+v,0);
+    const nutz=summe>0.02 ? Math.max(3,Math.min(1,summe/VOLL_KW)*b) : 0;
+
+    let skala="";
+    for(let kwv=2;kwv<VOLL_KW;kwv+=2)
+      skala+=`<line x1="${(b*kwv/VOLL_KW).toFixed(1)}" y1="0"
+                    x2="${(b*kwv/VOLL_KW).toFixed(1)}" y2="${h}"
+                    stroke="#3a4756" stroke-width="1"/>`;
+
     const gr=Math.min(13,h-4), sk=gr/10;
     let x=0,s="";
     for(const [v,f,a] of teile){
-      const w=v/summe*b;
+      const w=summe>0 ? v/summe*nutz : 0;
       if(w<0.6) continue;
       s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${h}" fill="${f}"/>`;
       if(w>=gr+4) s+=`<g transform="translate(${(x+w/2-gr/2).toFixed(1)} ${(h/2-gr/2).toFixed(1)})
                           scale(${sk.toFixed(2)})" color="#101720" opacity=".92">${MINI[a]}</g>`;
       x+=w;
     }
-    const rahmen=teuer?`<rect x=".6" y=".6" width="${b-1.2}" height="${h-1.2}" rx="3.4"
+    /* Der Rahmen umfasst nur den Balken, nicht die leere Bahn dahinter */
+    const rahmen=teuer&&nutz>4?`<rect x=".6" y=".6" width="${(nutz-1.2).toFixed(1)}"
+                              height="${h-1.2}" rx="3.4"
                               fill="none" stroke="${F_BEZUG}" stroke-width="1.2" opacity=".9"/>`:"";
     const pfeil=knapp?`<path d="M9 5H3M5 2.4 1.6 5 5 7.6"/>`:`<path d="M0 5h6M4 2.4 7.4 5 4 7.6"/>`;
     return `<div style="display:flex;align-items:center;gap:4px">
@@ -1785,7 +1804,7 @@ const SOLAR=(()=>{
            stroke-linecap="round" stroke-linejoin="round">${pfeil}</g></svg>
       <svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
            style="display:block;border-radius:4px;overflow:hidden;flex:0 0 auto">
-        <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${s}${rahmen}</svg>
+        <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${skala}${s}${rahmen}</svg>
     </div>`;
   }
 
@@ -1986,9 +2005,9 @@ const SOLAR=(()=>{
         <div style="font-size:11px;font-variant-numeric:tabular-nums">${zahlen}</div></div>`;
     };
     return reihe("Erzeugung geht nach",z.pv,
-             [[z.eigen,F_EIGEN,"haus"],[z.laden,F_AKKU,"akku"],[z.ein,F_EIN,"euro"]])
+             [[z.eigen,F_EIGEN,"haus"],[z.laden,F_AKKU,"akku"],[z.ein,F_EIN,"euro+"]])
          + reihe("Verbrauch kommt aus",z.haus,
-             [[z.eigen,F_SOC,"strom"],[z.entladen,F_AKKU,"akku"],[z.bez,F_BEZUG,"euro"]]);
+             [[z.eigen,F_SOC,"strom"],[z.entladen,F_AKKU,"akku"],[z.bez,F_BEZUG,"euro-"]]);
   }
 })();
 

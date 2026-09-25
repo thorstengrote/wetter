@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flussbalken &ndash; Entwurf</title>
+<style>
+:root{--bg:#0d131b;--karte:#141c26;--rand:#2b3745;--text:#e8eef5;--muted:#8b97a6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+     font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+     padding-block:24px;padding-left:16px;padding-right:16px}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:15px;margin:28px 0 8px;color:#c5ced8}
+p.lead{color:var(--muted);margin:0 0 18px;max-width:880px}
+.regler{background:var(--karte);border:1px solid var(--rand);border-radius:12px;
+        padding:13px;display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end;
+        position:sticky;top:0;z-index:5}
+.regler label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.regler input[type=range]{width:180px}
+.wert{color:var(--text);font-weight:650;font-variant-numeric:tabular-nums}
+.lage{margin-left:auto;font-size:12px;color:var(--muted);text-align:right;
+      font-variant-numeric:tabular-nums}
+.lage b{color:var(--text)}
+
+.fall{background:var(--karte);border:1px solid var(--rand);border-radius:12px;
+      padding:12px 15px;margin-top:12px}
+.fall h3{margin:0 0 2px;font-size:14px}
+.fall .was{color:var(--muted);font-size:12px;margin:0 0 10px}
+.rahmen{background:linear-gradient(180deg,#171f2a,#111821);border:1px solid #4a586b;
+        border-radius:11px;padding:10px 14px;display:flex;align-items:center;gap:12px}
+.szenen{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
+.szene{background:#111925;border:1px solid #263141;border-radius:10px;padding:10px 12px}
+.szene .n{font-size:11px;color:var(--muted);margin-bottom:6px;font-variant-numeric:tabular-nums}
+.note{color:var(--muted);font-size:12px;margin:12px 0 0;max-width:900px}
+</style>
+</head>
+<body>
+
+<h1>Der Flussbalken mit Höhe statt nur Aufteilung</h1>
+<p class="lead">
+Heute ist der Balken immer voll und zeigt nur, wie sich die Leistung aufteilt.
+Ein voller Balken bei 0,4 kW sieht genauso aus wie bei 7 kW. Unten drei
+Maßstäbe nebeneinander: der heutige, ein linearer bis 8 kW, und ein
+gestauchter, der kleine Lasten noch sichtbar lässt. Dazu bekommt der Euro
+ein Vorzeichen, Minus wenn es kostet und Plus wenn es einbringt.
+</p>
+
+<div class="regler">
+  <label>Solarleistung <span class="wert" id="wPv">0,0 kW</span>
+    <input type="range" id="rPv" min="0" max="10" step="0.1" value="0"></label>
+  <label>Hausverbrauch <span class="wert" id="wHaus">1,2 kW</span>
+    <input type="range" id="rHaus" min="0.2" max="9" step="0.1" value="1.2"></label>
+  <label>Ladezustand <span class="wert" id="wSoc">40 %</span>
+    <input type="range" id="rSoc" min="0" max="100" step="1" value="40"></label>
+  <div class="lage" id="lage"></div>
+</div>
+
+<h2>Im Banner, die drei Maßstäbe</h2>
+<div id="varianten"></div>
+
+<h2>Typische Lagen im Vergleich</h2>
+<p class="lead" style="margin-bottom:6px">
+Dieselben sechs Momente in allen drei Maßstäben. Oben der heutige, in der
+Mitte linear, unten gestaucht.
+</p>
+<div class="szenen" id="szenen"></div>
+
+<p class="note">
+Der gestauchte Maßstab nimmt die Wurzel aus dem Verhältnis zur vollen Last.
+Damit ist 0,5 kW noch ein Viertel des Balkens statt ein Sechzehntel, und
+8 kW bleibt der ganze. Volle Last heißt hier 8 kW, das ist etwas über der
+höchsten Hauslast, die heute gemessen wurde.
+</p>
+
+<script>
+const F_EIGEN="#63b3ff", F_AKKU="#4fd6c9", F_EIN="#3ddc97",
+      F_BEZUG="#ff7b6b", F_SOC="#ffd166";
+const VOLL=8.0;            /* was ein ganzer Balken bedeutet, in kW */
+const AKKU_MAX=5.0;
+
+const MINI={
+  haus:`<path d="M1 9.2V4.4L5 1.1l4 3.3v4.8z" fill="currentColor"/>`,
+  akku:`<rect x="2.4" y="2.3" width="5.2" height="6.9" rx="1.1" fill="currentColor"/>
+        <rect x="3.9" y="1" width="2.2" height="1.5" rx=".5" fill="currentColor"/>`,
+  strom:`<path d="M6.3 .7 2.3 5.9h2.6L4.0 9.3 7.9 4.0H5.4z" fill="currentColor"/>`
+};
+/* Der Euro bekommt ein Vorzeichen: Minus kostet, Plus bringt ein. */
+const euro=z=>`<text x="5" y="8.1" text-anchor="middle" font-size="9.4" font-weight="750"
+  fill="currentColor">${z}&#8364;</text>`;
+const mini=(a,f,g=10)=>`<svg width="${g}" height="${g}" viewBox="0 0 10 10"
+  style="display:block;color:${f};flex:0 0 auto">${a==="euro+"?euro("+"):a==="euro-"?euro("−"):MINI[a]}</svg>`;
+
+function batterie(soc,laedt,b=29,h=68){
+  const kappe=Math.max(3.5,h*0.075), io=kappe+h*0.038, iu=h-h*0.038;
+  const ih=iu-io, f=ih*Math.max(0,Math.min(100,soc))/100;
+  const farbe=soc>=50?"#3ddc97":soc>=25?"#ffd166":"#ff7b6b";
+  let li="";
+  for(let i=1;i<5;i++){
+    const y=iu-ih*i/5;
+    li+=`<line x1="${b*0.12}" y1="${y.toFixed(1)}" x2="${b*0.88}" y2="${y.toFixed(1)}"
+               stroke="#111821" stroke-width="${Math.max(1.6,h*0.027)}"/>`;
+  }
+  const blitz=laedt?`<path d="M${b/2+3} ${h/2-10}l-7 11h4.5l-2 8.5 7-11.2h-4.5z"
+                           fill="#0d131b" opacity=".85"/>`:"";
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block">
+    <rect x="${b/2-b*0.19}" y="0" width="${b*0.38}" height="${kappe+1}" rx="1.8" fill="#5b6b7d"/>
+    <rect x="1" y="${kappe}" width="${b-2}" height="${h-kappe-1}" rx="${b*0.15}"
+          fill="#1b232e" stroke="#6b7a8c" stroke-width="1.6"/>
+    <rect x="${b*0.12}" y="${(iu-f).toFixed(1)}" width="${b*0.76}"
+          height="${f.toFixed(1)}" rx="1.8" fill="${farbe}"/>
+    ${li}${blitz}</svg>`;
+}
+
+/* Die Lage der Anlage in einem Moment */
+function lage(pv,haus,soc){
+  const ausHaus=Math.min(pv,haus), rest=pv-haus;
+  let akku=0, ein=0, bez=0;
+  if(rest>0){
+    akku=Math.min(rest,AKKU_MAX,soc>=100?0:99);
+    ein=rest-akku;
+  }else{
+    const ab=Math.min(-rest,AKKU_MAX,soc<=5?0:99);
+    akku=-ab; bez=-rest-ab;
+  }
+  return {pv,haus,ausHaus,akku,ein,bez,knapp:pv+0.02<haus};
+}
+
+const IKON=25;
+/* art: "voll" wie heute, "linear" oder "gestaucht" */
+function balken(L,art,gesamt=184,h=19){
+  const b=gesamt-IKON;
+  let teile, endIkon, endFarbe;
+  if(L.knapp){
+    teile=[[L.ausHaus,F_SOC,"strom"],[Math.max(0,-L.akku),F_AKKU,"akku"],
+           [L.bez,F_BEZUG,"euro-"]];
+    endIkon="haus"; endFarbe=F_EIGEN;
+  }else{
+    teile=[[L.ausHaus,F_EIGEN,"haus"],[Math.max(0,L.akku),F_AKKU,"akku"],
+           [L.ein,F_EIN,"euro+"]];
+    endIkon="strom"; endFarbe=F_SOC;
+  }
+  const summe=teile.reduce((a,[v])=>a+v,0);
+
+  /* Wie lang wird der Balken insgesamt? */
+  let anteil=1;
+  if(art==="linear")    anteil=Math.min(1,summe/VOLL);
+  if(art==="gestaucht") anteil=Math.min(1,Math.sqrt(summe/VOLL));
+  const nutz=Math.max(2,b*anteil);
+
+  const gr=Math.min(13,h-4), sk=gr/10;
+  let x=0,s="";
+  for(const [v,f,a] of teile){
+    const w=summe>0 ? v/summe*nutz : 0;
+    if(w<0.6) continue;
+    s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${h}" fill="${f}"/>`;
+    if(w>=gr+4) s+=`<g transform="translate(${(x+w/2-gr/2).toFixed(1)} ${(h/2-gr/2).toFixed(1)})
+                        scale(${sk.toFixed(2)})" color="#101720" opacity=".92">
+                      ${a.startsWith("euro")?euro(a==="euro+"?"+":"−"):MINI[a]}</g>`;
+    x+=w;
+  }
+  const teuer=L.bez>0.02;
+  const rahmen=teuer?`<rect x=".6" y=".6" width="${b-1.2}" height="${h-1.2}" rx="3.4"
+      fill="none" stroke="${F_BEZUG}" stroke-width="1.2" opacity=".9"/>`:"";
+  const pfeil=L.knapp?`<path d="M9 5H3M5 2.4 1.6 5 5 7.6"/>`:`<path d="M0 5h6M4 2.4 7.4 5 4 7.6"/>`;
+  /* Feine Striche im Hintergrund geben der Laenge einen Bezug. Ohne sie
+     sagt ein kurzer Balken nur "wenig", mit ihnen sagt er "zwei Kilowatt". */
+  let skala="";
+  if(art!=="voll"){
+    for(let kwv=2;kwv<VOLL;kwv+=2){
+      const a=art==="linear"?kwv/VOLL:Math.sqrt(kwv/VOLL);
+      skala+=`<line x1="${(b*a).toFixed(1)}" y1="0" x2="${(b*a).toFixed(1)}" y2="${h}"
+                    stroke="#3a4756" stroke-width="1"/>`;
+    }
+  }
+  return `<div style="display:flex;align-items:center;gap:4px">
+    ${mini(endIkon,endFarbe,11)}
+    <svg width="10" height="10" viewBox="0 0 10 10" style="display:block;flex:0 0 auto">
+      <g fill="none" stroke="${teuer?"#ff9a8c":"#8b97a6"}" stroke-width="1.3"
+         stroke-linecap="round" stroke-linejoin="round">${pfeil}</g></svg>
+    <svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+         style="display:block;border-radius:4px;overflow:hidden;flex:0 0 auto">
+      <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${skala}${s}${rahmen}</svg>
+  </div>`;
+}
+
+const S={pv:0, haus:1.2, soc:40};
+const kw=v=>v.toFixed(v<10?2:1).replace(".",",");
+
+const ARTEN=[
+  ["voll","So ist es heute","Immer voll. Zeigt nur die Aufteilung, nichts über die Höhe."],
+  ["linear","Linear bis 8 kW, mit Skala","Die Länge ist die Leistung. Striche bei 2, 4 und 6 kW geben ihr einen Bezug."],
+  ["gestaucht","Gestaucht, Wurzel","Kleine Lasten bleiben sichtbar, große sind trotzdem deutlich länger."]
+];
+
+const SZENEN=[
+  ["Nacht, Grundlast",      0,   0.4, 55],
+  ["Abend, Akku trägt",     0,   2.6, 40],
+  ["Abend, Akku leer",      0,   2.6,  4],
+  ["Morgens, Sonne kommt",  1.8, 3.2, 30],
+  ["Mittag, Akku lädt",     8.3, 0.9, 62],
+  ["Mittag, Akku voll",     8.3, 0.9,100]
+];
+
+function zeichne(){
+  document.getElementById("wPv").textContent=kw(S.pv)+" kW";
+  document.getElementById("wHaus").textContent=kw(S.haus)+" kW";
+  document.getElementById("wSoc").textContent=S.soc+" %";
+  const L=lage(S.pv,S.haus,S.soc);
+  document.getElementById("lage").innerHTML=
+    `Haus <b>${kw(L.haus)}</b> kW · Akku <b>${kw(L.akku)}</b> kW · `+
+    (L.bez>0.02?`Netz <b>-${kw(L.bez)}</b> kW`:`Netz <b>+${kw(L.ein)}</b> kW`);
+
+  document.getElementById("varianten").innerHTML=ARTEN.map(([art,name,was])=>
+    `<div class="fall"><h3>${name}</h3><p class="was">${was}</p>
+       <div class="rahmen">${batterie(S.soc,L.akku>0.05)}
+         <div><div style="height:44px"></div>${balken(L,art)}</div></div></div>`).join("");
+
+  document.getElementById("szenen").innerHTML=SZENEN.map(([n,pv,haus,soc])=>{
+    const l=lage(pv,haus,soc);
+    return `<div class="szene">
+      <div class="n">${n} · PV ${kw(pv)} · Haus ${kw(haus)} · Akku ${soc} %</div>
+      ${ARTEN.map(([art])=>`<div style="margin-bottom:5px">${balken(l,art,300,17)}</div>`).join("")}
+    </div>`;
+  }).join("");
+}
+
+for(const [id,feld] of [["rPv","pv"],["rHaus","haus"],["rSoc","soc"]]){
+  document.getElementById(id).addEventListener("input",e=>{
+    S[feld]=Number(e.target.value); zeichne();
+  });
+}
+zeichne();
+</script>
+</body>
+</html>
