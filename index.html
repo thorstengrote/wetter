@@ -1431,7 +1431,14 @@ function renderDays(icon,trend,uvDay){
 const SOLAR=(()=>{
   const FAKTOR=0.014;            /* kW je W/m2 */
   const AKKU_KWH=10.0, AKKU_MAX=5.0, WP=12.42;
-  const VERGUETUNG=0.082, ARBEITSPREIS=0.34;
+  /* Tarife von Thorsten, Stand 25.09.2026. Der Arbeitspreis ist brutto.
+     Die Einspeiseverguetung gilt 20 Jahre ab Inbetriebnahme und teilt sich
+     nach Anlagengroesse: bis 10 kWp ein Satz, darueber ein niedrigerer.
+     Bei 12,42 kWp und Inbetriebnahme im zweiten Halbjahr 2024 sind das
+     8,03 und 6,95 Cent, gewichtet also 7,82 Cent.
+     Der Grundpreis haengt nicht an der Erzeugung und steht deshalb nur
+     nachrichtlich in den Zahlen, nicht in der Bilanz. */
+  const VERGUETUNG=0.0782, ARBEITSPREIS=0.2455, GRUNDPREIS_JAHR=253.64;
   const ALT_MS=25*60*1000;       /* aelter als das, dann keine Anzeige */
 
   const F_EIGEN="#63b3ff", F_AKKU="#4fd6c9", F_EIN="#3ddc97",
@@ -1535,8 +1542,14 @@ const SOLAR=(()=>{
                   akku:+m.akku||0, ein:Math.max(0,+m.netz||0),
                   bez:Math.max(0,-(+m.netz||0)), socEnde:null, gemessen:true});
       }else if(h<jetztStd){
-        out.push({h,pv:0,haus:HAUS[h],ausHaus:0,akku:0,ein:0,bez:HAUS[h],
-                  socEnde:null,gemessen:false,leer:true});
+        /* Stunde liegt zurueck, aber es gibt keine Messung, weil der Dienst
+           damals noch nicht lief. Dann die Vorhersage zeigen und naiv
+           aufteilen, statt Netzbezug zu erfinden, den es nie gab. Ueber den
+           Akku wird in diesem Fall nichts behauptet. */
+        const pv=prog[h]||0, haus=HAUS[h];
+        out.push({h,pv,haus,ausHaus:Math.min(pv,haus),akku:0,
+                  ein:Math.max(0,pv-haus),bez:Math.max(0,haus-pv),
+                  socEnde:null,gemessen:false});
       }else{
         const e=schritt(prog[h]||0,HAUS[h],soc);
         soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
@@ -1546,7 +1559,8 @@ const SOLAR=(()=>{
     /* Ladezustand der Vergangenheit ruecklaeufig aus den Akkufluessen */
     let s=soc0;
     for(let h=jetztStd-1;h>=0;h--){
-      const e=out[h]; if(!e) continue;
+      const e=out[h];
+      if(!e||!e.gemessen) break;   /* ohne Messung keine Linie */
       s=Math.max(0,Math.min(100,s-e.akku/AKKU_KWH*100));
       e.socEnde=s;
     }
@@ -1765,6 +1779,7 @@ const SOLAR=(()=>{
               <div class="k">Netzbezug</div><div class="v">${z1(z.bez)} kWh · ${z2(z.kosten)} €</div>
               <div class="k">Morgen erwartet</div><div class="v">${z1(progMorgen)} kWh</div>
               <div class="k">Übermorgen erwartet</div><div class="v">${z1(progUeber)} kWh</div>
+              <div class="k">Grundpreis</div><div class="v">${z2(GRUNDPREIS_JAHR/365)} € am Tag</div>
               <div class="k">Stand der Messung</div><div class="v">${new Date(standZeit).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}</div>
             </div>
           </div>
