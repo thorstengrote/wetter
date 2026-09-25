@@ -1478,7 +1478,10 @@ const SOLAR=(()=>{
      Antwortet dort nichts, wird solar.json neben der Seite gelesen. Das ist
      der Weg fuer jeden anderen Browser und fuer die Arbeit am Rechner.
   */
-  const QUELLEN=["http://127.0.0.1:8099/solar.json","solar.json"];
+  /* Gleicher Ursprung zuerst: auf dem Tablet liefert wandsolar die Seite
+     selbst aus, dann zeigt "solar.json" genau dorthin. Der zweite Eintrag
+     ist nur noch fuer den Fall, dass die Seite von woanders kommt. */
+  const QUELLEN=["solar.json","http://127.0.0.1:8099/solar.json"];
   async function holeDaten(){
     for(const q of QUELLEN){
       try{

@@ -1,0 +1,17 @@
+# Liest die Solaranlage und liefert die Wetterseite lokal aus,
+# siehe /odm/etc/wandsolar.sh.
+#
+# Kein oneshot: stirbt der Dienst, startet Init ihn neu.
+#
+# Muss vor wandwacht laufen, sonst findet der Kiosk beim Start keine Seite.
+# Init startet beide beim selben Ereignis, die Reihenfolge der Zeilen
+# entscheidet, und wandwacht wartet danach ohnehin 30 Sekunden.
+
+service wandsolar /system/bin/sh /odm/etc/wandsolar.sh
+    user root
+    group root inet
+    seclabel u:r:su:s0
+    disabled
+
+on property:sys.boot_completed=1
+    start wandsolar
