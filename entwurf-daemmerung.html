@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dämmerung &ndash; Entwurf</title>
+<style>
+:root{--bg:#0d131b;--karte:#141c26;--rand:#2b3745;--text:#e8eef5;--muted:#8b97a6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+     font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+     padding-block:24px;padding-left:16px;padding-right:16px}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:15px;margin:30px 0 10px;color:#c5ced8}
+p.lead{color:var(--muted);margin:0 0 18px;max-width:860px}
+.regler{background:var(--karte);border:1px solid var(--rand);border-radius:12px;
+        padding:13px;display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end;
+        position:sticky;top:0;z-index:5}
+.regler label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.regler input[type=range]{width:210px}
+.wert{color:var(--text);font-weight:650;font-variant-numeric:tabular-nums}
+.sonnenzeit{margin-left:auto;font-size:12px;color:var(--muted);text-align:right}
+.sonnenzeit b{display:block;font-size:15px;color:var(--text);font-weight:700;
+              font-variant-numeric:tabular-nums}
+
+.reihe{display:flex;gap:6px;margin-top:8px}
+.hour{flex:1 1 0;min-width:0;background:#141c26;border:1px solid #2b3745;
+      border-radius:12px;padding:8px 4px;text-align:center}
+.hour.night{background:#0f151d}
+.hour .t{font-size:13px;font-weight:700;color:#c5ced8}
+.hour .icon{display:flex;justify-content:center;align-items:center;margin:6px 0 2px}
+.wicon{width:62px;height:62px;display:block}
+.hour .deg{font-size:17px;font-weight:750}
+.hour .n{font-size:10px;color:#6c7b8c;margin-top:2px;min-height:13px;
+         font-variant-numeric:tabular-nums}
+
+.fall{background:var(--karte);border:1px solid var(--rand);border-radius:12px;
+      padding:13px 15px;margin-top:14px}
+.fall h3{margin:0 0 2px;font-size:14px}
+.fall .was{color:var(--muted);font-size:12px;margin:0 0 8px}
+.probe{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.probe figure{margin:0;text-align:center;width:82px}
+.probe figcaption{font-size:10.5px;color:var(--muted);margin-top:2px;
+                  font-variant-numeric:tabular-nums}
+.note{color:var(--muted);font-size:12px;margin:12px 0 0;max-width:880px}
+code{background:#0f1720;border:1px solid #243040;border-radius:5px;padding:1px 5px;font-size:12.5px}
+</style>
+</head>
+<body>
+
+<h1>Dämmerung statt hartem Schnitt</h1>
+<p class="lead">
+Heute entscheidet die Seite je Stunde nach deren Mitte: liegt 19:30 nach
+Sonnenuntergang, ist die ganze Stunde Nacht. Deshalb steht um 18 Uhr die Sonne
+und um 19 Uhr der Mond, obwohl um 18:40 noch die Sonne schien. Unten drei
+Regeln nebeneinander, mit denselben Bausteinen wie die echte Seite. Auf- und
+Untergang werden aus dem Sonnenstand für Uedorf gerechnet, der Datumsregler
+zeigt also auch Winter und Hochsommer.
+</p>
+
+<div class="regler">
+  <label>Tag im Jahr <span class="wert" id="wTag">25. September</span>
+    <input type="range" id="rTag" min="1" max="365" step="1" value="268"></label>
+  <label>Bewölkung <span class="wert" id="wWolke">Stufe 0</span>
+    <input type="range" id="rWolke" min="0" max="4" step="1" value="0"></label>
+  <div class="sonnenzeit">
+    <div>Aufgang<b id="zAuf">–</b></div>
+  </div>
+  <div class="sonnenzeit">
+    <div>Untergang<b id="zUnter">–</b></div>
+  </div>
+</div>
+
+<h2>Abend, Stunde für Stunde</h2>
+<div id="abend"></div>
+
+<h2>Morgen, Stunde für Stunde</h2>
+<div id="morgen"></div>
+
+<h2>Der Verlauf über den Sonnenstand</h2>
+<div class="fall">
+  <h3>Variante C in Einzelschritten</h3>
+  <p class="was">Von hoch stehender Sonne bis tief unter dem Horizont. Nichts
+     springt, alles wandert.</p>
+  <div class="probe" id="verlauf"></div>
+</div>
+
+<h2>Mit Wolken zusammengesetzt</h2>
+<div class="fall">
+  <h3>Dämmerung über alle Himmelsstufen</h3>
+  <p class="was">Die Dämmerungssonne sitzt an derselben Stelle wie die normale,
+     die Wolke wächst und schiebt sich davor.</p>
+  <div class="probe" id="stufen"></div>
+</div>
+
+<script>
+/* ============================================================
+   Bausteine, unveraendert aus index.html
+   ============================================================ */
+const SKY_SUN=`<circle cx="32" cy="32" r="10" fill="#FFD65A"/>
+  <g stroke="#FFD65A" stroke-width="3" stroke-linecap="round">
+    <path d="M32 7v7M32 50v7M7 32h7M50 32h7M14.3 14.3l5 5M44.7 44.7l5 5M49.7 14.3l-5 5M19.3 44.7l-5 5"/>
+  </g>`;
+const SKY_MOON=`<g transform="translate(-6 0)"><path d="M40 14 A18 18 0 1 0 40 50 A22 22 0 0 1 40 14 Z" fill="#E9EEF6"/></g>`;
+const SKY_STARS=`<g fill="#C9D6EA"><circle cx="48" cy="16" r="2"/><circle cx="55" cy="27" r="1.5"/><circle cx="44" cy="30" r="1.2"/></g>`;
+const SKY_CLOUD_D=`M18 45h28c8 0 14-5 14-12s-6-12-13-12c-2 0-4 .4-5.7 1.3C38.4 16.8 33.2 14 27.5 14 19 14 12 21 12 29.5v.6C6.8 31.3 3 35.8 3 41c0 2.5.8 4.8 2.3 6.8C8 44.7 12.5 45 18 45z`;
+const SKY_CLOUD =`<path d="${SKY_CLOUD_D}" fill="#E8EDF3"/>`;
+const SKY_LAGE=[
+  {sonne:[0,0,1],      wolke:null},
+  {sonne:[-1,-3,.88],  wolke:[20,22,.52]},
+  {sonne:[-2,-3,.80],  wolke:[7,8,.82]},
+  {sonne:[-1,0,.60],   wolke:[1,2,.98]},
+  {sonne:null,         wolke:[0,1,1]}
+];
+const svgG=(t,i)=>t?`<g transform="translate(${t[0]} ${t[1]}) scale(${t[2]})">${i}</g>`:i;
+
+/* ============================================================
+   Sonnenstand nach dem Verfahren der NOAA, genau genug fuer ein Symbol.
+   Uedorf, Sommerzeit von Ende Maerz bis Ende Oktober.
+   ============================================================ */
+const LAT=50.76, LON=7.00;
+const zeitzone=tag=>(tag>=87&&tag<=303)?2:1;
+
+function sonnenhoehe(tag, stunde){
+  const tz=zeitzone(tag);
+  const g=2*Math.PI/365*(tag-1+(stunde-12)/24);
+  const zeitgleichung=229.18*(0.000075+0.001868*Math.cos(g)-0.032077*Math.sin(g)
+    -0.014615*Math.cos(2*g)-0.040849*Math.sin(2*g));
+  const neigung=0.006918-0.399912*Math.cos(g)+0.070257*Math.sin(g)
+    -0.006758*Math.cos(2*g)+0.000907*Math.sin(2*g)
+    -0.002697*Math.cos(3*g)+0.00148*Math.sin(3*g);
+  const versatz=zeitgleichung+4*LON-60*tz;
+  const winkel=((stunde*60+versatz)/4)-180;
+  const w=winkel*Math.PI/180, b=LAT*Math.PI/180;
+  const cosZ=Math.sin(b)*Math.sin(neigung)+Math.cos(b)*Math.cos(neigung)*Math.cos(w);
+  return 90-Math.acos(Math.max(-1,Math.min(1,cosZ)))*180/Math.PI;
+}
+
+/* Auf- und Untergang: die Stelle suchen, an der die Hoehe -0,833 Grad kreuzt */
+function wechsel(tag, von, bis){
+  let a=von, b=bis;
+  for(let i=0;i<40;i++){
+    const m=(a+b)/2;
+    if((sonnenhoehe(tag,von)+0.833<0) === (sonnenhoehe(tag,m)+0.833<0)) a=m; else b=m;
+  }
+  return (a+b)/2;
+}
+const aufgang   = tag => wechsel(tag, 0, 13);
+const untergang = tag => wechsel(tag, 13, 24);
+
+/* ============================================================
+   Variante C: das Symbol folgt dem Sonnenstand
+
+   Ueber 10 Grad sieht es aus wie heute. Darunter erscheint eine
+   Horizontlinie, die Sonne sinkt darauf zu, faerbt sich warm und
+   verschwindet dahinter. Unter -3 Grad steigt der Mond auf, unter -8 Grad
+   ist es die Nachtkachel von heute. Nichts springt.
+   ============================================================ */
+const OBEN=10, UNTEN=-8, HORIZONT=38;
+let lfd=0;
+
+const misch=(a,b,t)=>a+(b-a)*Math.max(0,Math.min(1,t));
+function farbmisch(c1,c2,t){
+  const z=c=>[1,3,5].map(i=>parseInt(c.substr(i,2),16));
+  const [r1,g1,b1]=z(c1), [r2,g2,b2]=z(c2);
+  const h=v=>Math.round(v).toString(16).padStart(2,"0");
+  return "#"+h(misch(r1,r2,t))+h(misch(g1,g2,t))+h(misch(b1,b2,t));
+}
+
+function sonneNachHoehe(elev){
+  if(elev>=OBEN) return SKY_SUN;
+
+  const id="k"+(++lfd);
+  /* Lage: bei 10 Grad steht sie wie immer bei 32, bei 0 Grad sitzt die Mitte
+     auf der Linie, darunter sinkt sie weiter. */
+  const y=misch(32, HORIZONT, (OBEN-elev)/OBEN) + (elev<0 ? -elev*1.5 : 0);
+  const warm=Math.max(0,Math.min(1,(OBEN-elev)/(OBEN+4)));
+  const farbe=farbmisch("#FFD65A","#FF7A3D",warm);
+  /* Strahlen verkuerzen sich und verschwinden, sobald die Scheibe untergeht */
+  const strahl=Math.max(0,Math.min(1,(elev+2)/8));
+  const r=7*strahl;
+  const linie=Math.max(0,Math.min(1,(OBEN-elev)/6));
+  /* Nach dem Untergang bleibt ein Schein auf der Linie */
+  const schein=elev<0 ? Math.max(0,Math.min(1,(-elev)/6)) : 0;
+
+  return `<defs><clipPath id="${id}">
+      <rect x="0" y="0" width="64" height="${HORIZONT}"/></clipPath></defs>
+    ${schein>0?`<ellipse cx="32" cy="${HORIZONT}" rx="${20+8*schein}" ry="${9*schein}"
+        fill="${farbe}" opacity="${(.50*schein).toFixed(2)}"/>
+      <ellipse cx="32" cy="${HORIZONT}" rx="${12+4*schein}" ry="${5*schein}"
+        fill="${farbe}" opacity="${(.45*schein).toFixed(2)}"/>`:""}
+    <g clip-path="url(#${id})">
+      <circle cx="32" cy="${y.toFixed(1)}" r="10" fill="${farbe}"/>
+      ${r>0.6?`<g stroke="${farbe}" stroke-width="3" stroke-linecap="round" opacity="${strahl}">
+        <path d="M32 ${(y-15).toFixed(1)}v${r.toFixed(1)}
+                 M${(32-15).toFixed(1)} ${y.toFixed(1)}h${r.toFixed(1)}
+                 M${(32+15-r).toFixed(1)} ${y.toFixed(1)}h${r.toFixed(1)}
+                 M${(32-10.6).toFixed(1)} ${(y-10.6).toFixed(1)}l${(r*0.7).toFixed(1)} ${(r*0.7).toFixed(1)}
+                 M${(32+10.6).toFixed(1)} ${(y-10.6).toFixed(1)}l${(-r*0.7).toFixed(1)} ${(r*0.7).toFixed(1)}"/>
+      </g>`:""}
+    </g>
+    ${linie>0?`<path d="M11 ${HORIZONT}h42" stroke="#7E8DA1" stroke-width="2.8"
+       stroke-linecap="round" opacity="${(0.85*linie).toFixed(2)}"/>`:""}`;
+}
+
+function symbolC(stufe, elev){
+  const L=SKY_LAGE[Math.max(0,Math.min(4,stufe))], teile=[];
+  if(L.sonne){
+    /* Der Mond blendet auf, waehrend die Sonne weg ist */
+    const mond=Math.max(0,Math.min(1,(0-elev)/6));
+    if(mond>0) teile.push(`<g opacity="${mond.toFixed(2)}">${SKY_STARS}${svgG(L.sonne,SKY_MOON)}</g>`);
+    if(elev>UNTEN) teile.push(svgG(L.sonne,sonneNachHoehe(elev)));
+  }
+  if(L.wolke) teile.push(svgG(L.wolke,SKY_CLOUD));
+  return `<svg class="wicon" viewBox="0 0 64 64" aria-hidden="true">${teile.join("")}</svg>`;
+}
+
+/* Die Bausteine der Varianten heute und A */
+const SKY_DUSK=`
+  <g stroke="#FFA24E" stroke-width="3" stroke-linecap="round">
+    <path d="M32 8v7M8 31h7M49 31h7M15.2 14.2l5 5M48.8 14.2l-5 5"/>
+  </g>
+  <path d="M22 31.6a10 10 0 0 1 20 0z" fill="#FFB44F"/>
+  <path d="M13 31.6h38" stroke="#7E8DA1" stroke-width="2.8" stroke-linecap="round"/>`;
+
+function symbolAB(stufe, art){
+  const L=SKY_LAGE[Math.max(0,Math.min(4,stufe))], teile=[];
+  if(L.sonne){
+    if(art==="nacht"){ teile.push(SKY_STARS); teile.push(svgG(L.sonne,SKY_MOON)); }
+    else if(art==="daemmerung") teile.push(svgG(L.sonne,SKY_DUSK));
+    else teile.push(svgG(L.sonne,SKY_SUN));
+  }
+  if(L.wolke) teile.push(svgG(L.wolke,SKY_CLOUD));
+  return `<svg class="wicon" viewBox="0 0 64 64" aria-hidden="true">${teile.join("")}</svg>`;
+}
+
+/* ============================================================
+   Die drei Regeln
+   ============================================================ */
+const S={tag:268, wolke:0};
+
+function regelHeute(h){
+  const m=h+0.5, auf=aufgang(S.tag), unter=untergang(S.tag);
+  return (m>=auf && m<=unter) ? "tag" : "nacht";
+}
+function regelA(h){
+  const auf=aufgang(S.tag), unter=untergang(S.tag);
+  if(h<=unter && h+1>unter) return "daemmerung";
+  if(h<=auf   && h+1>auf)   return "daemmerung";
+  return regelHeute(h);
+}
+
+const uhr=s=>String(Math.floor(s)).padStart(2,"0")+":"+String(Math.round((s%1)*60)).padStart(2,"0");
+const datum=t=>new Date(2026,0,t).toLocaleDateString("de-DE",{day:"numeric",month:"long"});
+
+function kachel(h, inhalt, nacht, unten){
+  return `<div class="hour${nacht?" night":""}">
+    <div class="t">${String(h).padStart(2,"0")}:00</div>
+    <div class="icon">${inhalt}</div>
+    <div class="deg">&nbsp;</div>
+    <div class="n">${unten||""}</div></div>`;
+}
+
+function reiheAB(von,bis,regel){
+  let s="";
+  for(let h=von;h<=bis;h++){
+    const a=regel(h);
+    s+=kachel(h, symbolAB(S.wolke,a), a==="nacht",
+              a==="daemmerung"?"Dämmerung":"");
+  }
+  return `<div class="reihe">${s}</div>`;
+}
+function reiheC(von,bis){
+  let s="";
+  for(let h=von;h<=bis;h++){
+    const e=sonnenhoehe(S.tag,h+0.5);
+    s+=kachel(h, symbolC(S.wolke,e), e<-6, e.toFixed(1).replace(".",",")+"°");
+  }
+  return `<div class="reihe">${s}</div>`;
+}
+
+const ERKL={
+  "So ist es heute":"Der Schnitt liegt dort, wo die Stundenmitte den Übergang überquert.",
+  "Vorschlag A, ein eigenes Symbol":"Nur die Übergangsstunde bekommt die Dämmerung. Sonst ändert sich nichts.",
+  "Vorschlag C, nach Sonnenstand":"Kein Schalter mehr. Die Sonne sinkt, färbt sich, geht unter, der Mond steigt auf. Unter der Kachel steht die Höhe der Sonne."
+};
+const fall=(name,inhalt)=>`<div class="fall"><h3>${name}</h3>
+  <p class="was">${ERKL[name]}</p>${inhalt}</div>`;
+
+function zeichne(){
+  document.getElementById("wTag").textContent=datum(S.tag);
+  document.getElementById("wWolke").textContent="Stufe "+S.wolke;
+  document.getElementById("zAuf").textContent=uhr(aufgang(S.tag));
+  document.getElementById("zUnter").textContent=uhr(untergang(S.tag));
+
+  const u=Math.floor(untergang(S.tag)), a=Math.floor(aufgang(S.tag));
+  const vonA=Math.max(0,u-3), bisA=Math.min(23,u+3);
+  const vonM=Math.max(0,a-3), bisM=Math.min(23,a+3);
+
+  document.getElementById("abend").innerHTML=
+    fall("So ist es heute",reiheAB(vonA,bisA,regelHeute))+
+    fall("Vorschlag A, ein eigenes Symbol",reiheAB(vonA,bisA,regelA))+
+    fall("Vorschlag C, nach Sonnenstand",reiheC(vonA,bisA));
+  document.getElementById("morgen").innerHTML=
+    fall("So ist es heute",reiheAB(vonM,bisM,regelHeute))+
+    fall("Vorschlag A, ein eigenes Symbol",reiheAB(vonM,bisM,regelA))+
+    fall("Vorschlag C, nach Sonnenstand",reiheC(vonM,bisM));
+
+  document.getElementById("verlauf").innerHTML=
+    [15,10,7,4,2,0,-2,-4,-6,-9].map(e=>
+      `<figure>${symbolC(S.wolke,e)}<figcaption>${e}&deg;</figcaption></figure>`).join("");
+  document.getElementById("stufen").innerHTML=
+    [0,1,2,3,4].map(st=>`<figure>${symbolC(st,0)}
+      <figcaption>Stufe ${st}</figcaption></figure>`).join("");
+}
+
+for(const [id,feld] of [["rTag","tag"],["rWolke","wolke"]]){
+  document.getElementById(id).addEventListener("input",e=>{
+    S[feld]=Number(e.target.value); zeichne();
+  });
+}
+zeichne();
+</script>
+
+<p class="note">
+Regel A in Worten: eine Stunde ist Dämmerung, wenn Auf- oder Untergang in sie
+hineinfällt, also <code>h &le; untergang &lt; h+1</code>. Alle anderen Stunden
+entscheiden wie bisher nach ihrer Mitte.<br>
+Regel C kennt keine Stundengrenzen mehr. Sie rechnet für die Mitte jeder Stunde
+den Sonnenstand und leitet daraus alles ab: über 10 Grad sieht es aus wie
+heute, darunter erscheint der Horizont und die Sonne sinkt, unter -3 Grad
+blendet der Mond auf, unter -8 Grad ist es die Nachtkachel von heute.
+</p>
+</body>
+</html>
