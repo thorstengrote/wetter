@@ -216,13 +216,6 @@ header{
   position:absolute;z-index:800;right:10px;bottom:9px;background:rgba(5,8,12,.82);
   border-radius:6px;padding:4px 7px;font-size:9px;color:#d5dee8
 }
-/* Der Titel sass in einer eigenen Zeile ueber der Karte und kostete dort
-   Hoehe. Unten links und unten rechts liegen Zeitmarke und Legende, deshalb
-   oben links. */
-.radar-titel{
-  position:absolute;z-index:800;left:10px;top:9px;background:rgba(5,8,12,.82);
-  border-radius:6px;padding:4px 8px;font-size:9.5px;letter-spacing:.3px;color:#cfd8e3
-}
 .radar-msg{
   position:absolute;z-index:801;left:50%;top:50%;transform:translate(-50%,-50%);
   background:rgba(5,8,12,.92);border:1px solid #536276;border-radius:8px;
@@ -338,7 +331,6 @@ header{
     <div class="radarbox">
       <div class="radar-stage">
         <div id="cloudMap"></div>
-        <div class="radar-titel">WETTERENTWICKLUNG &middot; JETZT &rarr; +6 STUNDEN &middot; DWD ICON</div>
         <div class="radar-time" id="radarTime">Wolken laden&hellip;</div>
         <div class="radar-legend" id="radarLegend">grau = Wolken &middot; blau/gelb/rot = Niederschlag</div>
         <div class="radar-msg" id="radarMsg"></div>
