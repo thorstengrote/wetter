@@ -148,6 +148,50 @@ header.ohne-solar{grid-template-columns:auto auto 1fr}
 .paare .v{font-weight:650;font-variant-numeric:tabular-nums;text-align:right}
 .sdetail .quelle{margin-top:11px;font-size:11px;color:#7d8896}
 
+/* ---------- Velux ----------
+   Der Einstieg sitzt in der linken oberen Ecke der Wolkenkarte. Im Banner
+   waere kein Platz mehr, dort steht schon Uhr, Wetter, Vorschau und Solar.
+   Die Ecke der Karte ist frei: Zeitstempel und Legende sitzen unten. */
+.velux-knopf{
+  position:absolute;z-index:802;left:10px;top:10px;
+  width:46px;height:50px;padding:4px;
+  background:rgba(5,8,12,.86);border:1px solid #536276;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;-webkit-user-select:none;user-select:none
+}
+.velux-knopf:active{background:rgba(40,52,66,.95)}
+.velux-knopf svg{display:block;width:100%;height:100%}
+
+.vdetail{position:fixed;z-index:1001;inset:0;display:none;
+  background:rgba(4,7,11,.72);cursor:pointer}
+.vdetail.on{display:block}
+.vflaeche{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:470px;max-height:92%;overflow:auto;cursor:default;
+  background:rgba(7,11,17,.985);border:1px solid #5b6b81;border-radius:16px;
+  padding:14px 18px}
+.vzeile{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;
+  padding:9px 2px 9px 8px}
+.vzeile + .vzeile{border-top:1px solid #1d2734}
+.vzeile .n{font-size:16px;font-weight:650;white-space:nowrap;color:#e8eef5}
+.vzeile.gruppe .n{font-size:19px;font-weight:750}
+.vtrenner{height:1px;background:#33404f;margin:8px 2px}
+.vtasten{display:flex;gap:9px}
+/* Alle Tasten gleich gross, damit die drei Spalten ueber alle Zeilen
+   fluchten. Nur die Beschriftung der beiden Gruppen ist groesser. */
+.vtaste{width:72px;height:58px;background:#1a2430;border:1px solid #33404f;
+  border-radius:11px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;-webkit-user-select:none;user-select:none}
+.vtaste:active{background:#26323f}
+/* Die Stellung, in der die Gruppe gerade steht, ist leicht hervorgehoben.
+   Kein zusaetzliches Zeichen, nur ein hellerer Rahmen. */
+.vtaste[data-ist=ja]{border-color:#7d8da0;background:#202c3a}
+.vtaste[data-zustand=faehrt]{border-color:#ffd166;background:#262a1d}
+.vtaste[data-zustand=fertig]{border-color:#3ddc97;background:#16281f}
+.vzeichen{width:34px;height:37px}
+.vkopf{display:flex;justify-content:flex-end;font-size:11px;color:#7d8896;
+  margin-bottom:2px}
+.vfehler{font-size:12px;color:#ff9a8c;min-height:16px;margin-top:8px;padding:0 2px}
+
 /* One label system for every secondary value on the page.
    Same size, same weight, same icon box, never wraps, never absent.
    Grey means unremarkable, colour means worth a look. */
@@ -428,6 +472,8 @@ header.ohne-solar{grid-template-columns:auto auto 1fr}
         <div class="radar-time" id="radarTime">Wolken laden&hellip;</div>
         <div class="radar-legend" id="radarLegend">grau = Wolken &middot; blau/gelb/rot = Niederschlag</div>
         <div class="radar-msg" id="radarMsg"></div>
+        <div class="velux-knopf" id="veluxKnopf" role="button" hidden
+             aria-label="Rollladen"></div>
       </div>
   </div>
   <div class="box">
@@ -457,6 +503,7 @@ header.ohne-solar{grid-template-columns:auto auto 1fr}
 <div id="hint" role="button" hidden>Vollbild starten<small>hier oder irgendwo tippen</small></div>
 <div class="diag" id="diag"><span class="close">antippen zum Schlie&szlig;en</span><div id="diagBody"></div></div>
 <div class="sdetail" id="sdetail"></div>
+<div class="vdetail" id="vdetail"><div class="vflaeche" id="vflaeche"></div></div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1019,6 +1066,17 @@ window.addEventListener("load",()=>{
   sdetail.addEventListener("click",()=>sdetail.classList.remove("on"));
   SOLAR.holeDaten();
   setInterval(()=>SOLAR.holeDaten(),60000);
+
+  /* Velux. Der Knopf bleibt verborgen, solange hapwatch nicht antwortet,
+     am Rechner ist das der Normalfall. Geschlossen wird nur ueber den
+     Hintergrund oder die Kopfzeile, damit ein Fehlgriff neben eine Taste
+     nicht gleich die Flaeche zuklappt. */
+  veluxKnopf.addEventListener("click",()=>VELUX.oeffne());
+  vdetail.addEventListener("click",e=>{ if(e.target.id==="vdetail") VELUX.schliesse(); });
+  vflaeche.addEventListener("click",e=>{
+    if(e.target.classList.contains("vkopf")) VELUX.schliesse();
+  });
+  VELUX.pruefe();
 });
 stand.addEventListener("click",ev=>{ ev.stopPropagation(); showDiagnostics(); });
 
@@ -1513,6 +1571,175 @@ function renderDays(icon,trend,uvDay){
 }
 
 /* ===================================================================
+   Velux
+
+   Die Rollladen haengen an einem Velux-Gateway, das HomeKit spricht. Auf
+   dem Tablet haelt hapwatch die verschluesselte Sitzung offen, hoert auf
+   jede Bewegung und nimmt Fahrbefehle entgegen. wandsolar reicht /velux/
+   an hapwatch durch, damit diese Seite denselben Ursprung behaelt.
+
+   Ohne hapwatch bleibt der Knopf einfach verborgen. Am Rechner ist das der
+   Normalfall.
+   =================================================================== */
+const VELUX=(()=>{
+  /* Zeichnung. Ein fester Kasten, der Panzer faellt von oben herein. */
+  const VB="0 0 22 24";
+  const OEF={x:2.4,y:3.0,b:17.2,h:18.6};
+  const LUFT="#8FD0FF";
+  const F_AUF="#3ddc97", F_LUEFT="#ffd166", F_ZU="#9fb0c4";
+
+  /* Der gezeichnete Panzer folgt der Stellung, laesst aber bei jeder
+     Zwischenstellung mindestens sechs Einheiten Spalt. Bei Position 22
+     waeren es gut vier, darin ist kein Wind mehr zu erkennen. */
+  const zuAus=p=>p<=0?OEF.h:Math.min(OEF.h*(100-p)/100,OEF.h-6.0);
+
+  function wind(zu){
+    const spalt=OEF.h-zu;
+    if(zu<OEF.h*0.3||spalt<2.6) return "";
+    const m=OEF.y+zu+spalt/2, ab=Math.min(1.5,spalt/3);
+    /* Die Luft muss durch den Schlitz hindurch und jenseits des Rahmens
+       wieder heraus, sonst weht sie nur seitlich daran vorbei. */
+    const strahl=(y,vonX)=>`<path d="M${vonX} ${y.toFixed(2)}H21.2"/>
+      <path d="M19.3 ${(y-1.15).toFixed(2)}L21.2 ${y.toFixed(2)}L19.3 ${(y+1.15).toFixed(2)}"/>`;
+    return `<g stroke="${LUFT}" stroke-width="1.25" fill="none" stroke-linecap="round"
+               stroke-linejoin="round">${strahl(m-ab,4.6)}${strahl(m+ab,7.2)}</g>`;
+  }
+
+  function zeichen(p,f,mitWind=true){
+    const zu=zuAus(p);
+    let l="";
+    for(let y=OEF.y;y<OEF.y+zu-0.35;y+=2.6){
+      const h=Math.min(2.1,OEF.y+zu-y);
+      if(h>0.45) l+=`<rect x="${OEF.x}" y="${y.toFixed(2)}" width="${OEF.b}"
+                       height="${h.toFixed(2)}" rx=".5" fill="${f}"/>`;
+    }
+    return `<svg viewBox="${VB}" style="display:block;width:100%;height:100%">
+      <rect x="1.4" y="2.2" width="19.2" height="20.2" rx="2" fill="#0f151d"
+            stroke="#55637a" stroke-width="1.2"/>
+      ${l}${mitWind?wind(zu):""}</svg>`;
+  }
+
+  /* Die Zeilen der Flaeche. Alle heisst wirklich alle sieben, Rollladen und
+     Dachrollladen. Ben sind seine beiden. Die Reihenfolge ist gesetzt. */
+  const ZEILEN=[
+    ["alle-rollladen","Alle",        true],
+    ["ben",           "Ben",         true],
+    ["levi",          "Levi",        false],
+    ["schlafzimmer",  "Schlafzimmer",false],
+    ["wohnzimmer",    "Wohnzimmer",  false],
+    ["kueche",        "Küche",       false]
+  ];
+  /* Lueften ist zugleich Hitzeschutz: fast zu, aber ein Spalt bleibt. */
+  const ZIEL=[["auf",100,F_AUF],["lueft",22,F_LUEFT],["zu",0,F_ZU]];
+
+  let da=false, stand={}, lueftWert=22, holt=null;
+
+  const hol=(weg,opt)=>fetch(weg,Object.assign({cache:"no-store"},opt||{}));
+
+  /* Gibt es den Dienst? Einmal beim Laden fragen, danach nur noch den Stand. */
+  async function pruefe(){
+    try{
+      const r=await hol("/velux/gruppen");
+      if(!r.ok) return;
+      const d=await r.json();
+      if(d&&d.positionen&&d.positionen.lueftungsverdunklung!=null){
+        lueftWert=Number(d.positionen.lueftungsverdunklung);
+        ZIEL[1][1]=lueftWert;
+      }
+      da=true;
+      const k=document.getElementById("veluxKnopf");
+      /* Im Knopf ohne Windpfeile. Er ist eine Beschriftung, keine Anzeige,
+         und die Karte darunter soll ruhig bleiben. */
+      k.innerHTML=zeichen(25,"#c9d3de",false);
+      k.hidden=false;
+      holeStand();
+      holt=setInterval(holeStand,60000);
+    }catch(e){ /* kein hapwatch, dann eben kein Knopf */ }
+  }
+
+  async function holeStand(){
+    try{
+      const r=await hol("/velux/stand");
+      if(!r.ok) return;
+      const d=await r.json();
+      stand=(d&&d.gruppen)||{};
+      if(document.getElementById("vdetail").classList.contains("on")) male();
+    }catch(e){ /* Stand bleibt, wie er war */ }
+  }
+
+  /* Welche der drei Stellungen trifft die gemessene Position? */
+  function istStellung(pos){
+    if(pos==null) return null;
+    if(pos>=85) return "auf";
+    if(pos<=8) return "zu";
+    if(Math.abs(pos-lueftWert)<=14) return "lueft";
+    return null;
+  }
+
+  function zeile([schluessel,name,gruppe]){
+    const g=stand[schluessel]||{};
+    const ist=istStellung(g.position);
+    const t=ZIEL.map(([art,wert,farbe])=>
+      `<div class="vtaste" data-gruppe="${schluessel}" data-richtung="${art}"
+            ${ist===art?'data-ist="ja"':""}>
+         <div class="vzeichen">${zeichen(wert,farbe)}</div></div>`).join("");
+    return `<div class="vzeile${gruppe?" gruppe":""}">
+      <div class="n">${name}</div><div class="vtasten">${t}</div></div>`;
+  }
+
+  function male(){
+    const f=document.getElementById("vflaeche");
+    /* Beim Neuzeichnen darf eine laufende Fahrt ihre Rueckmeldung behalten. */
+    const laufend={};
+    f.querySelectorAll(".vtaste[data-zustand]").forEach(t=>{
+      laufend[t.dataset.gruppe+"|"+t.dataset.richtung]=t.dataset.zustand;
+    });
+    f.innerHTML=
+      `<div class="vkopf">antippen zum Schließen</div>`+
+      zeile(ZEILEN[0])+zeile(ZEILEN[1])+`<div class="vtrenner"></div>`+
+      ZEILEN.slice(2).map(zeile).join("")+
+      `<div class="vfehler" id="vfehler"></div>`;
+    f.querySelectorAll(".vtaste").forEach(t=>{
+      const z=laufend[t.dataset.gruppe+"|"+t.dataset.richtung];
+      if(z) t.dataset.zustand=z;
+      t.addEventListener("click",ev=>{ ev.stopPropagation(); fahre(t); });
+    });
+  }
+
+  async function fahre(t){
+    if(t.dataset.zustand==="faehrt") return;
+    const f=document.getElementById("vfehler");
+    if(f) f.textContent="";
+    t.dataset.zustand="faehrt";
+    try{
+      const r=await hol("/velux/fahre",{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({gruppe:t.dataset.gruppe,richtung:t.dataset.richtung})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(d.fehler||("Gateway antwortet "+r.status));
+      t.dataset.zustand="fertig";
+      setTimeout(()=>{ delete t.dataset.zustand; },2500);
+      /* Die Rollladen brauchen gut zwanzig Sekunden. Danach stimmt der
+         gemeldete Stand wieder, vorher nicht. */
+      setTimeout(holeStand,25000);
+    }catch(e){
+      delete t.dataset.zustand;
+      if(f) f.textContent="Ging nicht: "+e.message;
+    }
+  }
+
+  function oeffne(){
+    if(!da) return;
+    male();
+    document.getElementById("vdetail").classList.add("on");
+    holeStand();
+  }
+  const schliesse=()=>document.getElementById("vdetail").classList.remove("on");
+
+  return {pruefe,oeffne,schliesse};
+})();
+
+/* ===================================================================
    Solar
 
    Die Anlagenwerte stehen in solar.json neben dieser Seite. Ein Poller im
@@ -1550,28 +1777,36 @@ const SOLAR=(()=>{
               1.10,.92,.78,.76,.84,1.25,2.10,2.30,1.55,1.02,.58,.38];
 
   let jetzt=null, mess={}, heuteKwh=0, standZeit=0;
-  let prog=new Array(24).fill(0), progMorgen=0, progUeber=0;
+  let prog=new Array(24).fill(0), progM=new Array(24).fill(0);
+  let progMorgen=0, progUeber=0, sonnenunter=0;
+  /* Ist der Tag gelaufen, interessiert nicht mehr die Vergangenheit, sondern
+     was morgen kommt. Zwei Stunden nach Sonnenuntergang schaltet der Streifen
+     deshalb auf die Ladekurve des naechsten Tages um. */
+  const NACHLAUF_MS=2*3600*1000;
+  const morgenModus=()=>sonnenunter>0&&Date.now()>sonnenunter+NACHLAUF_MS
+                        &&new Date().getHours()>=12;
 
   const z1=v=>Number(v||0).toFixed(1).replace(".",",");
   const z2=v=>Number(v||0).toFixed(2).replace(".",",");
   const z3=v=>Number(v||0).toFixed(Math.abs(v)<10?2:1).replace(".",",");
 
   /* --- Prognose aus der Einstrahlung ------------------------------ */
-  function setzePrognose(H){
+  function setzePrognose(H,sonne){
     if(!H||!H.time||!H.shortwave_radiation) return;
     const heute=isoDay(new Date());
     const morgen=isoDay(new Date(Date.now()+864e5));
     const ueber=isoDay(new Date(Date.now()+1728e5));
-    const neu=new Array(24).fill(0);
+    const neu=new Array(24).fill(0), neuM=new Array(24).fill(0);
     let sM=0, sU=0;
     for(let i=0;i<H.time.length;i++){
       const tag=H.time[i].slice(0,10), std=Number(H.time[i].slice(11,13));
       const kwv=Math.min(10, (H.shortwave_radiation[i]||0)*FAKTOR);
       if(tag===heute) neu[std]=kwv;
-      else if(tag===morgen) sM+=kwv;
+      else if(tag===morgen){ neuM[std]=kwv; sM+=kwv; }
       else if(tag===ueber) sU+=kwv;
     }
-    prog=neu; progMorgen=sM; progUeber=sU;
+    prog=neu; progM=neuM; progMorgen=sM; progUeber=sU;
+    if(sonne&&sonne[heute]) sonnenunter=sonne[heute].set;
   }
 
   /* --- Daten der Anlage -------------------------------------------
@@ -1624,6 +1859,26 @@ const SOLAR=(()=>{
       akku=-ab; bez=-rest-ab;
     }
     return {pv,haus,ausHaus,akku,ein,bez};
+  }
+
+  /* Der naechste Tag, ganz gerechnet. Damit der Ladezustand am Morgen
+     stimmt, laeuft die Rechnung erst durch den Rest des heutigen Abends:
+     der Akku entlaedt sich ueber Nacht, mit ihm faengt morgen frueh die
+     Kurve an. Gemessen ist an diesem Tag naturgemaess nichts. */
+  function tagMorgen(){
+    const jetztStd=new Date().getHours();
+    let soc=jetzt?Number(jetzt.soc||0):20;
+    for(let h=jetztStd;h<24;h++){
+      const e=schritt(prog[h]||0,HAUS[h],soc);
+      soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
+    }
+    const out=[];
+    for(let h=0;h<24;h++){
+      const e=schritt(progM[h]||0,HAUS[h],soc);
+      soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
+      out.push({...e,h,socEnde:soc,gemessen:false});
+    }
+    return out;
   }
 
   function tag(){
@@ -1728,7 +1983,7 @@ const SOLAR=(()=>{
      Gruen heisst, dass dort mehr erzeugt wird als das Haus braucht. */
   const SVON=5,SBIS=21,SBH=8,SAB=3;
   const SB=(SBIS-SVON)*(SBH+SAB)+SBH;
-  function streifen(ST,hoehe=44){
+  function streifen(ST,hoehe=44,morgen=false){
     const jetztStd=new Date().getHours()+new Date().getMinutes()/60;
     let s="";
     for(let t=SVON;t<=SBIS;t++){
@@ -1742,9 +1997,17 @@ const SOLAR=(()=>{
                height="${hh.toFixed(1)}" rx="2" fill="none" stroke="${f}"
                stroke-width="1" stroke-opacity=".55"/>`;
     }
-    const jx=(Math.max(SVON,Math.min(SBIS+1,jetztStd))-SVON)*(SBH+SAB)-SAB/2;
-    s+=`<line x1="${jx.toFixed(1)}" y1="0" x2="${jx.toFixed(1)}" y2="${hoehe}"
-              stroke="#e8eef5" stroke-width="1" stroke-opacity=".45"/>`;
+    if(morgen){
+      /* Kein Jetzt-Strich, es liegt ja alles in der Zukunft. Stattdessen ein
+         Wort, sonst haelt man die blasse Kurve fuer den verpatzten heutigen
+         Tag. Es sitzt oben links, wo am Morgen ohnehin keine Saeule steht. */
+      s+=`<text x="0" y="8" font-size="8.5" font-weight="700"
+                fill="#8b97a6" letter-spacing=".3">morgen</text>`;
+    }else{
+      const jx=(Math.max(SVON,Math.min(SBIS+1,jetztStd))-SVON)*(SBH+SAB)-SAB/2;
+      s+=`<line x1="${jx.toFixed(1)}" y1="0" x2="${jx.toFixed(1)}" y2="${hoehe}"
+                stroke="#e8eef5" stroke-width="1" stroke-opacity=".45"/>`;
+    }
     return `<svg width="${SB}" height="${hoehe}" viewBox="0 0 ${SB} ${hoehe}"
                  style="display:block">${s}</svg>`;
   }
@@ -1815,10 +2078,13 @@ const SOLAR=(()=>{
     if(!el) return;
     if(!frisch()){ el.hidden=true; kopf.classList.add("ohne-solar"); return; }
     el.hidden=false; kopf.classList.remove("ohne-solar");
-    const ST=tag();
+    /* Batterie und Flussbalken zeigen immer das Jetzt. Nur der Streifen
+       wechselt abends auf den naechsten Tag. */
+    const m=morgenModus();
+    const ST=m?tagMorgen():tag();
     el.innerHTML=
       batterie(Number(jetzt.soc||0), Number(jetzt.akku||0)>0.05)+
-      `<div>${streifen(ST)}<div style="margin-top:5px">${wohin()}</div></div>`;
+      `<div>${streifen(ST,44,m)}<div style="margin-top:5px">${wohin()}</div></div>`;
     if(document.getElementById("sdetail").classList.contains("on")) detailZeigen();
   }
 
@@ -2202,7 +2468,7 @@ async function loadWeather(){
     /* the tiles are built first: the header reuses one of them */
     renderDays(d,trend,uvDay);
     renderOutlook();
-    SOLAR.setzePrognose(H);
+    SOLAR.setzePrognose(H,sunMap);
     SOLAR.zeichne();
 
     const ts=H.time;

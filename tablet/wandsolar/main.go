@@ -25,6 +25,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -228,6 +230,7 @@ type zustand struct {
 	gesamt  float64
 	fehler  string
 	seitPfd string
+	velux   *url.URL // Steuerdienst in hapwatch, nil heisst abgeschaltet
 }
 
 func (z *zustand) laden() {
@@ -341,6 +344,19 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Write(z.json())
 	})
+	// Die Velux-Steuerung laeuft als eigener Dienst in hapwatch auf 8098.
+	// Sie hier durchzureichen kostet nichts und spart der Seite den zweiten
+	// Ursprung: ein Abruf auf einen anderen Port waere fuer den Browser eine
+	// fremde Herkunft, mit Vorabfrage und CORS. So ist alles dieselbe Seite.
+	if z.velux != nil {
+		p := httputil.NewSingleHostReverseProxy(z.velux)
+		p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(503)
+			io.WriteString(w, `{"fehler":"hapwatch antwortet nicht"}`)
+		}
+		mux.Handle("/velux/", p)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
 			http.NotFound(w, r)
@@ -375,6 +391,7 @@ func main() {
 		daten = flag.String("daten", "/data/local/tmp/wand/tag.json", "Stundenwerte")
 		takt  = flag.Duration("takt", 30*time.Second, "Abstand zwischen zwei Messungen")
 		prot  = flag.String("log", "", "Protokolldatei, leer heisst Standardfehler")
+		vlx   = flag.String("velux", "http://127.0.0.1:8098", "Steuerdienst in hapwatch, leer schaltet ihn ab")
 		einm  = flag.Bool("einmal", false, "einmal messen und beenden")
 	)
 	flag.Parse()
@@ -408,6 +425,13 @@ func main() {
 
 	os.MkdirAll(filepath.Dir(*daten), 0755)
 	z := &zustand{pfad: *daten, seitPfd: *seite}
+	if *vlx != "" {
+		if u, err := url.Parse(*vlx); err == nil {
+			z.velux = u
+		} else {
+			sag("Velux-Adresse %q unbrauchbar: %v", *vlx, err)
+		}
+	}
 	z.laden()
 
 	mux := http.NewServeMux()

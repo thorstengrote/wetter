@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Velux-Bedienung &ndash; Entwurf</title>
+<style>
+:root{--bg:#0d131b;--karte:#141c26;--rand:#2b3745;--text:#e8eef5;--muted:#8b97a6;
+      --gruen:#3ddc97;--gelb:#ffd166;--rot:#ff7b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+     font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+     padding-block:24px;padding-left:16px;padding-right:16px}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:15px;margin:28px 0 8px;color:#c5ced8}
+p.lead{color:var(--muted);margin:0 0 16px;max-width:880px}
+
+/* ---- Banner ---- */
+.buehne{overflow-x:auto;margin-top:10px}
+.tablet{width:1280px;background:#0b1017;padding:8px;border-radius:14px}
+header{background:linear-gradient(180deg,#171f2a,#111821);border:1px solid #4a586b;
+  border-radius:15px;padding:10px 14px;display:grid;
+  grid-template-columns:auto auto 1fr auto auto;gap:0;align-items:stretch}
+.zelle{display:flex;align-items:center;padding:2px 17px}
+.zelle:first-child{padding-left:2px}
+.zelle:last-child{padding-right:2px}
+.zelle + .zelle{border-left:1px solid #3a4756}
+.place{font-size:21px;font-weight:700}
+.clock{font-size:38px;font-weight:750;line-height:1}
+.date{font-size:12px;color:var(--muted);margin-top:3px}
+.current{gap:12px}.current .temp{font-size:34px;font-weight:750}
+.current .details{font-size:13px;line-height:1.5;color:#c9d2dc}
+.today{flex-direction:column;align-items:flex-start}
+.today .summary{font-size:17px;font-weight:700}
+.today .sub,.today .extra{font-size:12px;color:#c5ced8;margin-top:3px}
+.wicon{width:58px;height:58px;display:block}
+.solar{gap:12px;min-height:68px}
+.rolltaste{cursor:pointer;-webkit-user-select:none;user-select:none;
+  border-radius:10px;padding:5px;width:50px;height:54px}
+/* Ein fester Kasten fuer jedes Zeichen. Damit sind alle gleich gross und
+   stehen auf derselben Grundlinie, egal wie sie gezeichnet sind. */
+.zeichen{width:34px;height:37px}
+.rolltaste:active{background:rgba(255,255,255,.07)}
+
+/* ---- Bedienflaeche im Schirm ---- */
+.schirm{position:relative;width:1280px;height:800px;background:#0b1017;
+  border-radius:14px;overflow:hidden}
+.hintergrund{position:absolute;inset:0;
+  background:repeating-linear-gradient(180deg,#0f151d 0 38px,#111820 38px 76px);
+  opacity:.5}
+.flaeche{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:470px;max-height:92%;overflow:auto;
+  background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:16px;
+  padding:14px 18px}
+
+.zeile{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;
+  padding:9px 2px 9px 8px}
+.zeile + .zeile{border-top:1px solid #1d2734}
+.zeile .n{font-size:16px;font-weight:650;white-space:nowrap}
+.gruppe .n{font-size:19px;font-weight:750}
+.trenner{height:1px;background:#33404f;margin:8px 2px}
+
+.tasten{display:flex;gap:9px}
+.taste{width:72px;height:58px;background:#1a2430;border:1px solid #33404f;
+  border-radius:11px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;-webkit-user-select:none;user-select:none}
+.taste:active{background:#26323f}
+.taste[data-zustand=faehrt]{border-color:var(--gelb);background:#262a1d}
+.taste[data-zustand=fertig]{border-color:var(--gruen);background:#16281f}
+
+/* ---- Zeichensammlung ---- */
+.galerie{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+  margin-top:10px}
+.muster{background:#111925;border:1px solid #263141;border-radius:11px;padding:12px 14px}
+.muster .t{font-size:13px;font-weight:700;margin-bottom:2px}
+.muster .b{font-size:11.5px;color:var(--muted);margin-bottom:10px}
+.dreier{display:flex;gap:9px}
+.dreier .k{width:72px;height:58px;background:#1a2430;border:1px solid #33404f;
+  border-radius:11px;display:flex;align-items:center;justify-content:center}
+.dreier .u{font-size:10px;color:#6c7b8c;text-align:center;margin-top:3px}
+.dreier .sp{text-align:center}
+
+.fall{background:var(--karte);border:1px solid var(--rand);border-radius:12px;
+  padding:13px 15px;margin-top:12px}
+.fall .was{color:var(--muted);font-size:12px;margin:0 0 10px}
+.note{color:var(--muted);font-size:12px;margin:14px 0 0;max-width:900px}
+</style>
+</head>
+<body>
+
+<h1>Velux-Bedienung auf der Wand</h1>
+<p class="lead">
+Im Banner nur das Zeichen, dahinter die Fläche. Antippen führt den Ablauf vor,
+es fährt nichts.
+</p>
+
+<h2>Der Einstieg im Banner</h2>
+<div class="buehne"><div class="tablet"><header>
+  <div class="zelle"><div>
+    <div class="place">Uedorf</div><div class="clock">22:24</div>
+    <div class="date">Freitag, 25.09. · Stand 22:23</div></div></div>
+  <div class="zelle current">
+    <div id="wsym"></div><div class="temp">18&deg;</div>
+    <div class="details">klare Nacht<br>gefühlt 17&deg; · Wolken 0 %<br>Wind 2 km/h</div></div>
+  <div class="zelle today">
+    <div class="summary">Morgen wechselnd, 9&ndash;25&nbsp;&deg;C</div>
+    <div class="sub">Regenrisiko bis 0 %, 0,0 mm · 10,0 h Sonne</div>
+    <div class="extra">07:24 · 19:21 · Wind bis 10 km/h</div></div>
+  <div class="zelle solar" id="solarzelle"></div>
+  <div class="zelle" id="einstieg"></div>
+</header></div></div>
+
+<h2>Die Bedienfläche</h2>
+<div class="fall">
+  <p class="was">In echter Tabletgröße, 1280 auf 800.</p>
+  <div class="buehne"><div class="schirm"><div class="hintergrund"></div>
+    <div class="flaeche" id="flaeche"></div></div></div>
+</div>
+
+<h2>Mögliche Zeichen</h2>
+<p class="lead" style="margin-bottom:6px">
+Jeweils dieselben drei Ziele: offen, Lüftung und Hitzeschutz, zu. Gleiche Größe, gleicher
+Kasten, damit nur die Zeichnung verglichen wird.
+</p>
+<div class="galerie" id="galerie"></div>
+
+<p class="note">
+Die mittlere Stellung dient zweierlei: nachts als Lüftungsverdunklung, tagsüber
+als Hitzeschutz. Der Wert 22 stammt vom Schlafzimmer, also von einem normalen
+Rollladen. Ob er an den Dachfenstern dasselbe bewirkt, ist noch offen. Falls
+nicht, bekommen die drei Dachrollladen einen eigenen Wert.
+</p>
+
+<script>
+const LUEFT=22;
+
+/* ============================================================
+   Die Zeichen
+
+   Alle auf demselben Raster: Zeichenbereich 22 auf 24, die Fensteroeffnung
+   immer an derselben Stelle. Nur so stehen sie nebeneinander auf einer
+   Grundlinie und sind gleich gross.
+
+   p ist die Stellung, 100 offen und 0 zu. Bei einer Zwischenstellung weht
+   Wind durch den Spalt, denn diese Stellung dient nachts der Lueftung und
+   tagsueber dem Hitzeschutz.
+   ============================================================ */
+const VB = "0 0 22 24";
+const OEF = {x:2.4, y:3.0, b:17.2, h:18.6};   /* die Oeffnung */
+
+const huelle = inhalt =>
+  `<svg viewBox="${VB}" style="display:block;width:100%;height:100%">${inhalt}</svg>`;
+
+/* Wind durch den Spalt.
+
+   Er muss den Schlitz durchqueren und aussen wieder herauskommen, sonst
+   sieht es aus, als wehe er seitlich daran vorbei. Deshalb beginnen die
+   Linien innerhalb der Oeffnung, laufen durch die Luecke und enden mit
+   einer Spitze jenseits des Rahmens. */
+const LUFT = "#8FD0FF";   /* Luft ist kuehl, der Panzer warm. So trennt sich beides. */
+
+function windAt(spalt, m, f){
+  if(spalt < 2.6) return "";
+  const strahl = (y, vonX) => {
+    const bisX = 21.2;
+    return `<path d="M${vonX} ${y.toFixed(2)}H${bisX}"/>
+            <path d="M${(bisX-1.9).toFixed(2)} ${(y-1.15).toFixed(2)}L${bisX} ${y.toFixed(2)}`+
+           `L${(bisX-1.9).toFixed(2)} ${(y+1.15).toFixed(2)}"/>`;
+  };
+  const abstand = Math.min(1.5, spalt/3);
+  return `<g stroke="${LUFT}" stroke-width="1.25" fill="none" stroke-linecap="round"
+             stroke-linejoin="round">
+    ${strahl(m-abstand, 4.6)}${strahl(m+abstand, 7.2)}</g>`;
+}
+
+/* Bequemer Aufruf fuer alle Zeichen mit der normalen Oeffnung. Bei offen
+   steht der Panzer ganz oben, da gibt es nichts zu lueften. */
+function wind(zu, f){
+  const spalt = OEF.h - zu;
+  if(zu < OEF.h*0.3) return "";
+  return windAt(spalt, OEF.y + zu + spalt/2, f);
+}
+
+/* Die Lamellen des Panzers, von oben herunter */
+function panzer(zu, f, x, b, schritt){
+  let l="";
+  for(let y=OEF.y; y<OEF.y+zu-0.35; y+=schritt){
+    const h=Math.min(schritt-0.5, OEF.y+zu-y);
+    if(h>0.45) l+=`<rect x="${x}" y="${y.toFixed(2)}" width="${b}"
+                     height="${h.toFixed(2)}" rx=".5" fill="${f}"/>`;
+  }
+  return l;
+}
+/* Der gezeichnete Panzer folgt der echten Stellung, laesst aber bei jeder
+   Zwischenstellung mindestens einen Spalt von 6 Einheiten. Bei Position 22
+   waeren es sonst gut vier, und darin ist kein Wind mehr zu erkennen. Ganz
+   zu bleibt ganz zu. */
+const zuAus = p => p <= 0 ? OEF.h : Math.min(OEF.h*(100-p)/100, OEF.h - 6.0);
+
+/* 1 Kasten mit Lamellen */
+function zKasten(p,f){
+  const zu=zuAus(p);
+  return huelle(`
+    <rect x="1.4" y="2.2" width="19.2" height="20.2" rx="2" fill="#0f151d"
+          stroke="#55637a" stroke-width="1.2"/>
+    ${panzer(zu,f,OEF.x,OEF.b,2.6)}
+    ${wind(zu,f)}`);
+}
+
+/* 2 Fenster mit Sprosse, davor der Rollladen */
+function zFenster(p,f){
+  const zu=zuAus(p);
+  return huelle(`
+    <rect x="${OEF.x}" y="${OEF.y}" width="${OEF.b}" height="${OEF.h}" rx="1" fill="#16202c"/>
+    <g stroke="#3c4a5c" stroke-width="1"><path d="M11 ${OEF.y}v${OEF.h}M${OEF.x} 12.3h${OEF.b}"/></g>
+    ${panzer(zu,f,OEF.x,OEF.b,2.6)}
+    <rect x="1.5" y="2.2" width="19" height="20.2" rx="1.6" fill="none"
+          stroke="#6b7a8c" stroke-width="1.3"/>
+    ${wind(zu,f)}`);
+}
+
+/* 3 Pfeile, bei Lueftung der Wind selbst */
+function zPfeil(p,f){
+  if(p>=80) return huelle(`<path d="M11 19V6M5 12 11 5.4 17 12" fill="none" stroke="${f}"
+    stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`);
+  if(p<=5)  return huelle(`<path d="M11 5.4v13M5 12.4 11 19 17 12.4" fill="none" stroke="${f}"
+    stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`);
+  return huelle(`<g stroke="${f}" stroke-width="2.1" fill="none" stroke-linecap="round"
+    stroke-linejoin="round">
+    <path d="M2.8 7.6H16.6M14.2 5.2 16.8 7.6 14.2 10"/>
+    <path d="M2.8 13.4H19.2M16.8 11 19.4 13.4 16.8 15.8"/>
+    <path d="M2.8 19.2H13M10.6 16.8 13.2 19.2 10.6 21.6"/></g>`);
+}
+
+/* 4 Doppelter Winkel */
+function zWinkel(p,f){
+  if(p>=80) return huelle(`<path d="M5 13 11 7l6 6M5 19 11 13l6 6" fill="none" stroke="${f}"
+    stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>`);
+  if(p<=5)  return huelle(`<path d="M5 11 11 17l6-6M5 5 11 11l6-6" fill="none" stroke="${f}"
+    stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>`);
+  return huelle(`<g stroke="${f}" stroke-width="2.2" fill="none" stroke-linecap="round"
+    stroke-linejoin="round"><path d="M5 8.6 11 14.6l6-6"/>
+    <path d="M3.2 19.4H17M14.6 17 17.2 19.4 14.6 21.8"/></g>`);
+}
+
+/* 5 Rollladen mit Wickel oben */
+function zWickel(p,f){
+  const zu=zuAus(p)*0.82, wickel=1.9+1.9*(p/100);
+  let l="";
+  for(let y=6.6; y<6.6+zu-0.35; y+=2.5){
+    const h=Math.min(2.0, 6.6+zu-y);
+    if(h>0.45) l+=`<rect x="3.4" y="${y.toFixed(2)}" width="15.2" height="${h.toFixed(2)}"
+                     rx=".5" fill="${f}"/>`;
+  }
+  const spalt=(OEF.y+OEF.h)-(6.6+zu);
+  const w = zu > OEF.h*0.25 ? windAt(spalt, 6.6 + zu + spalt/2, f) : "";
+  return huelle(`
+    <line x1="2.6" y1="21.8" x2="19.4" y2="21.8" stroke="#55637a" stroke-width="1.2"
+          stroke-linecap="round"/>
+    ${l}${w}
+    <ellipse cx="11" cy="4.6" rx="7.8" ry="${wickel.toFixed(2)}" fill="#1d2735"
+             stroke="#8d9bad" stroke-width="1.2"/>`);
+}
+
+/* 6 Nur der Stapel, ohne Rahmen */
+function zStapel(p,f){
+  const zu=zuAus(p);
+  let l="";
+  for(let y=OEF.y; y<OEF.y+zu-0.35; y+=3.0){
+    const h=Math.min(2.4, OEF.y+zu-y);
+    if(h>0.6) l+=`<rect x="2" y="${y.toFixed(2)}" width="18" height="${h.toFixed(2)}"
+                    rx="1.1" fill="${f}"/>`;
+  }
+  const leer = zu<1 ? `<rect x="2" y="${OEF.y}" width="18" height="${OEF.h}" rx="1.4"
+      fill="none" stroke="${f}" stroke-width="1.2" stroke-dasharray="2.6 2.6" opacity=".55"/>` : "";
+  return huelle(leer + l + wind(zu,f));
+}
+
+/* 7 Sonne dahinter */
+function zSonne(p,f){
+  const zu=zuAus(p);
+  return huelle(`
+    <rect x="${OEF.x}" y="${OEF.y}" width="${OEF.b}" height="${OEF.h}" rx="1" fill="#141d28"/>
+    <circle cx="11" cy="12.3" r="4.2" fill="#FFD65A" opacity=".85"/>
+    <g stroke="#FFD65A" stroke-width="1.25" stroke-linecap="round" opacity=".85">
+      <path d="M11 5.6v1.7M11 17.3v1.7M4.2 12.3h1.7M16.1 12.3h1.7"/></g>
+    ${panzer(zu,f,OEF.x,OEF.b,2.6)}
+    <rect x="1.5" y="2.2" width="19" height="20.2" rx="1.6" fill="none"
+          stroke="#6b7a8c" stroke-width="1.3"/>
+    ${wind(zu,f)}`);
+}
+
+const ZEICHEN=[
+  ["Kasten mit Lamellen","Schlicht, liest sich als Rollladen.",zKasten],
+  ["Fenster dahinter","Man sieht, wovor der Rollladen sitzt.",zFenster],
+  ["Pfeile","Keine Abbildung, nur die Richtung. Am schnellsten erfassbar.",zPfeil],
+  ["Doppelter Winkel","Wie Pfeile, ruhiger gezeichnet.",zWinkel],
+  ["Mit Wickel oben","Die Welle oben wird dicker, je weiter der Panzer aufgerollt ist.",zWickel],
+  ["Nur der Stapel","Ohne Rahmen. Offen ist gestrichelt angedeutet.",zStapel],
+  ["Sonne dahinter","Zeigt, worum es geht: Licht oder kein Licht.",zSonne]
+];
+
+const ZIEL=[["auf",100,"#3ddc97"],["lueft",LUEFT,"#ffd166"],["zu",0,"#9fb0c4"]];
+
+/* ============================================================
+   Die Flaeche
+   ============================================================ */
+const ZEICHNER=zKasten;       /* welches Zeichen die Flaeche benutzt */
+
+const MOND=`<svg class="wicon" viewBox="0 0 64 64">
+  <g transform="translate(-6 0)"><path d="M40 14 A18 18 0 1 0 40 50 A22 22 0 0 1 40 14 Z" fill="#E9EEF6"/></g>
+  <g fill="#C9D6EA"><circle cx="48" cy="16" r="2"/><circle cx="55" cy="27" r="1.5"/></g></svg>`;
+
+function taste(art,wert,farbe,schluessel){
+  return `<div class="taste ${art}" data-taste="${schluessel}">
+    <div class="zeichen">${ZEICHNER(wert,farbe)}</div></div>`;
+}
+
+function zeile(name,arten,gruppe){
+  const t=arten.map(a=>{
+    const [art,wert,farbe]=ZIEL.find(z=>z[0]===a);
+    return taste(art,wert,farbe,name+"-"+art);
+  }).join("");
+  return `<div class="zeile${gruppe?" gruppe":""}">
+    <div class="n">${name}</div><div class="tasten">${t}</div></div>`;
+}
+
+/* Alle heisst wirklich alle sieben, Rollladen und Dachrollladen.
+   Wohnzimmer fasst die beiden Dachfenster zusammen. */
+const RAEUME=[
+  ["Levi",        ["auf","lueft","zu"]],
+  ["Schlafzimmer",["auf","lueft","zu"]],
+  ["Wohnzimmer",  ["auf","lueft","zu"]],
+  ["Küche",       ["auf","lueft","zu"]]
+];
+
+function flaeche(){
+  /* Luefen ist zugleich Hitzeschutz, deshalb hat es jede Zeile, auch die
+     beiden Gruppen und damit die Dachrollladen. */
+  return zeile("Alle",["auf","lueft","zu"],true)
+       + zeile("Ben", ["auf","lueft","zu"],true)
+       + `<div class="trenner"></div>`
+       + RAEUME.map(([n,a])=>zeile(n,a)).join("");
+}
+
+function galerie(){
+  return ZEICHEN.map(([name,text,fn])=>`
+    <div class="muster">
+      <div class="t">${name}</div><div class="b">${text}</div>
+      <div class="dreier">${ZIEL.map(([art,wert,farbe])=>`
+        <div class="sp"><div class="k"><div class="zeichen">${fn(wert,farbe)}</div></div>
+          <div class="u">${art==="auf"?"offen":art==="lueft"?"Lüftung<br>Hitzeschutz":"zu"}</div></div>`).join("")}
+      </div>
+    </div>`).join("");
+}
+
+function zeichne(){
+  document.getElementById("wsym").innerHTML=MOND;
+  document.getElementById("solarzelle").innerHTML=
+    `<div style="color:#8b97a6;font-size:11px">Solarblock</div>`;
+  /* Im Banner das Zeichen zu 75 Prozent geschlossen */
+  document.getElementById("einstieg").innerHTML=
+    `<div class="rolltaste">${ZEICHNER(25,"#c9d3de")}</div>`;
+  document.getElementById("flaeche").innerHTML=flaeche();
+  document.getElementById("galerie").innerHTML=galerie();
+
+  document.querySelectorAll(".flaeche .taste").forEach(t=>{
+    t.addEventListener("click",()=>{
+      if(t.dataset.zustand==="faehrt") return;
+      t.dataset.zustand="faehrt";
+      setTimeout(()=>{ t.dataset.zustand="fertig";
+        setTimeout(()=>{ delete t.dataset.zustand; },2200); },2000);
+    });
+  });
+}
+zeichne();
+</script>
+</body>
+</html>
