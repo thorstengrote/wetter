@@ -52,7 +52,7 @@ body{padding:12px 16px 10px}
   --rand:6px;               /* Innenrand jedes Kastens */
   --spalt:4px;              /* Abstand zwischen Kacheln */
   --kastenspalt:6px;        /* Abstand zwischen Karte und Tagesleiste */
-  --legende:17px;           /* Breite der senkrechten Tageszeit-Legende */
+  --legende:11px;           /* Breite der senkrechten Tageszeit-Legende */
   --legspalt:4px;
   --kachel:calc((100vw - 32px - 2px - 2*var(--rand) - 11*var(--spalt))/12);
   --wsize:clamp(44px,8vh,104px);
@@ -313,9 +313,21 @@ header{
 .day.legende{background:none;border:none;box-shadow:none;
              flex:0 0 var(--legende);width:var(--legende);
              padding:0;opacity:.95}
-.day.legende .name,.day.legende .temps,.day.legende .werte{visibility:hidden}
+/* Die Platzhalter halten nur die Zeilenhoehen, damit die Woerter neben den
+   Symbolen sitzen. Ohne width:0 zwingt ihr Inhalt, etwa "0°/0°", die ganze
+   Spalte auf ihre Breite, und die Schrift rutscht weit vom Rahmen weg. */
+.day.legende .name,.day.legende .temps,.day.legende .werte{
+  visibility:hidden;width:0;overflow:hidden}
 .day.legende .teile{width:100%}
-.day.legende .zeile{height:var(--wsize);display:flex;align-items:center;justify-content:center;
+/*
+  Senkrechte Schrift. Bei vertical-rl laeuft die Hauptachse des Flexkastens von
+  oben nach unten; align-items:flex-start haette die Woerter nach rechts aus
+  der Spalte geschoben, wo .icon sie abschneidet. Die Luft zum Rahmen wird
+  deshalb ueber die Spaltenbreite geregelt: --legende ist genau so breit wie
+  die Zeile hoch ist, dann bleibt beim Zentrieren nichts uebrig.
+*/
+.day.legende .zeile{height:var(--wsize);display:flex;align-items:center;
+                    justify-content:center;line-height:1;
                     font-size:9px;font-weight:700;color:#93a0b0;letter-spacing:.3px;
                     white-space:nowrap;writing-mode:vertical-rl}
 
