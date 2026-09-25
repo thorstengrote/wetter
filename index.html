@@ -528,6 +528,12 @@ function tempFarbe(t){
 }
 const tempSpan=v=>`<span style="color:${tempFarbe(v)}">${deg(v)}</span>`;
 
+/* Die Beschriftung folgt derselben Stufe wie das Symbol. Ohne das stand
+   "sonnig" neben einem Bild mit Wolke. */
+function specLabel(spec,icon){
+  if(!spec||spec.fog||spec.wet||spec.storm||spec.night) return ICON_LABEL[icon]||"";
+  return TAG_NAMEN[Math.max(0,Math.min(4,Number(spec.sky||0)))];
+}
 const ICON_LABEL={
   clear:"sonnig", partly:"sonnig mit Wolken", cloud:"bedeckt",
   night_clear:"klare Nacht", night_partly:"Nacht, teils Wolken",
@@ -1481,10 +1487,13 @@ async function loadWeather(){
     const nowBlk=blockAt(nowIdx);
     const nowDec=skyDecision(nowBlk);
 
-    nowIcon.innerHTML=weatherIcon(nowDec.icon);
+    /* Vorschrift statt altem Namen: "clear" zeichnete immer die pralle Sonne,
+       auch wenn die Stufe schon eine kleine Wolke vorsah. Banner und
+       Stundenkachel zeigten dieselbe Stunde dadurch verschieden. */
+    nowIcon.innerHTML=weatherIcon(nowDec.spec||nowDec.icon);
     nowTemp.textContent=Math.round(c.temperature_2m)+"°";
     nowDetails.innerHTML=
-      `${ICON_LABEL[nowDec.icon]||wmoText(c.weather_code)}<br>`+
+      `${specLabel(nowDec.spec,nowDec.icon)||wmoText(c.weather_code)}<br>`+
       `gefühlt ${deg(c.apparent_temperature)} · Wolken ${pct(c.cloud_cover)}`+
       `${nowDec.day?` · Sonne ${pct(nowDec.brightness*100)}`:""}<br>`+
       `<span class="inl">${mi("sock")}Wind ${Math.round(c.wind_speed_10m)} km/h, Böen ${Math.round(c.wind_gusts_10m??0)} km/h</span>`;
