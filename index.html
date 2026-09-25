@@ -1531,6 +1531,7 @@ async function loadWeather(){
       : "DWD ICON via Open-Meteo · Karte OpenStreetMap";
     lastGood=new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
     lastGoodAt=Date.now(); lastError=null;
+    nachversuchNr=0; clearTimeout(nachversuch);
     stand.innerHTML=` · <span class="stand">Stand ${lastGood}</span>`+
       (updatePending?` · <span class="stand">Update wartet</span>`:"");
 
@@ -1543,7 +1544,31 @@ async function loadWeather(){
     stand.innerHTML=lastGood
       ? ` · <span class="stand">Stand ${lastGood}</span> · <span class="stale">nicht aktualisiert</span>`
       : ' · <span class="stale">keine Verbindung zum Wetterdienst</span>';
+    planeNachversuch();
   }
+}
+
+/*
+  Nachversuche nach einem Fehlschlag.
+
+  Open-Meteo antwortet gelegentlich mit 503, und zwar innerhalb von gut hundert
+  Millisekunden. Gemessen am 25.09.2026: jeder Fehlschlag lag auf der vollen
+  Sekunde des Zehnminutentakts, jeder Erfolg ein bis zwei Sekunden daneben. Das
+  sieht nach einer Lastspitze aus, die entsteht, weil viele Abrufe gleichzeitig
+  auf die runde Minute fallen.
+
+  Ohne Nachversuch stand die Wand danach zehn Minuten lang auf "keine
+  Verbindung", obwohl ein zweiter Versuch Sekunden spaeter durchgegangen waere.
+  Drei Nachversuche mit wachsendem Abstand und einem Zufallsanteil, damit sie
+  nicht wieder alle gleichzeitig kommen.
+*/
+const NACHVERSUCHE=[4000,20000,90000];
+let nachversuch=null, nachversuchNr=0;
+function planeNachversuch(){
+  if(nachversuchNr>=NACHVERSUCHE.length) return;
+  const warten=NACHVERSUCHE[nachversuchNr++]+Math.random()*3000;
+  clearTimeout(nachversuch);
+  nachversuch=setTimeout(loadWeather,warten);
 }
 
 /*
@@ -1946,7 +1971,9 @@ setInterval(maybeApplyUpdate,5*60*1000);
 setTimeout(checkForUpdate,30000);
 
 loadWeather();
-setInterval(loadWeather,REFRESH_MS);
+/* Zufallsanteil von bis zu einer Minute, damit der Abruf nicht dauerhaft auf
+   derselben runden Sekunde liegt wie bei allen anderen. */
+setInterval(loadWeather,REFRESH_MS+Math.floor(Math.random()*60000));
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadWeather()});
 </script>
 </body>
