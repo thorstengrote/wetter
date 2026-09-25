@@ -34,12 +34,29 @@ html,body{
 }
 body{padding:12px 16px 10px}
 /*
-  Eine Breite und eine Symbolgroesse fuer Stunden- wie Tageskacheln. Vorher
-  war das Symbol in der Stundenkachel 38 Pixel gross und auf der Tageskachel
-  48, dieselbe Wetterlage wirkte dadurch je nach Kachel unterschiedlich
-  wichtig.
+  Ein Raster fuer alles.
+
+  --kachel ist die Breite einer Kachel, zwoelf davon plus elf Spalten fuellen
+  den Kasten genau aus. Die alte Formel rechnete einen Pixel je Kachel zu
+  wenig, dadurch blieben rechts zwoelf Pixel Rest, waehrend links die erste
+  Kachel buendig sass.
+
+  --rand gilt fuer alle Kaesten gleich, damit das Karteninnere auf derselben
+  Linie liegt wie die Tageskacheln daneben. Vorher waren es 4 gegen 10.
+
+  --wsize ist eine Symbolgroesse fuer Stunden- wie Tageskacheln. Vorher war
+  das Symbol in der Stundenkachel 38 Pixel gross und auf der Tageskachel 48,
+  dieselbe Wetterlage wirkte dadurch je nach Kachel unterschiedlich wichtig.
 */
-:root{--kachel:calc((100vw - 108px)/12); --wsize:clamp(44px,8vh,104px)}
+:root{
+  --rand:6px;               /* Innenrand jedes Kastens */
+  --spalt:4px;              /* Abstand zwischen Kacheln */
+  --kastenspalt:6px;        /* Abstand zwischen Karte und Tagesleiste */
+  --legende:17px;           /* Breite der senkrechten Tageszeit-Legende */
+  --legspalt:4px;
+  --kachel:calc((100vw - 32px - 2px - 2*var(--rand) - 11*var(--spalt))/12);
+  --wsize:clamp(44px,8vh,104px);
+}
 #app{
   height:100%;
   display:grid;
@@ -108,7 +125,7 @@ header{
   background:#0f151d;
   border:1px solid #3e4a5b;
   border-radius:15px;
-  padding:9px 9px 7px;
+  padding:var(--rand);
   min-height:0;
   overflow:hidden;
   position:relative;
@@ -136,7 +153,7 @@ header{
 .hours{
   height:100%;
   display:flex;
-  gap:4px;
+  gap:var(--spalt);
   width:max-content;
 }
 .hour{
@@ -191,15 +208,28 @@ header{
   Tageskachel genau unter einer Stundenkachel. Die elf Pixel Zuschlag gleichen
   den Rand der Kaesten aus, der breiter ist als der Kachelabstand.
 */
-.bottom-grid{display:grid;grid-template-columns:calc(5*var(--kachel) + 14px) minmax(0,1fr);
-             gap:6px;min-height:0}
-.linkezelle{display:flex;gap:2px;min-width:0;min-height:0}
-.linkezelle .radarbox{flex:1 1 auto;min-width:0}
+/*
+  Die sieben Tageskacheln stehen auf den letzten sieben der zwoelf Spalten,
+  die Karte belegt die ersten fuenf. Von der Kartenbreite gehen die Legende
+  und die Raender ab, damit die erste Tageskachel genau unter der sechsten
+  Stundenkachel beginnt.
+*/
+.bottom-grid{
+  display:grid;
+  grid-template-columns:
+    calc(5*(var(--kachel) + var(--spalt)) - var(--legende) - var(--legspalt)
+         - var(--kastenspalt))
+    minmax(0,1fr);
+  gap:var(--kastenspalt);min-height:0
+}
+/* Legende und Kachelband nebeneinander im selben Kasten. Die Legende liegt
+   ausserhalb des Scrollbereichs und bleibt deshalb beim Wischen stehen. */
+.tagereihe{display:flex;gap:var(--legspalt);flex:1 1 auto;min-height:0;min-width:0}
 /* Ohne Titelzeile ist der Kasten nur noch ein Rahmen um die Karte, der Rand
    darf deshalb schmal sein. Was hier wegfaellt, bekommt die Karte. */
 .radarbox{
-  background:#0f151d;border:1px solid #3e4a5b;border-radius:13px;
-  padding:3px;min-height:0;overflow:hidden;position:relative;
+  background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
+  padding:var(--rand);min-height:0;overflow:hidden;position:relative;
   display:flex;flex-direction:column
 }
 .radar-stage{
@@ -237,7 +267,7 @@ header{
 .days{
   height:100%;
   display:flex;
-  gap:4px;
+  gap:var(--spalt);
   width:max-content;
 }
 .day{
@@ -280,8 +310,9 @@ header{
 .werte .mi.sock{width:14px;height:10px}
 
 /* Legendenspalte: senkrechte Woerter, ausserhalb des Scrollbereichs. */
-.day.legende{background:none;border:none;box-shadow:none;flex:0 0 17px;width:17px;
-             padding:7px 0;opacity:.95}
+.day.legende{background:none;border:none;box-shadow:none;
+             flex:0 0 var(--legende);width:var(--legende);
+             padding:0;opacity:.95}
 .day.legende .name,.day.legende .temps,.day.legende .werte{visibility:hidden}
 .day.legende .teile{width:100%}
 .day.legende .zeile{height:var(--wsize);display:flex;align-items:center;justify-content:center;
@@ -329,34 +360,35 @@ header{
 </section>
 
 <section class="bottom-grid">
-  <div class="linkezelle">
-    <div class="radarbox">
+  <div class="radarbox">
       <div class="radar-stage">
         <div id="cloudMap"></div>
         <div class="radar-time" id="radarTime">Wolken laden&hellip;</div>
         <div class="radar-legend" id="radarLegend">grau = Wolken &middot; blau/gelb/rot = Niederschlag</div>
         <div class="radar-msg" id="radarMsg"></div>
       </div>
-    </div>
-    <!-- Feste Legende fuer die drei Tagesabschnitte. Sie steht ausserhalb des
-         Scrollbereichs und bleibt beim Wischen durch 14 Tage stehen. Der
-         Aufbau spiegelt eine Tageskachel, damit die Woerter genau neben den
-         Symbolen sitzen. -->
-    <div class="day legende" aria-hidden="true">
-      <div class="name">&nbsp;</div>
-      <div class="icon"><div class="teile">
-        <div class="zeile">Vormittag</div>
-        <div class="zeile">Nachmittag</div>
-        <div class="zeile">Abend</div>
-      </div></div>
-      <div class="temps">0&deg;/0&deg;</div>
-      <div class="werte"><span class="i"></span><span class="v">0</span>
-        <span class="i"></span><span class="v">0</span>
-        <span class="i"></span><span class="v">0</span></div>
-    </div>
   </div>
   <div class="box">
-    <div class="days-scroll" id="daysScroll"><div class="days" id="days"></div></div>
+    <div class="tagereihe">
+      <!-- Feste Legende fuer die drei Tagesabschnitte. Sie liegt im selben
+           Kasten wie die Kacheln, aber ausserhalb des Scrollbereichs, und
+           bleibt deshalb beim Wischen durch 14 Tage stehen. Der Aufbau
+           spiegelt eine Tageskachel, damit die Woerter genau neben den
+           Symbolen sitzen. -->
+      <div class="day legende" aria-hidden="true">
+        <div class="name">&nbsp;</div>
+        <div class="icon"><div class="teile">
+          <div class="zeile">Vormittag</div>
+          <div class="zeile">Nachmittag</div>
+          <div class="zeile">Abend</div>
+        </div></div>
+        <div class="temps">0&deg;/0&deg;</div>
+        <div class="werte"><span class="i"></span><span class="v">0</span>
+          <span class="i"></span><span class="v">0</span>
+          <span class="i"></span><span class="v">0</span></div>
+      </div>
+      <div class="days-scroll" id="daysScroll"><div class="days" id="days"></div></div>
+    </div>
   </div>
 </section>
 
