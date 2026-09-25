@@ -191,13 +191,15 @@ header{
   Tageskachel genau unter einer Stundenkachel. Die elf Pixel Zuschlag gleichen
   den Rand der Kaesten aus, der breiter ist als der Kachelabstand.
 */
-.bottom-grid{display:grid;grid-template-columns:calc(5*var(--kachel) + 11px) minmax(0,1fr);
-             gap:9px;min-height:0}
-.linkezelle{display:flex;gap:4px;min-width:0;min-height:0}
+.bottom-grid{display:grid;grid-template-columns:calc(5*var(--kachel) + 14px) minmax(0,1fr);
+             gap:6px;min-height:0}
+.linkezelle{display:flex;gap:2px;min-width:0;min-height:0}
 .linkezelle .radarbox{flex:1 1 auto;min-width:0}
+/* Ohne Titelzeile ist der Kasten nur noch ein Rahmen um die Karte, der Rand
+   darf deshalb schmal sein. Was hier wegfaellt, bekommt die Karte. */
 .radarbox{
-  background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
-  padding:9px 9px 7px;min-height:0;overflow:hidden;position:relative;
+  background:#0f151d;border:1px solid #3e4a5b;border-radius:13px;
+  padding:3px;min-height:0;overflow:hidden;position:relative;
   display:flex;flex-direction:column
 }
 .radar-stage{
@@ -278,7 +280,7 @@ header{
 .werte .mi.sock{width:14px;height:10px}
 
 /* Legendenspalte: senkrechte Woerter, ausserhalb des Scrollbereichs. */
-.day.legende{background:none;border:none;box-shadow:none;flex:0 0 24px;width:24px;
+.day.legende{background:none;border:none;box-shadow:none;flex:0 0 17px;width:17px;
              padding:7px 0;opacity:.95}
 .day.legende .name,.day.legende .temps,.day.legende .werte{visibility:hidden}
 .day.legende .teile{width:100%}
