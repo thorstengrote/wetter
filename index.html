@@ -2151,6 +2151,20 @@ const SOLAR=(()=>{
               1.10,.92,.78,.76,.84,1.25,2.10,2.30,1.55,1.02,.58,.38];
 
   let jetzt=null, mess={}, heuteKwh=0, standZeit=0;
+  /* Die letzten drei Messungen, fuer den Flussbalken.
+
+     Warum gemittelt: springt der Hausverbrauch, braucht der
+     Batteriewechselrichter bis zu ein paar Minuten, um nachzuziehen, und
+     solange deckt das Netz die Luecke. Ein Einzelwert friert so einen
+     Anlaufmoment als roten Block auf der Wand ein, obwohl die Stunde am
+     Ende kaum Bezug hat. Am 26.09.2026 gemessen: Stundenmittel 46 Watt
+     Bezug, der Balken zeigte in dem Augenblick 790. Die App der Anlage
+     mittelt ebenfalls und zeigt so etwas gar nicht erst.
+
+     Nur der Balken wird gemittelt. Batterie, Stundenstreifen und die
+     Zahlen der Detailseite bleiben der Augenblick. */
+  const VERLAUF_N=3;
+  let verlauf=[];
   let prog=new Array(24).fill(0), progM=new Array(24).fill(0);
   let progMorgen=0, progUeber=0, sonnenunter=0;
   /* Ist der Tag gelaufen, interessiert nicht mehr die Vergangenheit, sondern
@@ -2209,6 +2223,14 @@ const SOLAR=(()=>{
         if(!r.ok) continue;
         const d=await r.json();
         if(!d||!d.jetzt) continue;
+        /* Nur wirklich neue Messungen in den Verlauf, sonst zaehlt
+           dieselbe doppelt, wenn die Seite schneller fragt als gemessen
+           wird. */
+        const neuZeit=d.zeit?new Date(d.zeit).getTime():Date.now();
+        if(!verlauf.length||neuZeit!==standZeit){
+          verlauf.push(d.jetzt);
+          if(verlauf.length>VERLAUF_N) verlauf.shift();
+        }
         jetzt=d.jetzt;
         mess=d.stunden||{};
         heuteKwh=Number(d.heute_kwh||0);
@@ -2220,6 +2242,15 @@ const SOLAR=(()=>{
   }
 
   const frisch=()=>jetzt&&(Date.now()-standZeit)<ALT_MS;
+
+  /* Der Mittelwert der letzten Messungen. Ohne Verlauf der Augenblick. */
+  function gemittelt(){
+    if(verlauf.length<2) return jetzt||{};
+    const m={};
+    for(const f of ["pv","haus","akku","netz","soc"])
+      m[f]=verlauf.reduce((a,e)=>a+Number(e[f]||0),0)/verlauf.length;
+    return m;
+  }
 
   /* --- Der Tag, gemessen und gerechnet ---------------------------- */
   function schritt(pv,haus,soc){
@@ -2409,8 +2440,9 @@ const SOLAR=(()=>{
      ein roter Rahmen erscheint nur, wenn wirklich Netzstrom fliesst. */
   const IKON=25;
   function wohin(gesamt=SB,h=19){
-    const pv=Number(jetzt.pv||0), haus=Number(jetzt.haus||0);
-    const netz=Number(jetzt.netz||0), akku=Number(jetzt.akku||0);
+    const g=gemittelt();
+    const pv=Number(g.pv||0), haus=Number(g.haus||0);
+    const netz=Number(g.netz||0), akku=Number(g.akku||0);
     const bez=Math.max(0,-netz), ein=Math.max(0,netz);
     const knapp=pv+0.02<haus, teuer=bez>0.02;
     const b=gesamt-IKON;
