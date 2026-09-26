@@ -1,0 +1,1899 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wetterhintergruende im Banner &ndash; Entwurf</title>
+<style>
+
+:root{
+  --bg:#090c11;
+  --panel:#121821;
+  --panel2:#1a2230;
+  --panel3:#202b3a;
+  --fg:#f7f9fb;
+  --muted:#aeb8c5;
+  --line:#3a4657;
+  --blue:#6ec8ff;
+  --yellow:#ffd45c;
+  --orange:#ffb27f;
+}
+*{box-sizing:border-box}
+html,body{
+  margin:0;width:100%;height:100%;
+  background:var(--bg);color:var(--fg);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  overflow:hidden
+}
+body{padding:12px 16px 10px}
+/*
+  Ein Raster fuer alles.
+
+  --kachel ist die Breite einer Kachel, zwoelf davon plus elf Spalten fuellen
+  den Kasten genau aus. Die alte Formel rechnete einen Pixel je Kachel zu
+  wenig, dadurch blieben rechts zwoelf Pixel Rest, waehrend links die erste
+  Kachel buendig sass.
+
+  --rand gilt fuer alle Kaesten gleich, damit das Karteninnere auf derselben
+  Linie liegt wie die Tageskacheln daneben. Vorher waren es 4 gegen 10.
+
+  --wsize ist eine Symbolgroesse fuer Stunden- wie Tageskacheln. Vorher war
+  das Symbol in der Stundenkachel 38 Pixel gross und auf der Tageskachel 48,
+  dieselbe Wetterlage wirkte dadurch je nach Kachel unterschiedlich wichtig.
+*/
+:root{
+  --rand:6px;               /* Innenrand jedes Kastens */
+  --spalt:4px;              /* Abstand zwischen Kacheln */
+  --kastenspalt:6px;        /* Abstand zwischen Karte und Tagesleiste */
+  --legende:11px;           /* Breite der senkrechten Tageszeit-Legende */
+  --legspalt:4px;
+  --kachel:calc((100vw - 32px - 2px - 2*var(--rand) - 11*var(--spalt))/12);
+  --wsize:clamp(44px,8vh,104px);
+}
+#app{
+  height:100%;
+  display:grid;
+  grid-template-rows:auto 36fr 64fr;
+  gap:9px
+}
+header{
+  background:linear-gradient(180deg,#171f2a,#111821);
+  border:1px solid #4a586b;
+  border-radius:15px;
+  padding:10px 14px;
+  display:grid;
+  grid-template-columns:auto auto 1fr auto;
+  gap:0;
+  align-items:stretch;
+  box-shadow:0 0 0 1px rgba(255,255,255,.025) inset
+}
+/* Jeder Bereich der Kopfzeile bekommt dieselbe Einrueckung und eine
+   Trennlinie ueber die volle Hoehe. Gleicher Abstand links und rechts der
+   Linie, sonst kippt das Bild. */
+.zelle{display:flex;align-items:center;padding:2px 17px}
+.zelle:first-child{padding-left:2px}
+.zelle:last-child{padding-right:2px}
+.zelle + .zelle{border-left:1px solid #3a4756}
+header.ohne-solar{grid-template-columns:auto auto 1fr}
+.place{font-size:21px;font-weight:700}
+.clock{font-size:38px;font-weight:750;line-height:1}
+.date{font-size:12px;color:var(--muted);margin-top:3px}
+.date .stand{color:#8b97a6}
+.date .stale{color:#ff8a8a;font-weight:650}
+#stand{cursor:pointer;-webkit-user-select:none;user-select:none}
+.diag .evlog{
+  margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;
+  line-height:1.5;max-height:46vh;overflow:auto
+}
+.diag .evlog div{white-space:nowrap}
+.diag .evlog .e-ok{color:#8fcf9a}
+.diag .evlog .e-netz{color:#ff9e9e}
+.diag .evlog .e-http{color:#ffc46b}
+.diag .evlog .e-api{color:#ffc46b}
+.diag .evlog .e-json{color:#ffc46b}
+.current{display:flex;align-items:center;gap:12px}
+.current .icon{display:flex;align-items:center}
+.current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
+.current .temp{font-size:34px;font-weight:750}
+.current .details{font-size:13px;line-height:1.5;color:#c9d2dc}
+.today{flex-direction:column;align-items:flex-start;cursor:pointer;
+  -webkit-user-select:none;user-select:none}
+.today:active{background:rgba(255,255,255,.06)}
+.today .summary{font-size:17px;font-weight:700}
+.today .sub{font-size:12px;color:#c5ced8;margin-top:3px}
+.today .extra{font-size:12px;color:#c5ced8;margin-top:4px}
+
+/* ---------- Solar ---------- */
+.solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px}
+.solar:active{background:rgba(255,255,255,.06)}
+.solar[hidden]{display:none}
+
+.sdetail{
+  position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
+  transform:translateY(-50%);max-height:93%;overflow:auto;
+  background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:14px;
+  padding:15px 22px 13px;display:none;cursor:pointer;
+  font-size:15px;line-height:1.6;color:#e6ecf3
+}
+.sdetail.on{display:block}
+.sdetail .schliessen{float:right;font-size:11px;color:#7d8896}
+.sdetail h4{margin:0 0 2px;font-size:21px;font-weight:750;color:#fff}
+.sdetail .unter{color:#8b97a6;font-size:12.5px;margin-bottom:12px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.kpi{background:#131c26;border:1px solid #29343f;border-radius:10px;padding:8px 11px}
+.kpi .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b97a6}
+.kpi .z{font-size:25px;font-weight:750;line-height:1.15;font-variant-numeric:tabular-nums}
+.kpi .n{font-size:11.5px;color:#8b97a6;font-variant-numeric:tabular-nums}
+/* Die Kaesten einer Zeile sind gleich hoch, sonst stehen Loecher zwischen
+   ihnen. Der Inhalt verteilt sich in der Hoehe, statt oben zu kleben. */
+.sgrid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);
+       gap:12px;align-items:stretch}
+.sgrid > .sblock{margin:0;display:flex;flex-direction:column}
+.sblock{background:#111925;border:1px solid #263141;border-radius:10px;padding:10px 12px}
+.sblock .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+           color:#8b97a6;margin-bottom:7px}
+.leg{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:#c5ced8;margin-top:auto;padding-top:7px}
+.leg i{display:inline-block;width:10px;height:10px;border-radius:2.5px;margin-right:5px;
+       vertical-align:-1px}
+.paare{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 14px;
+       font-size:13px;flex:1;align-content:space-between}
+.paare .k{color:#9dabbb;white-space:nowrap}
+.paare .v{font-weight:650;font-variant-numeric:tabular-nums;text-align:right}
+.sdetail .quelle{margin-top:11px;font-size:11px;color:#7d8896}
+
+/* ---------- Velux ----------
+   Der Einstieg sitzt in der linken oberen Ecke der Wolkenkarte. Im Banner
+   waere kein Platz mehr, dort steht schon Uhr, Wetter, Vorschau und Solar.
+   Die Ecke der Karte ist frei: Zeitstempel und Legende sitzen unten. */
+.velux-knopf{
+  position:absolute;z-index:802;left:10px;top:10px;
+  width:46px;height:50px;padding:4px;
+  background:rgba(5,8,12,.86);border:1px solid #536276;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;-webkit-user-select:none;user-select:none
+}
+.velux-knopf:active{background:rgba(40,52,66,.95)}
+.velux-knopf svg{display:block;width:100%;height:100%}
+
+.vdetail{position:fixed;z-index:1001;inset:0;display:none;
+  background:rgba(4,7,11,.72);cursor:pointer}
+.vdetail.on{display:block}
+.vflaeche{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:470px;max-height:92%;overflow:auto;cursor:default;
+  background:rgba(7,11,17,.985);border:1px solid #5b6b81;border-radius:16px;
+  padding:14px 18px}
+.vzeile{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;
+  padding:9px 2px 9px 8px}
+.vzeile + .vzeile{border-top:1px solid #1d2734}
+.vzeile .n{font-size:16px;font-weight:650;white-space:nowrap;color:#e8eef5}
+.vzeile.gruppe .n{font-size:19px;font-weight:750}
+.vtrenner{height:1px;background:#33404f;margin:8px 2px}
+.vtasten{display:flex;gap:9px}
+/* Alle Tasten gleich gross, damit die drei Spalten ueber alle Zeilen
+   fluchten. Nur die Beschriftung der beiden Gruppen ist groesser. */
+.vtaste{width:72px;height:58px;background:#1a2430;border:1px solid #33404f;
+  border-radius:11px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;-webkit-user-select:none;user-select:none}
+.vtaste:active{background:#26323f}
+/* Die Stellung, in der die Gruppe gerade steht, ist leicht hervorgehoben.
+   Kein zusaetzliches Zeichen, nur ein hellerer Rahmen. */
+.vtaste[data-ist=ja]{border-color:#7d8da0;background:#202c3a}
+.vtaste[data-zustand=faehrt]{border-color:#ffd166;background:#262a1d}
+.vtaste[data-zustand=fertig]{border-color:#3ddc97;background:#16281f}
+.vzeichen{width:34px;height:37px}
+.vkopf{display:flex;justify-content:flex-end;font-size:11px;color:#7d8896;
+  margin-bottom:2px}
+.vfehler{font-size:12px;color:#ff9a8c;min-height:16px;margin-top:8px;padding:0 2px}
+
+/* One label system for every secondary value on the page.
+   Same size, same weight, same icon box, never wraps, never absent.
+   Grey means unremarkable, colour means worth a look. */
+.lbl{
+  font-size:10px;line-height:14px;font-weight:600;
+  white-space:nowrap;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;gap:3px;
+  font-variant-numeric:tabular-nums;
+  color:#8b97a6
+}
+.lbl.rain{color:var(--blue)}
+.lbl.sun{color:var(--yellow)}
+.lbl.wind{color:#ffb86b}
+.mi{width:11px;height:11px;flex:0 0 auto}
+.mi.sock{width:14px;height:10px}
+.inl{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.inl .mi{width:12px;height:12px}
+.inl .mi.sock{width:15px;height:11px}
+
+.box{
+  background:#0f151d;
+  border:1px solid #3e4a5b;
+  border-radius:15px;
+  padding:var(--rand);
+  min-height:0;
+  overflow:hidden;
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  box-shadow:0 0 0 1px rgba(255,255,255,.02) inset
+}
+.title{
+  flex:0 0 auto;
+  font-size:12px;
+  color:#c5cfdb;
+  margin:0 0 6px 2px;
+  letter-spacing:.25px
+}
+.hourly-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  touch-action:pan-x;
+}
+.hourly-scroll::-webkit-scrollbar{display:none}
+.hours{
+  height:100%;
+  display:flex;
+  gap:var(--spalt);
+  width:max-content;
+}
+.hour{
+  width:var(--kachel);
+  flex:0 0 var(--kachel);
+  background:linear-gradient(180deg,var(--panel3),var(--panel2));
+  border:1px solid #46546a;
+  border-radius:8px;
+  padding:6px 1px 4px;
+  text-align:center;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr) auto auto;
+  align-items:center;
+  min-width:0
+}
+.hour.night{background:linear-gradient(180deg,#161d29,#111722);border-color:#364254}
+.hour .t{font-size:11px;color:#d5dce4;font-weight:600;font-variant-numeric:tabular-nums}
+.hour .icon{line-height:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.hour .icon .wicon{width:var(--wsize);height:var(--wsize);max-width:100%;max-height:100%;display:block}
+.hour .deg{font-size:16px;font-weight:750;line-height:20px;font-variant-numeric:tabular-nums}
+
+/* Tap any tile to see every value the model delivers for it. */
+/* the card takes the height of its content and centres itself, instead of
+   stretching to a fixed share of the screen and leaving half of it black */
+.diag{
+  position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
+  transform:translateY(-50%);max-height:93%;overflow:auto;
+  background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:14px;
+  padding:15px 24px 13px;display:none;
+  font-size:15px;line-height:1.7;color:#e6ecf3
+}
+.diag.on{display:block}
+.diag h4{margin:0;font-size:21px;font-weight:750;color:#fff}
+.diag .why{margin:2px 0 11px;color:var(--yellow);font-weight:650;font-size:14px}
+.diag .rows{
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
+  gap:2px 22px;align-content:start
+}
+.diag .k{color:#9dabbb;white-space:nowrap}
+.diag .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.diag .src{margin-top:10px;font-size:11px;color:#7d8896}
+.diag .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 34px;margin-top:6px}
+/* a line of 60 to 70 characters reads comfortably; the full column would run
+   past 100 and force the eye to hunt for the next line */
+.diag .story{font-size:17px;line-height:1.65;color:#dfe6ef;max-width:64ch}
+.diag .rows.two{grid-template-columns:auto minmax(0,1fr)}
+.diag .close{position:absolute;right:16px;top:12px;color:#9dabbb;font-size:11px}
+
+/*
+  Stunden- und Tagesleiste stehen auf demselben Zwoelferraster: die Karte
+  belegt fuenf Spalten, die sieben Tage je eine. Dadurch steht jede
+  Tageskachel genau unter einer Stundenkachel. Die elf Pixel Zuschlag gleichen
+  den Rand der Kaesten aus, der breiter ist als der Kachelabstand.
+*/
+/*
+  Die sieben Tageskacheln stehen auf den letzten sieben der zwoelf Spalten,
+  die Karte belegt die ersten fuenf. Von der Kartenbreite gehen die Legende
+  und die Raender ab, damit die erste Tageskachel genau unter der sechsten
+  Stundenkachel beginnt.
+*/
+.bottom-grid{
+  display:grid;
+  grid-template-columns:
+    calc(5*(var(--kachel) + var(--spalt)) - var(--legende) - var(--legspalt)
+         - var(--kastenspalt))
+    minmax(0,1fr);
+  gap:var(--kastenspalt);min-height:0
+}
+/* Legende und Kachelband nebeneinander im selben Kasten. Die Legende liegt
+   ausserhalb des Scrollbereichs und bleibt deshalb beim Wischen stehen. */
+.tagereihe{display:flex;gap:var(--legspalt);flex:1 1 auto;min-height:0;min-width:0}
+/* Ohne Titelzeile ist der Kasten nur noch ein Rahmen um die Karte, der Rand
+   darf deshalb schmal sein. Was hier wegfaellt, bekommt die Karte. */
+.radarbox{
+  background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
+  padding:var(--rand);min-height:0;overflow:hidden;position:relative;
+  display:flex;flex-direction:column
+}
+.radar-stage{
+  flex:1 1 auto;min-height:0;position:relative;border-radius:10px;
+  background:#101720;overflow:hidden;border:1px solid #334155
+}
+#cloudMap{width:100%;height:100%;background:#111820}
+/* smooth-scaled interpolated field instead of visible grid squares */
+.cloudfield{image-rendering:auto;filter:blur(1.5px)}
+.radar-time{
+  position:absolute;z-index:800;left:10px;bottom:9px;background:rgba(5,8,12,.88);
+  border:1px solid #536276;border-radius:7px;padding:4px 8px;
+  font-size:12px;font-weight:700;color:#fff
+}
+.radar-legend{
+  position:absolute;z-index:800;right:10px;bottom:9px;background:rgba(5,8,12,.82);
+  border-radius:6px;padding:4px 7px;font-size:9px;color:#d5dee8
+}
+.radar-msg{
+  position:absolute;z-index:801;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(5,8,12,.92);border:1px solid #536276;border-radius:8px;
+  padding:7px 10px;font-size:11px;color:#fff;display:none;text-align:center;max-width:80%
+}
+.leaflet-control-attribution{font-size:8px!important;background:rgba(255,255,255,.70)!important}
+.days-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  touch-action:pan-x;
+}
+.days-scroll::-webkit-scrollbar{display:none}
+.days{
+  height:100%;
+  display:flex;
+  gap:var(--spalt);
+  width:max-content;
+}
+.day{
+  width:var(--kachel);
+  flex:0 0 var(--kachel);
+  background:linear-gradient(180deg,#222d3d,#1a2230);
+  border:1px solid #4b5a70;
+  border-radius:11px;
+  padding:7px 3px;
+  text-align:center;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr) auto auto;
+  align-items:center;
+  min-width:0
+}
+.day.trend{opacity:.72;border-style:dashed}
+.day .name{font-size:13px;font-weight:750;color:#f5f7f9}
+.day .icon{min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.day .icon{position:relative}
+.day .icon .wicon{width:var(--wsize);height:var(--wsize);max-width:100%;max-height:100%;display:block}
+.day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.day .lbl{gap:2.5px;letter-spacing:-.15px}
+
+/* Drei Tagesabschnitte untereinander: Vormittag, Nachmittag, Abend. */
+.teile{display:flex;flex-direction:column;gap:7px;align-items:center;justify-content:center}
+.teile .wicon{width:var(--wsize);height:var(--wsize);display:block}
+.day .temps .slash{color:#7a8798}
+
+/*
+  Alle Wertzeilen einer Kachel in einem Raster. Einzeln zentrierte Zeilen
+  standen treppenartig versetzt, weil die Werte verschieden breit sind.
+*/
+.werte{display:grid;grid-template-columns:auto auto;column-gap:3.5px;align-items:center;
+       justify-content:center;font-size:11px;color:#9fb0c4;white-space:nowrap;
+       letter-spacing:-.15px;line-height:1.45}
+.werte .i{display:flex;align-items:center;justify-content:center;line-height:0}
+.werte .v{text-align:left;font-variant-numeric:tabular-nums}
+.werte .rain{color:var(--blue)} .werte .sun{color:var(--yellow)} .werte .wind{color:var(--orange)}
+.werte .mi{width:11px;height:11px;display:block}
+.werte .mi.sock{width:14px;height:10px}
+
+/* Legendenspalte: senkrechte Woerter, ausserhalb des Scrollbereichs. */
+.day.legende{background:none;border:none;box-shadow:none;
+             flex:0 0 var(--legende);width:var(--legende);
+             padding:0;opacity:.95}
+/* Die Platzhalter halten nur die Zeilenhoehen, damit die Woerter neben den
+   Symbolen sitzen. Ohne width:0 zwingt ihr Inhalt, etwa "0°/0°", die ganze
+   Spalte auf ihre Breite, und die Schrift rutscht weit vom Rahmen weg. */
+.day.legende .name,.day.legende .temps,.day.legende .werte{
+  visibility:hidden;width:0;overflow:hidden}
+.day.legende .teile{width:100%}
+/*
+  Senkrechte Schrift. Bei vertical-rl laeuft die Hauptachse des Flexkastens von
+  oben nach unten; align-items:flex-start haette die Woerter nach rechts aus
+  der Spalte geschoben, wo .icon sie abschneidet. Die Luft zum Rahmen wird
+  deshalb ueber die Spaltenbreite geregelt: --legende ist genau so breit wie
+  die Zeile hoch ist, dann bleibt beim Zentrieren nichts uebrig.
+*/
+.day.legende .zeile{height:var(--wsize);display:flex;align-items:center;
+                    justify-content:center;line-height:1;
+                    font-size:9px;font-weight:700;color:#93a0b0;letter-spacing:.3px;
+                    white-space:nowrap;writing-mode:vertical-rl}
+
+/* shown until the page runs without browser chrome; any tap takes it there,
+   and this is a real target so a deliberate tap cannot miss */
+#hint{
+  position:fixed;z-index:1200;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(12,18,26,.97);border:1px solid #6d7f96;border-radius:14px;
+  padding:18px 30px;font-size:18px;font-weight:700;color:#e6ecf3;
+  text-align:center;line-height:1.45;
+  box-shadow:0 10px 40px rgba(0,0,0,.55);
+  cursor:pointer;-webkit-user-select:none;user-select:none
+}
+#hint small{display:block;margin-top:5px;font-size:12.5px;font-weight:500;color:#9dabbb}
+#hint[hidden]{display:none}
+
+/* ---- nur fuer diesen Entwurf ---- */
+/* Die Kioskseite sperrt das Scrollen, sie ist ja ein Vollbild ohne Rand.
+   Fuer diesen Entwurf muss es wieder gehen, sonst sieht man nur die erste
+   Lage und der Rest liegt unerreichbar darunter. */
+html,body{height:auto;overflow:visible}
+body{background:#080b10;color:#e8eef5;margin:0;padding:22px 18px 60px;
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+h1{font-size:21px;margin:0 0 4px}
+h2{font-size:15px;margin:30px 0 4px;color:#c5ced8}
+p.lead,p.note{color:#8b97a6;margin:0 0 14px;max-width:940px;font-size:13px}
+.buehne{overflow-x:auto;padding-bottom:4px}
+.tablet{width:1280px}
+.marke{font-size:12.5px;font-weight:700;color:#c5ced8;margin:16px 0 5px}
+.marke span{font-weight:400;color:#7d8896}
+
+/* Die Kopfzeile bekommt eine Buehne fuer den Himmel. Inhalt darueber. */
+header{position:relative;overflow:hidden;isolation:isolate}
+header > .zelle{position:relative;z-index:2}
+.hg{position:absolute;inset:0;z-index:0;pointer-events:none}
+/* Ein SVG ist ein ersetztes Element. Absolut gesetzt mit inset:0 dehnt es
+   sich nicht, es behaelt seine eigene Groesse, und die ist ohne viewBox
+   300 auf 150. Genau deshalb schneite es nur im linken Viertel: 300 von
+   1280 sind knapp ein Viertel. */
+svg.hg{width:100%;height:100%}
+.hg.schleier{z-index:1}
+
+/* Behandlung C: jede Zelle bekommt ihre eigene Scheibe */
+
+.menge{font-weight:400;font-size:11px;color:#7d8896;margin-left:6px}
+.mass{font-weight:600;font-size:11px;padding:2px 7px;border-radius:5px;margin-left:8px}
+.mass span{font-weight:400;color:inherit;opacity:.72;margin-left:5px}
+.mass.gut{background:rgba(61,220,151,.14);color:#7ce3b6}
+.mass.knapp{background:rgba(255,123,107,.16);color:#ff9e8e}
+/* Auf farbigem Grund brauchen die matten Zeilen mehr Helligkeit. Die Werte
+   der Kioskseite sind fuer einen fast schwarzen Kasten gewaehlt. */
+header.himmel .date{color:#dbe3eb}
+header.himmel .date .stand{color:#c2cbd6}
+header.himmel .details{color:#dbe3eb}
+header.himmel .sub,header.himmel .extra{color:#dbe3eb}
+header.himmel{border-color:rgba(255,255,255,.26)}
+header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.24)}
+header.kacheln{gap:8px;padding:9px 10px}
+header.kacheln .zelle{background:rgba(9,13,20,.55);border-radius:11px;
+  padding:6px 15px}
+header.kacheln.matt .zelle{background:rgba(9,13,20,.40);
+  backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px)}
+header.kacheln .zelle + .zelle{border-left:0}
+/* Behandlung B und C: die Trennlinie muss auf hellem Himmel mitziehen */
+header.hell .zelle + .zelle{border-left-color:rgba(255,255,255,.22)}
+header.schatten .zelle{text-shadow:0 1px 2px rgba(3,6,11,.95),0 0 7px rgba(3,6,11,.8)}
+header.schatten .zelle svg{filter:drop-shadow(0 1px 2px rgba(3,6,11,.85))}
+header.hell{border-color:rgba(255,255,255,.28)}
+</style></head><body>
+
+<h1>Wetterhintergr&uuml;nde im Banner</h1>
+<p class="lead">
+Echter Banner, echte Zeichen, echte Werte. Nur der Himmel dahinter ist neu.
+Kein Schleier, keine Scheiben, kein dunkler Saum: die Farbe traegt den
+Kontrast allein, und jede Farbe wird vor dem Zeichnen auf die Grenze
+heruntergezogen, ab der die Schrift nicht mehr sicher sitzt.
+</p>
+
+<div id="a"></div>
+
+<script>
+/* ============================================================
+   Echte Teile der Kioskseite, unveraendert uebernommen
+   ============================================================ */
+const OUTLOOK_SWITCH_HOUR=20;
+const isoDay=dt=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+function outlookDate(now=new Date()){
+  const t=new Date(now);
+  if(now.getHours()>=OUTLOOK_SWITCH_HOUR) t.setDate(t.getDate()+1);
+  return t;
+}
+
+/*
+  Wettersymbole werden zusammengesetzt, nicht aus einer festen Liste gewaehlt.
+
+  Zwei Achsen, die sich nicht gegenseitig verdraengen: der Himmel in fuenf
+  Stufen von klar bis bedeckt, und was herunterfaellt. Vorher gewann genau ein
+  Name aus acht, deshalb loeschte ein einzelner Regentropfen die gesamte
+  Himmelsinformation und ein sonniger Tag mit einem Schauer sah aus wie
+  Dauerregen. Wind und Frost sitzen als Zeichen im selben Bild.
+
+  Aufruf entweder mit einem alten Namen ("clear", "rain", ...) oder mit
+  {sky, wet, storm, night, wind, frost}.
+*/
+const SKY_SUN=`<circle cx="32" cy="32" r="10" fill="#FFD65A"/>
+  <g stroke="#FFD65A" stroke-width="3" stroke-linecap="round">
+    <path d="M32 7v7M32 50v7M7 32h7M50 32h7M14.3 14.3l5 5M44.7 44.7l5 5M49.7 14.3l-5 5M19.3 44.7l-5 5"/>
+  </g>`;
+const SKY_MOON=`<g transform="translate(-6 0)"><path d="M40 14 A18 18 0 1 0 40 50 A22 22 0 0 1 40 14 Z" fill="#E9EEF6"/></g>`;
+const SKY_STARS=`<g fill="#C9D6EA"><circle cx="48" cy="16" r="2"/><circle cx="55" cy="27" r="1.5"/><circle cx="44" cy="30" r="1.2"/></g>`;
+const SKY_CLOUD_D=`M18 45h28c8 0 14-5 14-12s-6-12-13-12c-2 0-4 .4-5.7 1.3C38.4 16.8 33.2 14 27.5 14 19 14 12 21 12 29.5v.6C6.8 31.3 3 35.8 3 41c0 2.5.8 4.8 2.3 6.8C8 44.7 12.5 45 18 45z`;
+const SKY_CLOUD =`<path d="${SKY_CLOUD_D}" fill="#E8EDF3"/>`;
+const SKY_CLOUD_G=`<path d="${SKY_CLOUD_D}" fill="#B8C2CF"/>`;
+const SKY_FOG=`<g stroke="#C7D0DA" stroke-width="3" stroke-linecap="round">
+    <path d="M10 42h44M14 49h36M19 56h26"/></g>`;
+const SKY_BOLT=`<path d="M34 42h10l-8 10h6L29 63l4-13h-7z" fill="#FFD65A"/>`;
+
+/* Staerke ueber Laenge und Zahl der Striche, nicht ueber die Farbe: aus vier
+   Metern ist Laenge lesbar, ein Blauton nicht. */
+function nassStriche(art){
+  const P={niesel:{n:3,lang:5,dick:3,farbe:"#8FD8FF"},
+           regen:{n:3,lang:9,dick:4,farbe:"#65C7FF"},
+           viel:{n:4,lang:12,dick:4.5,farbe:"#65C7FF"}}[art];
+  if(!P) return "";
+  const breite=P.n===4?36:26, start=32-breite/2;
+  let d="";
+  for(let i=0;i<P.n;i++) d+=`M${start+i*(breite/(P.n-1))} 48l-${(P.lang*0.38).toFixed(1)} ${P.lang}`;
+  return `<g stroke="${P.farbe}" stroke-width="${P.dick}" stroke-linecap="round"><path d="${d}"/></g>`;
+}
+function nassFlocken(viel){
+  const n=viel?5:3, breite=viel?42:26, start=32-breite/2, r=viel?3.6:4.4;
+  let d="";
+  for(let i=0;i<n;i++){
+    const x=start+i*(breite/(n-1)), y=51+(i%2)*3;
+    d+=`M${x} ${y-r}v${2*r}M${x-r} ${y}h${2*r}`;
+  }
+  return `<g stroke="#D9F2FF" stroke-width="${viel?2.4:3}" stroke-linecap="round"><path d="${d}"/></g>`;
+}
+/*
+  Windsack statt Wimpel: das Zeichen vom Flugplatz, mit der Streifung schon
+  eingebaut. Weiss und grau bei Wind, weiss und rot bei Sturm. Duenne dunkle
+  Kontur, sonst verschwindet er auf einer hellen Wolke.
+*/
+function windsack(stufe){
+  if(!stufe) return "";
+  const zweite=stufe>=2?"#FF5B4E":"#AEB8C5";
+  const x0=3.6,x1=23.4, h=x=>5.6-3.6*(x-x0)/(x1-x0);
+  let baender="";
+  for(let i=0;i<4;i++){
+    const a=x0+(x1-x0)*i/4, b=x0+(x1-x0)*(i+1)/4;
+    baender+=`<path d="M${a.toFixed(2)} ${(7-h(a)).toFixed(2)}L${b.toFixed(2)} ${(7-h(b)).toFixed(2)}`+
+             `L${b.toFixed(2)} ${(7+h(b)).toFixed(2)}L${a.toFixed(2)} ${(7+h(a)).toFixed(2)}Z"`+
+             ` fill="${i%2?zweite:"#FFFFFF"}" stroke="#222B38" stroke-width=".55"/>`;
+  }
+  return `<g><path d="M2.0 1.0v18.4" stroke="#222B38" stroke-width="3.3" stroke-linecap="round"/>`+
+    `<path d="M2.0 1.0v18.4" stroke="#E8EDF3" stroke-width="1.9" stroke-linecap="round"/>`+
+    baender+`<path d="M3.6 1.4L3.6 12.6" stroke="#E8EDF3" stroke-width="1.2" stroke-linecap="round"/></g>`;
+}
+function frostKristall(stufe){
+  if(!stufe) return "";
+  const farbe=stufe>=2?"#5FB7FF":"#9EC9E8";
+  return `<g stroke="${farbe}" stroke-width="1.7" stroke-linecap="round">
+    <path d="M9 1.6v14.8M2.6 5.3l12.8 7.8M15.4 5.3L2.6 13.1"/>
+    <path d="M6.9 3.4 9 5.1l2.1-1.7M6.9 14.6 9 12.9l2.1 1.7
+             M3.3 7.9 3.0 5.5l2.4.1M14.7 7.9l.3-2.4-2.4.1
+             M3.3 10.5 3.0 12.9l2.4-.1M14.7 10.5l.3 2.4-2.4-.1" stroke-width="1.3"/></g>`;
+}
+
+/* Lage von Sonne und Wolke je Himmelsstufe. Die Wolke waechst und schiebt
+   sich vor die Sonne, statt dass ein Symbol das andere ersetzt. */
+const SKY_LAGE=[
+  {sonne:[0,0,1],      wolke:null},
+  {sonne:[-1,-3,.88],  wolke:[20,22,.52]},
+  {sonne:[-2,-3,.80],  wolke:[7,8,.82]},
+  {sonne:[-1,0,.60],   wolke:[1,2,.98]},
+  {sonne:null,         wolke:[0,1,1]}
+];
+const svgG=(t,inhalt)=>t?`<g transform="translate(${t[0]} ${t[1]}) scale(${t[2]})">${inhalt}</g>`:inhalt;
+/* Der Niederschlag haengt am Wolkenrand und folgt der Wolke in Groesse und
+   Lage, sonst haengen die Tropfen bei kleiner Wolke in der Luft. */
+function nassLage(w){
+  const [tx,ty,sc]=w, mitteX=31.5*sc+tx, unten=47.5*sc+ty, ds=Math.max(.66,sc);
+  return [mitteX-32*ds, unten+1.5-48*ds, ds];
+}
+
+const LEGACY={
+  clear:{sky:0}, partly:{sky:2}, cloud:{sky:4},
+  night_clear:{sky:0,night:true}, night_partly:{sky:2,night:true},
+  fog:{fog:true}, drizzle:{sky:3,wet:"niesel"}, rain:{sky:4,wet:"regen"},
+  snow:{sky:4,wet:"schnee"}, storm:{sky:4,wet:"regen",storm:true}
+};
+
+/* ===================================================================
+   Sonnenstand
+
+   Bis September hat die Seite je Stunde nach deren Mitte entschieden: liegt
+   19:30 nach Sonnenuntergang, war die ganze Stunde Nacht. Um 18 Uhr stand
+   die Sonne, um 19 Uhr der Mond, obwohl um 18:40 noch die Sonne schien.
+
+   Jetzt richtet sich das Symbol nach der Hoehe der Sonne. Ueber 10 Grad
+   sieht es aus wie vorher, darunter erscheint ein Horizont, die Sonne sinkt
+   darauf zu und faerbt sich warm, unter null Grad bleibt ein Schein und der
+   Mond blendet auf, unter -8 Grad ist es die Nachtkachel. Nichts springt.
+
+   Verfahren der NOAA, genau genug fuer ein Symbol. Gegengeprueft am
+   25.09.2026: Aufgang 07:21 und Untergang 19:26 gegen 07:22 und 19:23 von
+   Open-Meteo, Sonnenwenden auf zwei Minuten.
+   =================================================================== */
+function sonnenhoehe(tagImJahr, stunde, tzStunden){
+  const g=2*Math.PI/365*(tagImJahr-1+(stunde-12)/24);
+  const zeitgleichung=229.18*(0.000075+0.001868*Math.cos(g)-0.032077*Math.sin(g)
+    -0.014615*Math.cos(2*g)-0.040849*Math.sin(2*g));
+  const neigung=0.006918-0.399912*Math.cos(g)+0.070257*Math.sin(g)
+    -0.006758*Math.cos(2*g)+0.000907*Math.sin(2*g)
+    -0.002697*Math.cos(3*g)+0.00148*Math.sin(3*g);
+  const versatz=zeitgleichung+4*LON-60*tzStunden;
+  const winkel=((stunde*60+versatz)/4)-180;
+  const w=winkel*Math.PI/180, b=LAT*Math.PI/180;
+  const cosZ=Math.sin(b)*Math.sin(neigung)+Math.cos(b)*Math.cos(neigung)*Math.cos(w);
+  return 90-Math.acos(Math.max(-1,Math.min(1,cosZ)))*180/Math.PI;
+}
+
+/* Hoehe zur Mitte der Stunde, die bei iso beginnt. Die Zeitzone kommt vom
+   Geraet, damit die Sommerzeit nicht von Hand gepflegt werden muss. */
+function sonnenhoeheStunde(iso, versatzStunden=0.5){
+  const d=new Date(iso);
+  if(isNaN(d)) return null;
+  const jahresbeginn=new Date(d.getFullYear(),0,0);
+  const tag=Math.round((d-jahresbeginn)/86400000);
+  const std=d.getHours()+d.getMinutes()/60+versatzStunden;
+  return sonnenhoehe(tag, std, -d.getTimezoneOffset()/60);
+}
+
+const SONNE_OBEN=10, SONNE_UNTEN=-8, SONNE_HORIZONT=38;
+let sonneLfd=0;
+const mischWert=(a,b,t)=>a+(b-a)*Math.max(0,Math.min(1,t));
+function mischFarbe(c1,c2,t){
+  const z=c=>[1,3,5].map(i=>parseInt(c.substr(i,2),16));
+  const [r1,g1,b1]=z(c1), [r2,g2,b2]=z(c2);
+  const h=v=>Math.round(v).toString(16).padStart(2,"0");
+  return "#"+h(mischWert(r1,r2,t))+h(mischWert(g1,g2,t))+h(mischWert(b1,b2,t));
+}
+
+/* Die Sonne, wie sie bei dieser Hoehe aussieht. Ueber 10 Grad unveraendert. */
+function sonneVerlauf(elev){
+  if(elev>=SONNE_OBEN) return SKY_SUN;
+  const id="sh"+(++sonneLfd);
+  const y=mischWert(32, SONNE_HORIZONT, (SONNE_OBEN-elev)/SONNE_OBEN)
+          + (elev<0 ? -elev*1.5 : 0);
+  const warm=Math.max(0,Math.min(1,(SONNE_OBEN-elev)/(SONNE_OBEN+4)));
+  const farbe=mischFarbe("#FFD65A","#FF7A3D",warm);
+  const strahl=Math.max(0,Math.min(1,(elev+2)/8));
+  const r=7*strahl;
+  const linie=Math.max(0,Math.min(1,(SONNE_OBEN-elev)/6));
+  const schein=elev<0 ? Math.max(0,Math.min(1,(-elev)/6)) : 0;
+  return `<defs><clipPath id="${id}">
+      <rect x="0" y="0" width="64" height="${SONNE_HORIZONT}"/></clipPath></defs>
+    ${schein>0?`<ellipse cx="32" cy="${SONNE_HORIZONT}" rx="${20+8*schein}" ry="${9*schein}"
+        fill="${farbe}" opacity="${(.50*schein).toFixed(2)}"/>
+      <ellipse cx="32" cy="${SONNE_HORIZONT}" rx="${12+4*schein}" ry="${5*schein}"
+        fill="${farbe}" opacity="${(.45*schein).toFixed(2)}"/>`:""}
+    <g clip-path="url(#${id})">
+      <circle cx="32" cy="${y.toFixed(1)}" r="10" fill="${farbe}"/>
+      ${r>0.6?`<g stroke="${farbe}" stroke-width="3" stroke-linecap="round" opacity="${strahl.toFixed(2)}">
+        <path d="M32 ${(y-15).toFixed(1)}v${r.toFixed(1)}
+                 M17 ${y.toFixed(1)}h${r.toFixed(1)}
+                 M${(47-r).toFixed(1)} ${y.toFixed(1)}h${r.toFixed(1)}
+                 M${(32-10.6).toFixed(1)} ${(y-10.6).toFixed(1)}l${(r*0.7).toFixed(1)} ${(r*0.7).toFixed(1)}
+                 M${(32+10.6).toFixed(1)} ${(y-10.6).toFixed(1)}l${(-r*0.7).toFixed(1)} ${(r*0.7).toFixed(1)}"/>
+      </g>`:""}
+    </g>
+    ${linie>0?`<path d="M11 ${SONNE_HORIZONT}h42" stroke="#7E8DA1" stroke-width="2.8"
+       stroke-linecap="round" opacity="${(0.85*linie).toFixed(2)}"/>`:""}`;
+}
+
+function weatherIcon(spec, cls="wicon"){
+  if(typeof spec==="string") spec=LEGACY[spec]||{sky:2};
+  const common=`class="${cls}" viewBox="0 0 64 64" aria-hidden="true"`;
+  if(spec.fog) return `<svg ${common}>${svgG([0,-2,.95],SKY_CLOUD_G)}${svgG([0,-2,.95],SKY_FOG)}</svg>`;
+
+  let stufe=Math.max(0,Math.min(4,Number(spec.sky||0)));
+  const nass=spec.wet||"", blitz=!!spec.storm;
+  if(nass||blitz) stufe=Math.max(stufe,1);         /* es braucht eine Wolke */
+  const L=SKY_LAGE[stufe], teile=[];
+  if(L.sonne){
+    const hoehe=spec.elev;
+    if(typeof hoehe==="number"){
+      /* Der Mond blendet auf, waehrend die Sonne untergeht. Beide koennen
+         kurz gleichzeitig zu sehen sein, genau wie draussen. */
+      const mond=Math.max(0,Math.min(1,(0-hoehe)/6));
+      if(mond>0) teile.push(`<g opacity="${mond.toFixed(2)}">${SKY_STARS}${svgG(L.sonne,SKY_MOON)}</g>`);
+      if(hoehe>SONNE_UNTEN) teile.push(svgG(L.sonne,sonneVerlauf(hoehe)));
+    }
+    else if(spec.night){ teile.push(SKY_STARS); teile.push(svgG(L.sonne,SKY_MOON)); }
+    else teile.push(svgG(L.sonne,SKY_SUN));
+  }
+  if(L.wolke) teile.push(svgG(L.wolke,(nass||blitz)?SKY_CLOUD_G:SKY_CLOUD));
+  if(L.wolke&&(nass||blitz)){
+    const lg=nassLage(L.wolke);
+    if(nass==="schnee"||nass==="schnee-viel") teile.push(svgG(lg,nassFlocken(nass==="schnee-viel")));
+    else if(nass) teile.push(svgG(lg,nassStriche(nass)));
+    if(blitz) teile.push(svgG(lg,SKY_BOLT));
+  }
+  if(spec.frost) teile.push(`<g transform="translate(0 0) scale(.95)">${frostKristall(spec.frost)}</g>`);
+  if(spec.wind)  teile.push(`<g transform="translate(37 0) scale(1.05)">${windsack(spec.wind)}</g>`);
+  return `<svg ${common}>${teile.join("")}</svg>`;
+}
+
+/*
+  Windstufe fuer den Windsack im Symbol, an der Beaufortskala und den
+  Warnstufen des DWD orientiert. Die Wertzeile faerbt sich schon ab 35 km/h in
+  Boeen ein, das ist fuer ein Zeichen am Symbol zu frueh.
+*/
+function windLevel(speed,gust){
+  speed=Number(speed||0); gust=Number(gust||0);
+  if(gust>=55||speed>=34) return 2;
+  if(gust>=38||speed>=24) return 1;
+  return 0;
+}
+/* Frost wie der Wind in zwei Stufen: Bodenfrost und echter Frost. */
+function frostLevel(tmin){
+  tmin=Number(tmin);
+  if(!isFinite(tmin)) return 0;
+  if(tmin<0) return 2;
+  if(tmin<=3) return 1;
+  return 0;
+}
+/* Temperaturfarbe: warm nach rot, mild nach gruen, kalt nach blau. Stufen
+   statt weichem Verlauf, sonst sind benachbarte Werte nicht zu trennen. */
+function tempFarbe(t){
+  t=Number(t);
+  if(!isFinite(t)) return "var(--text)";
+  if(t>=30) return "#FF3B30";
+  if(t>=25) return "#FF6A3D";
+  if(t>=20) return "#FF9A3C";
+  if(t>=16) return "#E8C13C";
+  if(t>=5)  return "#4CC76A";
+  if(t>=0)  return "#5FD0C8";
+  if(t>=-8) return "#58B0FF";
+  return "#8E9BFF";
+}
+const tempSpan=v=>`<span style="color:${tempFarbe(v)}">${deg(v)}</span>`;
+
+/* Die Beschriftung folgt derselben Stufe wie das Symbol. Ohne das stand
+   "sonnig" neben einem Bild mit Wolke. */
+function specLabel(spec,icon){
+  /* Waehrend die Sonne den Horizont kreuzt, heisst es weder Tag noch Nacht */
+  if(spec&&typeof spec.elev==="number"&&spec.elev>-6&&spec.elev<6
+     &&!spec.fog&&!spec.wet&&!spec.storm) return "Dämmerung";
+  if(!spec||spec.fog||spec.wet||spec.storm||spec.night) return ICON_LABEL[icon]||"";
+  return TAG_NAMEN[Math.max(0,Math.min(4,Number(spec.sky||0)))];
+}
+const ICON_LABEL={
+  clear:"sonnig", partly:"sonnig mit Wolken", cloud:"bedeckt",
+  night_clear:"klare Nacht", night_partly:"Nacht, teils Wolken",
+  fog:"neblig", drizzle:"Nieselregen", rain:"Regen", snow:"Schnee", storm:"Gewitter"
+};
+
+function wmoText(c){
+  c=Number(c);
+  if(c===0)return"klar";
+  if(c===1)return"überwiegend klar";
+  if(c===2)return"teils bewölkt";
+  if(c===3)return"bedeckt";
+  if([45,48].includes(c))return"Nebel";
+  if([51,53,55].includes(c))return"Nieselregen";
+  if([56,57].includes(c))return"gefrierender Niesel";
+  if([61,63,65].includes(c))return"Regen";
+  if([66,67].includes(c))return"gefrierender Regen";
+  if([71,73,75,77].includes(c))return"Schnee";
+  if([80,81,82].includes(c))return"Regenschauer";
+  if([85,86].includes(c))return"Schneeschauer";
+  if([95,96,99].includes(c))return"Gewitter";
+  return"unbekannt ("+c+")";
+}
+
+/*
+  Icon selection.
+
+  Cloud cover percentages alone are a bad predictor of "do I see the sun".
+  Open-Meteo/ICON regularly reports 80-100 % total cover for an hour that also
+  carries 60 minutes of sunshine duration and 550 W/m2 of shortwave radiation.
+  So for daylight hours the sky symbol is derived from how much solar energy
+  actually reaches the ground, measured against the clear-sky maximum
+  (terrestrial_radiation is the extraterrestrial value; ~0.78 of it arrives on a
+  clean, cloud-free day). Cloud cover only caps the "fully sunny" case.
+  At night there is no radiation signal, so total cloud cover is all we have.
+*/
+const CLEAR_SKY_FACTOR=0.78;
+
+function skyDecision(o){
+  const code=Number(o.code||0);
+  const precip=Number(o.precip||0), pop=Number(o.pop||0);
+  const toa=Number(o.toa||0), swrad=Number(o.swrad||0);
+  const tot=Number(o.tot||0);
+  /* the hour counts as daylight when its midpoint lies between sunrise and
+     sunset; radiation is only the fallback when those times are missing */
+  const day=typeof o.isDay==="boolean"?o.isDay:toa>15;
+
+  const clearSky=toa>0?CLEAR_SKY_FACTOR*toa:0;
+  const ratio=clearSky>0?Math.min(1.25,swrad/clearSky):0;
+  const sunFrac=Math.max(0,Math.min(1,Number(o.sunSec||0)/3600));
+  const brightness=Math.max(ratio,sunFrac*0.55);
+
+  /*
+    Himmelsstufe 0 bis 4 aus der Bewoelkung, nach oben korrigiert, wenn die
+    Strahlung trotz gemeldeter Wolken hoch ist. Damit bekommen auch die
+    Stundenkacheln die fuenf Abstufungen statt nur klar, Mix und bedeckt.
+  */
+  let stufe = tot<15?0 : tot<40?1 : tot<65?2 : tot<88?3 : 4;
+  if(day&&brightness>=0.70&&stufe>1) stufe=1;
+  const d={ratio,sunFrac,brightness,clearSky,day,stufe};
+
+  /* Der Name bleibt fuer die Beschriftung erhalten, dazu kommt die Vorschrift
+     fuer das zusammengesetzte Symbol. */
+  const mit=(icon,spec,why)=>({...d,icon,
+    spec:{sky:stufe,night:!day,...(typeof o.elev==="number"?{elev:o.elev}:{}),...spec},why});
+
+  if([95,96,99].includes(code))                 return mit("storm",  {wet:"regen",storm:true}, "WMO-Code "+code+" = Gewitter");
+  if([71,73,75,77,85,86].includes(code))        return mit("snow",   {wet:precip>=3?"schnee-viel":"schnee"}, "WMO-Code "+code+" = Schnee");
+  if([61,63,65,66,67,80,81,82].includes(code))  return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, "WMO-Code "+code+" = Regen");
+  if(precip>=0.3)                               return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, n1(precip)+NB+"mm Niederschlag");
+  if([51,53,55,56,57].includes(code)||precip>0) return mit("drizzle",{wet:"niesel"}, "leichter Niederschlag ("+n1(precip)+NB+"mm)");
+  if([45,48].includes(code))                    return mit("fog",    {fog:true}, "WMO-Code "+code+" = Nebel");
+  if(pop>=75)                                   return mit("rain",   {wet:"regen"}, "Regenrisiko "+pop+" %");
+
+  if(!day){
+    if(tot<25)  return mit("night_clear", {sky:0}, "Nacht, "+Math.round(tot)+" % Bewölkung");
+    if(tot<75)  return mit("night_partly",{sky:2}, "Nacht, "+Math.round(tot)+" % Bewölkung");
+    return        mit("cloud",            {sky:4}, "Nacht, "+Math.round(tot)+" % Bewölkung");
+  }
+
+  /* near sunrise and sunset the long atmospheric path depresses the radiation
+     ratio, so a nearly cloud-free sky is trusted on cloud cover alone */
+  if(tot<25)
+    return mit("clear", {}, `nur ${Math.round(tot)} % Bewölkung`);
+  if(brightness>=0.70&&tot<50)
+    return mit("clear", {}, `Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel, nur ${Math.round(tot)} % Bewölkung`);
+  if(brightness>=0.40||tot<75)
+    return mit("partly",{}, `Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel bei ${Math.round(tot)} % Bewölkung`);
+  return   mit("cloud", {}, `nur ${(brightness*100).toFixed(0)} % Helligkeit bei ${Math.round(tot)} % Bewölkung`);
+}
+
+function mi(kind){
+  const a='viewBox="0 0 16 16" aria-hidden="true"';
+  if(kind==="drop") return `<svg class="mi" ${a}><path d="M8 1.5c2.7 3.4 4.1 5.7 4.1 7.5a4.1 4.1 0 0 1-8.2 0C3.9 7.2 5.3 4.9 8 1.5z" fill="currentColor"/></svg>`;
+  if(kind==="sun")  return `<svg class="mi" ${a}><circle cx="8" cy="8" r="3.1" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 .8v2.1M8 13.1v2.1M.8 8h2.1M13.1 8h2.1M2.9 2.9l1.5 1.5M11.6 11.6l1.5 1.5M13.1 2.9l-1.5 1.5M4.4 11.6l-1.5 1.5"/></g></svg>`;
+  if(kind==="sock") return `<svg class="mi sock" viewBox="0 0 20 14" aria-hidden="true"><path d="M2.3 1.2v11.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.7 2.4 L17.4 4.7 L14.7 10.2 L3.7 8.6 Z" fill="currentColor" opacity=".9"/></svg>`;
+  if(kind==="up")   return `<svg class="mi" ${a}><path d="M8 3.2 3.6 8.4h8.8z" fill="currentColor"/><path d="M2.6 12.4h10.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  if(kind==="down") return `<svg class="mi" ${a}><path d="M8 9.2 3.6 4h8.8z" fill="currentColor"/><path d="M2.6 12.4h10.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  if(kind==="bolt") return `<svg class="mi" ${a}><path d="M9.4 1 3.8 9h3.3l-1 6 6.1-8.6H8.7z" fill="currentColor"/></svg>`;
+  return "";
+}
+
+/* German number formatting, with a narrow no-break space before every unit so a
+   value and its unit can never be split across two lines. */
+const NB="\u202f";
+const n1=v=>Number(v||0).toLocaleString("de-DE",{minimumFractionDigits:1,maximumFractionDigits:1});
+const n0=v=>Math.round(Number(v||0)).toLocaleString("de-DE");
+const n1p=v=>Number(v||0).toLocaleString("de-DE",{minimumFractionDigits:1,maximumFractionDigits:1,useGrouping:false});
+const COMPASS=["N","NNO","NO","ONO","O","OSO","SO","SSO","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+function dirText(d){
+  if(d==null) return "–";
+  const x=((Number(d)%360)+360)%360;
+  return `${Math.round(x)}° ${COMPASS[Math.round(x/22.5)%16]}`;
+}
+const orDash=(v,fn)=>v==null?"–":fn(v);
+const pct=v=>Math.round(Number(v||0))+NB+"%";
+const deg=v=>Math.round(Number(v||0))+"°";
+
+
+
+/* Die Uhr der Seite anhalten, damit der Solarblock einen Tag zeigt und
+   nicht die Minute, in der dieser Entwurf gerendert wird. */
+const EchtDate = Date;
+function zeitSetzen(iso){
+  const t = new EchtDate(iso).getTime();
+  window.Date = class extends EchtDate {
+    constructor(...a){ if(a.length===0) super(t); else super(...a); }
+    static now(){ return t; }
+  };
+}
+zeitSetzen("2026-09-26T14:20:00");
+
+/* solar.json vortaeuschen, kein Netz, keine fremden Kontingente */
+const STUNDEN={};
+const BOGEN=h=>Math.max(0,Math.sin((h-5.8)/12.6*Math.PI));
+for(let h=6;h<=14;h++) STUNDEN[String(h)]={pv:+(BOGEN(h)*7.4).toFixed(2),
+  haus:[0,0,0,0,0,0,.4,.9,1.1,.8,.7,.8,1.1,.9,.8][h]||.8,
+  akku:h<11?1.6:-.2, netz:h>9?2.1:.2};
+window.fetch=async(u)=>({ok:true,json:async()=>({
+  zeit:"2026-09-26T14:20:00",
+  jetzt:{pv:6.42,haus:1.05,akku:0.9,netz:4.47,soc:87},
+  heute_kwh:38.6, stunden:STUNDEN })});
+
+/* Einstrahlung fuer die Prognose, fester Verlauf statt Open-Meteo */
+const H={time:[],shortwave_radiation:[]};
+for(const tag of ["2026-09-26","2026-09-27"])
+  for(let h=0;h<24;h++){
+    H.time.push(`${tag}T${String(h).padStart(2,"0")}:00`);
+    H.shortwave_radiation.push(Math.round(BOGEN(h)*520));
+  }
+const SONNE={"2026-09-26":{rise:new EchtDate("2026-09-26T07:25").getTime(),
+                            set:new EchtDate("2026-09-26T19:19").getTime()}};
+
+const SOLAR=(()=>{
+  const FAKTOR=0.014;            /* kW je W/m2 */
+  const AKKU_KWH=10.0, AKKU_MAX=5.0, WP=12.42;
+  /* Tarife von Thorsten, Stand 25.09.2026. Der Arbeitspreis ist brutto.
+     Die Einspeiseverguetung gilt 20 Jahre ab Inbetriebnahme und teilt sich
+     nach Anlagengroesse: bis 10 kWp ein Satz, darueber ein niedrigerer.
+     Bei 12,42 kWp und Inbetriebnahme im zweiten Halbjahr 2024 sind das
+     8,03 und 6,95 Cent, gewichtet also 7,82 Cent.
+     Der Grundpreis haengt nicht an der Erzeugung und steht deshalb nur
+     nachrichtlich in den Zahlen, nicht in der Bilanz. */
+  const VERGUETUNG=0.0782, ARBEITSPREIS=0.2455, GRUNDPREIS_JAHR=253.64;
+  const VOLL_KW=10.0;            /* volle Balkenlaenge, die Grenze des Wechselrichters */
+  const ALT_MS=25*60*1000;       /* aelter als das, dann keine Anzeige */
+
+  const F_EIGEN="#63b3ff", F_AKKU="#4fd6c9", F_EIN="#3ddc97",
+        F_BEZUG="#ff7b6b", F_HAUS="#e8eef5", F_SOC="#ffd166";
+
+  /* Tagesgang des Hausverbrauchs. Wird fuer die Stunden gebraucht, die noch
+     nicht gemessen sind. Grundlast, Morgenspitze, Abendspitze. */
+  const HAUS=[.30,.28,.27,.27,.28,.36,.72,1.45,1.15,.82,.74,.80,
+              1.10,.92,.78,.76,.84,1.25,2.10,2.30,1.55,1.02,.58,.38];
+
+  let jetzt=null, mess={}, heuteKwh=0, standZeit=0;
+  let prog=new Array(24).fill(0), progM=new Array(24).fill(0);
+  let progMorgen=0, progUeber=0, sonnenunter=0;
+  /* Ist der Tag gelaufen, interessiert nicht mehr die Vergangenheit, sondern
+     was morgen kommt. Zwei Stunden nach Sonnenuntergang schaltet der Streifen
+     deshalb auf die Ladekurve des naechsten Tages um. */
+  const NACHLAUF_MS=2*3600*1000;
+  const morgenModus=()=>sonnenunter>0&&Date.now()>sonnenunter+NACHLAUF_MS
+                        &&new Date().getHours()>=12;
+
+  const z1=v=>Number(v||0).toFixed(1).replace(".",",");
+  const z2=v=>Number(v||0).toFixed(2).replace(".",",");
+  const z3=v=>Number(v||0).toFixed(Math.abs(v)<10?2:1).replace(".",",");
+
+  /* --- Prognose aus der Einstrahlung ------------------------------ */
+  function setzePrognose(H,sonne){
+    if(!H||!H.time||!H.shortwave_radiation) return;
+    const heute=isoDay(new Date());
+    const morgen=isoDay(new Date(Date.now()+864e5));
+    const ueber=isoDay(new Date(Date.now()+1728e5));
+    const neu=new Array(24).fill(0), neuM=new Array(24).fill(0);
+    let sM=0, sU=0;
+    for(let i=0;i<H.time.length;i++){
+      const tag=H.time[i].slice(0,10), std=Number(H.time[i].slice(11,13));
+      const kwv=Math.min(10, (H.shortwave_radiation[i]||0)*FAKTOR);
+      if(tag===heute) neu[std]=kwv;
+      else if(tag===morgen){ neuM[std]=kwv; sM+=kwv; }
+      else if(tag===ueber) sU+=kwv;
+    }
+    prog=neu; progM=neuM; progMorgen=sM; progUeber=sU;
+    if(sonne&&sonne[heute]) sonnenunter=sonne[heute].set;
+  }
+
+  /* --- Daten der Anlage -------------------------------------------
+
+     Zuerst beim Tablet selbst nachfragen. Dort laeuft wandsolar, liest die
+     Anlage ueber Modbus und liefert das Ergebnis auf 127.0.0.1:8099 aus.
+     Das ist erlaubt, obwohl diese Seite ueber HTTPS kommt: localhost und
+     127.0.0.1 gelten als vertrauenswuerdig und fallen nicht unter die
+     Sperre fuer gemischte Inhalte.
+
+     Antwortet dort nichts, wird solar.json neben der Seite gelesen. Das ist
+     der Weg fuer jeden anderen Browser und fuer die Arbeit am Rechner.
+  */
+  /* Gleicher Ursprung zuerst: auf dem Tablet liefert wandsolar die Seite
+     selbst aus, dann zeigt "solar.json" genau dorthin. Der zweite Eintrag
+     ist nur noch fuer den Fall, dass die Seite von woanders kommt. */
+  const QUELLEN=["solar.json","http://127.0.0.1:8099/solar.json"];
+  async function holeDaten(){
+    for(const q of QUELLEN){
+      try{
+        const ab=new AbortController();
+        const uhr=setTimeout(()=>ab.abort(),2500);
+        const r=await fetch(q+(q.includes("?")?"&":"?")+"t="+Date.now(),
+                            {cache:"no-store",signal:ab.signal});
+        clearTimeout(uhr);
+        if(!r.ok) continue;
+        const d=await r.json();
+        if(!d||!d.jetzt) continue;
+        jetzt=d.jetzt;
+        mess=d.stunden||{};
+        heuteKwh=Number(d.heute_kwh||0);
+        standZeit=d.zeit?new Date(d.zeit).getTime():Date.now();
+        break;
+      }catch(e){ /* naechste Quelle */ }
+    }
+    zeichne();
+  }
+
+  const frisch=()=>jetzt&&(Date.now()-standZeit)<ALT_MS;
+
+  /* --- Der Tag, gemessen und gerechnet ---------------------------- */
+  function schritt(pv,haus,soc){
+    const ausHaus=Math.min(pv,haus), rest=pv-haus;
+    let akku=0, ein=0, bez=0;
+    if(rest>0){
+      akku=Math.min(rest,AKKU_MAX,Math.max(0,(100-soc)/100*AKKU_KWH));
+      ein=rest-akku;
+    }else{
+      const ab=Math.min(-rest,AKKU_MAX,Math.max(0,(soc-5)/100*AKKU_KWH));
+      akku=-ab; bez=-rest-ab;
+    }
+    return {pv,haus,ausHaus,akku,ein,bez};
+  }
+
+  /* Der naechste Tag, ganz gerechnet. Damit der Ladezustand am Morgen
+     stimmt, laeuft die Rechnung erst durch den Rest des heutigen Abends:
+     der Akku entlaedt sich ueber Nacht, mit ihm faengt morgen frueh die
+     Kurve an. Gemessen ist an diesem Tag naturgemaess nichts. */
+  function tagMorgen(){
+    const jetztStd=new Date().getHours();
+    let soc=jetzt?Number(jetzt.soc||0):20;
+    for(let h=jetztStd;h<24;h++){
+      const e=schritt(prog[h]||0,HAUS[h],soc);
+      soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
+    }
+    const out=[];
+    for(let h=0;h<24;h++){
+      const e=schritt(progM[h]||0,HAUS[h],soc);
+      soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
+      out.push({...e,h,socEnde:soc,gemessen:false});
+    }
+    return out;
+  }
+
+  function tag(){
+    const jetztStd=new Date().getHours();
+    const soc0=jetzt?Number(jetzt.soc||0):20;
+    /* Rueckwaerts vom jetzigen Ladezustand laesst sich der Morgen nicht
+       rekonstruieren. Fuer die Vergangenheit nehmen wir die gemessenen
+       Fluesse, fuer die Zukunft rechnen wir ab dem jetzigen Stand weiter. */
+    const out=[];
+    let soc=soc0;
+    for(let h=0;h<24;h++){
+      const m=mess[String(h)];
+      if(h<jetztStd&&m){
+        out.push({h,pv:+m.pv||0,haus:+m.haus||0,
+                  ausHaus:Math.min(+m.pv||0,+m.haus||0),
+                  akku:+m.akku||0, ein:Math.max(0,+m.netz||0),
+                  bez:Math.max(0,-(+m.netz||0)), socEnde:null, gemessen:true});
+      }else if(h<jetztStd){
+        /* Stunde liegt zurueck, aber es gibt keine Messung, weil der Dienst
+           damals noch nicht lief. Dann die Vorhersage zeigen und naiv
+           aufteilen, statt Netzbezug zu erfinden, den es nie gab. Ueber den
+           Akku wird in diesem Fall nichts behauptet. */
+        const pv=prog[h]||0, haus=HAUS[h];
+        out.push({h,pv,haus,ausHaus:Math.min(pv,haus),akku:0,
+                  ein:Math.max(0,pv-haus),bez:Math.max(0,haus-pv),
+                  socEnde:null,gemessen:false});
+      }else{
+        const e=schritt(prog[h]||0,HAUS[h],soc);
+        soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
+        const eintrag={...e,h,socEnde:soc,gemessen:false};
+        if(h===jetztStd&&m){
+          /* Die laufende Stunde. Grau steht die Vorhersage fuer die ganze
+             Stunde, gruen waechst darin, was bisher wirklich erzeugt wurde.
+             Gerechnet wird als Arbeit: der bisherige Mittelwert mal dem Teil
+             der Stunde, der schon vorbei ist. Am Ende der Stunde stehen
+             beide auf derselben Skala, und man sieht, ob sie gehalten hat,
+             was sie versprach, oder darueber hinausging. */
+          const anteil=Math.min(1,new Date().getMinutes()/60);
+          eintrag.teil=Math.max(0,(+m.pv||0)*anteil);
+          eintrag.teilU=(+m.pv||0)-(+m.haus||0);
+        }
+        out.push(eintrag);
+      }
+    }
+    /* Ladezustand der Vergangenheit ruecklaeufig aus den Akkufluessen */
+    let s=soc0;
+    for(let h=jetztStd-1;h>=0;h--){
+      const e=out[h];
+      if(!e||!e.gemessen) break;   /* ohne Messung keine Linie */
+      s=Math.max(0,Math.min(100,s-e.akku/AKKU_KWH*100));
+      e.socEnde=s;
+    }
+    if(out[jetztStd]) out[jetztStd].socEnde=soc0;
+    return out;
+  }
+
+  function bilanz(ST){
+    let pv=0,haus=0,eigen=0,laden=0,entladen=0,ein=0,bez=0,bisher=0,spitze=0;
+    for(const e of ST){
+      pv+=e.pv; haus+=e.haus; eigen+=e.ausHaus;
+      if(e.akku>0) laden+=e.akku; else entladen+=-e.akku;
+      ein+=e.ein; bez+=e.bez;
+      if(e.gemessen) bisher+=e.pv;
+      spitze=Math.max(spitze,e.pv);
+    }
+    if(heuteKwh>bisher) bisher=heuteKwh;
+    return {pv,haus,eigen,laden,entladen,ein,bez,bisher,spitze,
+            quote:pv>0?(pv-ein)/pv*100:0,
+            autarkie:haus>0?(haus-bez)/haus*100:0,
+            erloes:ein*VERGUETUNG, ersparnis:(eigen+entladen)*ARBEITSPREIS,
+            kosten:bez*ARBEITSPREIS};
+  }
+
+  /* --- Sinnbilder -------------------------------------------------- */
+  const MINI={
+    haus:`<path d="M1 9.2V4.4L5 1.1l4 3.3v4.8z" fill="currentColor"/>`,
+    akku:`<rect x="2.4" y="2.3" width="5.2" height="6.9" rx="1.1" fill="currentColor"/>
+          <rect x="3.9" y="1" width="2.2" height="1.5" rx=".5" fill="currentColor"/>`,
+    /* Der Euro traegt ein Vorzeichen: Minus kostet, Plus bringt ein. */
+    euro:`<text x="5" y="8.1" text-anchor="middle" font-size="10.2" font-weight="750"
+                fill="currentColor">&#8364;</text>`,
+    "euro+":`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750"
+                fill="currentColor">+&#8364;</text>`,
+    "euro-":`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750"
+                fill="currentColor">&#8722;&#8364;</text>`,
+    strom:`<path d="M6.3 .7 2.3 5.9h2.6L4.0 9.3 7.9 4.0H5.4z" fill="currentColor"/>`
+  };
+  const mini=(a,f,g=10)=>`<svg width="${g}" height="${g}" viewBox="0 0 10 10"
+    style="display:block;color:${f};flex:0 0 auto">${MINI[a]}</svg>`;
+
+  /* Aufrechte Batterie, ohne Zahl. Gruen ab 50 Prozent. */
+  function batterie(soc,laedt,b=29,h=68){
+    const kappe=Math.max(3.5,h*0.075), io=kappe+h*0.038, iu=h-h*0.038;
+    const ih=iu-io, f=ih*Math.max(0,Math.min(100,soc))/100;
+    const farbe=soc>=50?"#3ddc97":soc>=25?"#ffd166":"#ff7b6b";
+    let li="";
+    for(let i=1;i<5;i++){
+      const y=iu-ih*i/5;
+      li+=`<line x1="${b*0.12}" y1="${y.toFixed(1)}" x2="${b*0.88}" y2="${y.toFixed(1)}"
+                 stroke="#111821" stroke-width="${Math.max(1.6,h*0.027)}"/>`;
+    }
+    const blitz=laedt?`<path d="M${b/2+3} ${h/2-10}l-7 11h4.5l-2 8.5 7-11.2h-4.5z"
+                             fill="#0d131b" opacity=".85"/>`:"";
+    return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block">
+      <rect x="${b/2-b*0.19}" y="0" width="${b*0.38}" height="${kappe+1}" rx="1.8" fill="#5b6b7d"/>
+      <rect x="1" y="${kappe}" width="${b-2}" height="${h-kappe-1}" rx="${b*0.15}"
+            fill="#1b232e" stroke="#6b7a8c" stroke-width="1.6"/>
+      <rect x="${b*0.12}" y="${(iu-f).toFixed(1)}" width="${b*0.76}"
+            height="${f.toFixed(1)}" rx="1.8" fill="${farbe}"/>
+      ${li}${blitz}</svg>`;
+  }
+
+  /* Eine Saeule je Stunde. Links vom Strich gemessen, rechts gerechnet.
+     Gruen heisst, dass dort mehr erzeugt wird als das Haus braucht. */
+  const SVON=5,SBIS=21,SBH=8,SAB=3;
+  const SB=(SBIS-SVON)*(SBH+SAB)+SBH;
+  function streifen(ST,hoehe=44,morgen=false){
+    let s="";
+    for(let t=SVON;t<=SBIS;t++){
+      const e=ST[t], v=e.pv, hh=Math.max(1.5,(v/10)*(hoehe-6));
+      const x=(t-SVON)*(SBH+SAB);
+      /* Farbe sagt etwas ueber Gemessenes, sonst nichts. Gruen heisst: diese
+         Stunde ist gelaufen und hat mehr erzeugt, als das Haus gebraucht hat.
+         Eine Vorhersage hat noch gar nichts geladen und bleibt deshalb grau,
+         egal wie viel sie verspricht. */
+      const u=v-e.haus;
+      const f=!e.gemessen ? "#5b6b7d" : u>1.0 ? "#3ddc97" : u>0 ? "#9ad9b5" : "#5b6b7d";
+      s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${SBH}" height="${hh.toFixed(1)}"
+               rx="2" fill="${f}" opacity="${e.gemessen?1:.30}"/>`;
+      /* Erst das Gewachsene, dann der Umriss der Vorhersage darueber. So
+         bleibt sichtbar, wo die Stunde versprochen hatte, auch wenn der
+         gruene Balken schon darueber hinausgewachsen ist. */
+      if(e.teil>0.02){
+        const th=Math.max(1.5,(e.teil/10)*(hoehe-6));
+        const tf=e.teilU>1.0?"#3ddc97":e.teilU>0?"#9ad9b5":"#8b97a6";
+        s+=`<rect x="${x}" y="${(hoehe-th).toFixed(1)}" width="${SBH}"
+                 height="${th.toFixed(1)}" rx="2" fill="${tf}"/>`;
+      }
+      if(!e.gemessen) s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${SBH}"
+               height="${hh.toFixed(1)}" rx="2" fill="none" stroke="#c5ced8"
+               stroke-width="1" stroke-opacity="${e.teil>0.02?".8":".45"}"/>`;
+    }
+    /* Kein Jetzt-Strich mehr. Wo die gemessenen Saeulen aufhoeren und die
+       grauen anfangen, ist die Gegenwart, das zeigt der Streifen schon. Beim
+       naechsten Tag steht statt des Strichs ein Wort, sonst haelt man die
+       graue Kurve fuer den verpatzten heutigen Tag. */
+    if(morgen) s+=`<text x="0" y="8" font-size="8.5" font-weight="700"
+                fill="#8b97a6" letter-spacing=".3">morgen</text>`;
+    return `<svg width="${SB}" height="${hoehe}" viewBox="0 0 ${SB} ${hoehe}"
+                 style="display:block">${s}</svg>`;
+  }
+
+  /* Wohin der Strom geht, oder woher er kommt. Der Pfeil zeigt die Richtung,
+     ein roter Rahmen erscheint nur, wenn wirklich Netzstrom fliesst. */
+  const IKON=25;
+  function wohin(gesamt=SB,h=19){
+    const pv=Number(jetzt.pv||0), haus=Number(jetzt.haus||0);
+    const netz=Number(jetzt.netz||0), akku=Number(jetzt.akku||0);
+    const bez=Math.max(0,-netz), ein=Math.max(0,netz);
+    const knapp=pv+0.02<haus, teuer=bez>0.02;
+    const b=gesamt-IKON;
+    let teile, endIkon, endFarbe;
+    if(knapp){
+      teile=[[Math.min(pv,haus),"#ffd166","strom"],
+             [Math.max(0,-akku),F_AKKU,"akku"],
+             [bez,F_BEZUG,"euro-"]];
+      endIkon="haus"; endFarbe=F_EIGEN;
+    }else{
+      teile=[[Math.min(pv,haus),F_EIGEN,"haus"],
+             [Math.max(0,akku),F_AKKU,"akku"],
+             [ein,F_EIN,"euro+"]];
+      endIkon="strom"; endFarbe=F_SOC;
+    }
+    /* Die Laenge ist die Leistung, voll heisst VOLL_KW. Damit sagt der Balken
+       nicht nur wohin, sondern auch wie viel. Die feinen Striche geben der
+       Laenge einen Bezug, sonst hiesse ein kurzer Balken nur "wenig". */
+    const summe=teile.reduce((a,[v])=>a+v,0);
+    const nutz=summe>0.02 ? Math.max(3,Math.min(1,summe/VOLL_KW)*b) : 0;
+
+    let skala="";
+    for(let kwv=2;kwv<VOLL_KW;kwv+=2)
+      skala+=`<line x1="${(b*kwv/VOLL_KW).toFixed(1)}" y1="0"
+                    x2="${(b*kwv/VOLL_KW).toFixed(1)}" y2="${h}"
+                    stroke="#3a4756" stroke-width="1"/>`;
+
+    const gr=Math.min(13,h-4), sk=gr/10;
+    let x=0,s="";
+    for(const [v,f,a] of teile){
+      const w=summe>0 ? v/summe*nutz : 0;
+      if(w<0.6) continue;
+      s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${h}" fill="${f}"/>`;
+      if(w>=gr+4) s+=`<g transform="translate(${(x+w/2-gr/2).toFixed(1)} ${(h/2-gr/2).toFixed(1)})
+                          scale(${sk.toFixed(2)})" color="#101720" opacity=".92">${MINI[a]}</g>`;
+      x+=w;
+    }
+    /* Der Rahmen umfasst nur den Balken, nicht die leere Bahn dahinter */
+    const rahmen=teuer&&nutz>4?`<rect x=".6" y=".6" width="${(nutz-1.2).toFixed(1)}"
+                              height="${h-1.2}" rx="3.4"
+                              fill="none" stroke="${F_BEZUG}" stroke-width="1.2" opacity=".9"/>`:"";
+    const pfeil=knapp?`<path d="M9 5H3M5 2.4 1.6 5 5 7.6"/>`:`<path d="M0 5h6M4 2.4 7.4 5 4 7.6"/>`;
+    return `<div style="display:flex;align-items:center;gap:4px">
+      ${mini(endIkon,endFarbe,11)}
+      <svg width="10" height="10" viewBox="0 0 10 10" style="display:block;flex:0 0 auto">
+        <g fill="none" stroke="${teuer?"#ff9a8c":"#8b97a6"}" stroke-width="1.3"
+           stroke-linecap="round" stroke-linejoin="round">${pfeil}</g></svg>
+      <svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+           style="display:block;border-radius:4px;overflow:hidden;flex:0 0 auto">
+        <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${skala}${s}${rahmen}</svg>
+    </div>`;
+  }
+
+  /* --- Der Block in der Kopfzeile ---------------------------------- */
+  function zeichne(){
+    const el=document.getElementById("solar");
+    const kopf=document.getElementById("kopf");
+    if(!el) return;
+    if(!frisch()){ el.hidden=true; kopf.classList.add("ohne-solar"); return; }
+    el.hidden=false; kopf.classList.remove("ohne-solar");
+    /* Batterie und Flussbalken zeigen immer das Jetzt. Nur der Streifen
+       wechselt abends auf den naechsten Tag. */
+    const m=morgenModus();
+    const ST=m?tagMorgen():tag();
+    el.innerHTML=
+      batterie(Number(jetzt.soc||0), Number(jetzt.akku||0)>0.05)+
+      `<div>${streifen(ST,44,m)}<div style="margin-top:5px">${wohin()}</div></div>`;
+    if(document.getElementById("sdetail").classList.contains("on")) detailZeigen();
+  }
+
+  return {setzePrognose,holeDaten,zeichne,
+          detail:()=>detailZeigen(), frisch,
+          _intern:{tag,bilanz,prog:()=>prog,progMorgen:()=>progMorgen,
+                   progUeber:()=>progUeber,jetzt:()=>jetzt,
+                   farben:{F_EIGEN,F_AKKU,F_EIN,F_BEZUG,F_HAUS,F_SOC},
+                   z1,z2,z3,WP,VERGUETUNG,ARBEITSPREIS}};
+
+  /* --- Detailansicht ----------------------------------------------- */
+  function detailZeigen(){
+    const d=document.getElementById("sdetail");
+    d.innerHTML=detailHtml();
+    d.classList.add("on");
+  }
+
+  function detailHtml(){
+    const ST=tag(), z=bilanz(ST), l=jetzt;
+    const jetztStd=new Date().getHours();
+    const rest=ST.filter(e=>!e.gemessen&&e.h>=jetztStd).reduce((a,e)=>a+e.pv,0);
+    const fenster=ST.filter(e=>e.ein>=1.5).map(e=>e.h);
+    const fensterText=fenster.length
+      ? `${fenster[0]}–${fenster[fenster.length-1]} Uhr, ${fenster.length} Stunden über 1,5 kW`
+      : "heute kein nennenswerter Überschuss";
+    const kpi=(t,gr,kl,fa)=>`<div class="kpi"><div class="t">${t}</div>
+      <div class="z"${fa?` style="color:${fa}"`:""}>${gr}</div><div class="n">${kl}</div></div>`;
+    const eh=`<span style='font-size:14px;color:#8b97a6'>`;
+    return `<span class="schliessen">antippen zum Schließen</span>
+      <h4>Solar heute</h4>
+      <div class="unter">${new Date().toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"long"})}
+        · ${z1(WP)} kWp · SUN2000-10KTL-M1 mit 10 kWh Speicher</div>
+      <div class="kpis">
+        ${kpi("Erzeugt",z1(z.bisher)+" "+eh+"kWh</span>","Prognose heute "+z1(z.pv)+" kWh",F_SOC)}
+        ${kpi("Noch erwartet",z1(rest)+" "+eh+"kWh</span>",fensterText)}
+        ${kpi("Eigenverbrauch",Math.round(z.quote)+" "+eh+"%</span>",
+              "eingespeist "+z1(z.ein)+" kWh",F_EIGEN)}
+        ${kpi("Autarkie",Math.round(z.autarkie)+" "+eh+"%</span>",
+              "vom Netz "+z1(z.bez)+" kWh",F_EIN)}
+        ${kpi("Bilanz",z2(z.erloes+z.ersparnis-z.kosten)+" "+eh+"€</span>",
+              "Erlös "+z2(z.erloes)+" · gespart "+z2(z.ersparnis))}
+      </div>
+      <div class="sgrid">
+        <div class="sblock">
+          <div class="t">Tagesverlauf · links gemessen, rechts gerechnet</div>
+          ${tagesChart(ST)}
+          <div class="leg">
+            <span><i style="background:${F_EIGEN}"></i>direkt ins Haus</span>
+            <span><i style="background:${F_AKKU}"></i>in den Akku</span>
+            <span><i style="background:${F_EIN}"></i>ins Netz</span>
+            <span><i style="background:${F_BEZUG};opacity:.6"></i>aus dem Netz</span>
+            <span><i style="background:${F_HAUS}"></i>Hausverbrauch</span>
+            <span><i style="background:${F_SOC}"></i>Ladezustand</span>
+          </div>
+        </div>
+        <div class="sblock">
+          <div class="t">Zahlen</div>
+            <div class="paare">
+              <div class="k">Leistung jetzt</div><div class="v">${z3(l.pv)} kW</div>
+              <div class="k">Hausverbrauch jetzt</div><div class="v">${z3(l.haus)} kW</div>
+              <div class="k">Spitze heute</div><div class="v">${z3(z.spitze)} kW</div>
+              <div class="k">Ladezustand</div><div class="v">${Math.round(l.soc)} %</div>
+              <div class="k">Akku geladen / entladen</div><div class="v">${z1(z.laden)} / ${z1(z.entladen)} kWh</div>
+              <div class="k">Hausverbrauch heute</div><div class="v">${z1(z.haus)} kWh</div>
+              <div class="k">Netzbezug</div><div class="v">${z1(z.bez)} kWh · ${z2(z.kosten)} €</div>
+              <div class="k">Morgen erwartet</div><div class="v">${z1(progMorgen)} kWh</div>
+              <div class="k">Übermorgen erwartet</div><div class="v">${z1(progUeber)} kWh</div>
+              <div class="k">Grundpreis</div><div class="v">${z2(GRUNDPREIS_JAHR/365)} € am Tag</div>
+              <div class="k">Stand der Messung</div><div class="v">${new Date(standZeit).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}</div>
+          </div>
+        </div>
+
+        <div class="sblock">
+          <div class="t">Überschuss je Stunde in kW · wann sich Verschieben lohnt</div>
+          <div style="margin-block:auto">${band(ST,560,50)}</div>
+        </div>
+        <div class="sblock">
+          <div class="t">Wohin und woher, über den ganzen Tag</div>
+          ${balken(z)}
+        </div>
+      </div>
+      <div class="quelle">Anlage über Modbus am SDongle · Vorhersage aus der Einstrahlung
+        von Open-Meteo, ${z1(FAKTOR*1000)} kWh je kWh/m² · Vergütung
+        ${z1(VERGUETUNG*100)} ct, Arbeitspreis ${Math.round(ARBEITSPREIS*100)} ct je kWh</div>`;
+  }
+
+  function tagesChart(ST,b=560,h=200){
+    const VON=4,BIS=22,MAX=10,pL=26,pR=34,pT=9,pB=17;
+    const iw=b-pL-pR, ih=h-pT-pB;
+    const x=t=>pL+(t-VON)/(BIS-VON)*iw;
+    const y=v=>pT+ih-(Math.max(0,v)/MAX)*ih;
+    const ys=p=>pT+ih-(p/100)*ih;
+    const std=[]; for(let t=VON;t<BIS;t++) std.push(ST[t]);
+    const stufen=(u,o)=>{
+      let d="";
+      for(let i=0;i<o.length;i++)
+        d+=(i?"L":"M")+x(VON+i).toFixed(1)+" "+y(o[i]).toFixed(1)
+          +"L"+x(VON+i+1).toFixed(1)+" "+y(o[i]).toFixed(1);
+      for(let i=o.length-1;i>=0;i--)
+        d+="L"+x(VON+i+1).toFixed(1)+" "+y(u[i]).toFixed(1)
+          +"L"+x(VON+i).toFixed(1)+" "+y(u[i]).toFixed(1);
+      return d+"Z";
+    };
+    const s0=std.map(()=>0), s1=std.map(e=>e.ausHaus);
+    const s2=std.map(e=>e.ausHaus+Math.max(0,e.akku)), s3=std.map(e=>e.pv);
+    const ho=std.map(e=>e.haus>e.pv?e.haus:e.pv);
+    const hu=std.map(e=>e.pv);
+    let netz="",achse="";
+    for(let v=2;v<=8;v+=2)
+      netz+=`<line x1="${pL}" y1="${y(v)}" x2="${b-pR}" y2="${y(v)}" stroke="#233040" stroke-width="1"/>
+             <text x="${pL-5}" y="${y(v)+3.5}" text-anchor="end" font-size="9" fill="#6c7b8c">${v}</text>`;
+    for(let t=VON;t<=BIS;t+=3)
+      achse+=`<text x="${x(t)}" y="${h-4}" text-anchor="middle" font-size="9" fill="#6c7b8c">${t}</text>`;
+    for(const p of [0,50,100])
+      achse+=`<text x="${b-pR+5}" y="${ys(p)+3.5}" font-size="9" fill="#a08a45">${p===100?"100 %":p}</text>`;
+    let hl="",sl="";
+    for(let i=0;i<std.length;i++){
+      hl+=(i?"L":"M")+x(VON+i).toFixed(1)+" "+y(std[i].haus).toFixed(1)
+         +"L"+x(VON+i+1).toFixed(1)+" "+y(std[i].haus).toFixed(1);
+      if(std[i].socEnde!=null)
+        sl+=(sl?"L":"M")+x(VON+i+1).toFixed(1)+" "+ys(std[i].socEnde).toFixed(1);
+    }
+    const nowH=new Date().getHours()+new Date().getMinutes()/60;
+    const jx=x(Math.max(VON,Math.min(BIS,nowH)));
+    return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+                 style="display:block;width:100%;height:auto">
+      ${netz}
+      <path d="${stufen(s0,s1)}" fill="${F_EIGEN}" opacity=".78"/>
+      <path d="${stufen(s1,s2)}" fill="${F_AKKU}" opacity=".78"/>
+      <path d="${stufen(s2,s3)}" fill="${F_EIN}" opacity=".70"/>
+      <path d="${stufen(hu,ho)}" fill="${F_BEZUG}" opacity=".30"/>
+      <path d="${hl}" fill="none" stroke="${F_HAUS}" stroke-width="1.5" opacity=".85"/>
+      <path d="${sl}" fill="none" stroke="${F_SOC}" stroke-width="1.4"
+            stroke-dasharray="4 3" opacity=".9"/>
+      <line x1="${jx.toFixed(1)}" y1="${pT}" x2="${jx.toFixed(1)}" y2="${pT+ih}"
+            stroke="#e8eef5" stroke-width="1" stroke-opacity=".5"/>
+      <text x="${pL-5}" y="${pT+7}" text-anchor="end" font-size="9" fill="#6c7b8c">kW</text>
+      ${achse}</svg>`;
+  }
+
+  function band(ST,b=560,h=40){
+    const VON=5,BIS=21,n=BIS-VON+1,zw=b/n;
+    const stufe=v=>v<.2?["#1d2634","#55637a"]:v<1?["#2a5c48","#b9d8c9"]
+                   :v<2.5?["#2f8f68","#0d131b"]:v<4?["#3ddc97","#0d131b"]:["#8df4c8","#0d131b"];
+    let s="";
+    for(let i=0;i<n;i++){
+      const t=VON+i,e=ST[t],[f,tf]=stufe(e.ein);
+      s+=`<rect x="${(i*zw+.7).toFixed(1)}" y="0" width="${(zw-1.4).toFixed(1)}"
+               height="${h-14}" rx="3" fill="${f}" opacity="${e.gemessen?1:.55}"/>`;
+      if(e.ein>=.2)
+        s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${(h-14)/2+4.5}" text-anchor="middle"
+                  font-size="10.5" font-weight="700" fill="${tf}">${z1(e.ein)}</text>`;
+      if(t%3===0||t===VON)
+        s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${h-1}" text-anchor="middle"
+                  font-size="9" fill="#6c7b8c">${t}</text>`;
+    }
+    const nowH=new Date().getHours()+new Date().getMinutes()/60;
+    const jx=(Math.max(VON,Math.min(BIS+1,nowH))-VON)*zw;
+    s+=`<line x1="${jx.toFixed(1)}" y1="-1" x2="${jx.toFixed(1)}" y2="${h-13}"
+              stroke="#e8eef5" stroke-width="1" stroke-opacity=".55"/>`;
+    return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+                 style="display:block;width:100%;height:auto">${s}</svg>`;
+  }
+
+  function balken(z,b=520){
+    const reihe=(titel,summe,teile)=>{
+      let x=0,s="";
+      for(const [v,f,a] of teile){
+        const w=summe>0?v/summe*b:0;
+        if(w<0.6) continue;
+        s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="20" fill="${f}"/>`;
+        if(w>=17) s+=`<g transform="translate(${(x+w/2-5.5).toFixed(1)} 4.5) scale(1.1)"
+                          color="#101720" opacity=".9">${MINI[a]}</g>`;
+        x+=w;
+      }
+      const zahlen=teile.filter(([v])=>v>0.05)
+        .map(([v,f])=>`<span style="color:${f}">${z1(v)}</span>`).join(" · ");
+      return `<div style="margin-bottom:9px">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;color:#8b97a6">
+          <span>${titel}</span><span style="font-weight:700;color:#e8eef5">${z1(summe)} kWh</span></div>
+        <svg width="${b}" height="20" viewBox="0 0 ${b} 20"
+             style="display:block;width:100%;height:auto;border-radius:4px;overflow:hidden;margin:3px 0 2px">
+          <rect x="0" y="0" width="${b}" height="20" fill="#222c38"/>${s}</svg>
+        <div style="font-size:11px;font-variant-numeric:tabular-nums">${zahlen}</div></div>`;
+    };
+    return reihe("Erzeugung geht nach",z.pv,
+             [[z.eigen,F_EIGEN,"haus"],[z.laden,F_AKKU,"akku"],[z.ein,F_EIN,"euro+"]])
+         + reihe("Verbrauch kommt aus",z.haus,
+             [[z.eigen,F_SOC,"strom"],[z.entladen,F_AKKU,"akku"],[z.bez,F_BEZUG,"euro-"]]);
+  }
+})();
+
+/* ============================================================
+   Der Himmel
+   ============================================================ */
+/* ============================================================
+   Der Himmel
+
+   Kein Schleier, keine Scheiben, kein dunkler Saum. Die Farbe selbst muss
+   den Kontrast liefern. Wie dunkel sie dafuer bleiben muss, ist keine
+   Geschmacksfrage, das steht in der Rechnung:
+
+     Kontrast = (Lhell + 0.05) / (Ldunkel + 0.05),  gefordert 4.5 fuer
+     kleine Schrift.
+
+   Die matteste Zeile im Banner gibt also die Obergrenze vor. Deshalb wird
+   jede Farbe und jede aufgelegte Schicht auf diese Grenze heruntergezogen,
+   bevor sie gezeichnet wird. Der Farbton bleibt dabei, nur die Helligkeit
+   gibt nach.
+   ============================================================ */
+const kanal=x=>{x/=255; return x<=0.04045?x/12.92:Math.pow((x+0.055)/1.055,2.4);};
+const zurueck=v=>{const x=v<=0.0031308?v*12.92:1.055*Math.pow(v,1/2.4)-0.055;
+  return Math.round(Math.max(0,Math.min(1,x))*255);};
+const rgb=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
+const hx=v=>Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,"0");
+const lum=h=>{const [r,g,b]=rgb(h).map(kanal); return 0.2126*r+0.7152*g+0.0722*b;};
+const kontrast=(a,b)=>{const x=Math.max(lum(a),lum(b)),y=Math.min(lum(a),lum(b));
+  return (x+0.05)/(y+0.05);};
+const ueber=(o,a,u)=>{const A=rgb(o),B=rgb(u);
+  return "#"+A.map((v,i)=>hx(v*a+B[i]*(1-a))).join("");};
+
+/* Die Schriftfarben des Banners. Die matteste gibt die Grenze vor. */
+const SCHRIFT={weiss:"#ffffff", hell:"#dbe3eb", matt:"#c2cbd6"};
+const MINDEST=4.5;
+const decke=t=>(lum(t)+0.05)/MINDEST-0.05;
+/* Zwei Decken, und das ist kein Nachlassen, sondern die Frage, was an der
+   Stelle wirklich steht. Auf dem Verlauf sitzt jede Zeile, auch die matteste
+   unten links, er muss also die strenge Decke halten. Ein Lichtschein liegt
+   an einer Stelle und ist rund: darunter steht das Wettersymbol und hoechstens
+   helle Schrift. Eine einzige Decke fuer beides wuerde die Sonne wegdruecken,
+   und dann kann man den Himmel auch gleich weglassen. */
+/* Drei Prozent Luft unter der Decke. Ohne die landet eine Farbe beim Runden
+   auf ganze Bytes gelegentlich eine Stufe darueber, und dann steht da 4,48
+   statt 4,52, obwohl die Rechnung stimmte. */
+const LUFT=0.97;
+const DECKE=decke(SCHRIFT.matt)*LUFT;        /* Verlauf, etwa 0.089 */
+const DECKE_SCHEIN=decke(SCHRIFT.hell)*LUFT; /* aufgelegte Schichten, etwa 0.126 */
+
+/* Eine Farbe so weit heruntersetzen, dass sie unter der Decke bleibt. Die
+   Kanaele werden im linearen Raum gemeinsam skaliert, damit der Farbton
+   erhalten bleibt und nicht ins Graue kippt. */
+function deckeln(h, decke=DECKE){
+  const L=lum(h);
+  if(L<=decke) return h;
+  const f=decke/L, [r,g,b]=rgb(h).map(kanal);
+  return "#"+[r,g,b].map(v=>hx(zurueck(v*f))).join("");
+}
+/* Dasselbe fuer eine aufgelegte Schicht: die groesste Deckkraft suchen, bei
+   der das Ergebnis ueber der hellsten Himmelsfarbe noch unter der Decke
+   bleibt. Halbierendes Suchen, damit es genau trifft und nicht in Schritten
+   von zwei Hundertstel daneben landet. `wirkung` bildet ab, dass zwei Wolken
+   sich decken koennen und dann dichter sind als jede einzelne. */
+function deckelnSchicht(farbe, alpha, unter, decke=DECKE_SCHEIN, wirkung=a=>a){
+  if(lum(ueber(farbe,wirkung(alpha),unter))<=decke) return alpha;
+  let lo=0, hi=alpha;
+  for(let i=0;i<24;i++){
+    const m=(lo+hi)/2;
+    if(lum(ueber(farbe,wirkung(m),unter))<=decke) lo=m; else hi=m;
+  }
+  return lo;
+}
+const doppelt=a=>1-(1-a)*(1-a);
+
+const P=(pos,gr,f1,f2)=>`radial-gradient(circle ${gr} at ${pos},${f1},${f2})`;
+const rgba=(h,a)=>{const [r,g,b]=rgb(h); return `rgba(${r},${g},${b},${a.toFixed(3)})`;};
+
+/* Die Lichtquelle steht dort, wo sie wirklich steht. Der Banner ist der
+   Ausschnitt eines Himmels: oben das Zenit, die untere Kante der Horizont.
+   60 Grad Sonnenhoehe liegen weit oben, 0 Grad auf der Kante, darunter ist
+   sie weg. Damit wandert der Schein ueber den Tag von selbst. */
+function scheinY(elev){ return Math.max(-10,Math.min(112,100-(elev+8)/68*96)); }
+
+/* ---- die Lagen ------------------------------------------------
+
+   Jede Lage traegt die Werte von jetzt, nicht die des Tages: die Bewoelkung
+   dieser Stunde und den Niederschlag in Millimetern je Stunde. Der Tag sagt
+   "bis 85 %, 7,4 mm", draussen ist aber gerade ein Schauer oder eben keiner,
+   und der Himmel hinter der Uhr muss das zeigen, was gerade ist. Bei
+   wechselnd bewoelkt regnet es an diesem Tag zwei Zehntel, jetzt gerade
+   aber nicht, also faellt am Himmel auch nichts. */
+const LAGEN={
+  daemmerung_frueh:{
+    name:"Morgend&auml;mmerung", zeit:"06:52", elev:-1, deckung:8, mm:0,
+    stops:[[0,"#0a1226"],[32,"#171e3e"],[56,"#3a2750"],[76,"#6b3947"],[92,"#a05432"],[100,"#b35c2c"]],
+    glut:{x:24, farbe:"#ffb25c", alpha:.50}, sterne:true, sterneHoch:40
+  },
+  klar_tag:{
+    name:"klarer Tag", zeit:"13:04", elev:34, deckung:6, mm:0,
+    /* Bei voller Sonne soll das Bild warm sein, nicht blau mit einem Streifen
+       unten. Das Blau bleibt im oberen Drittel, wo das Zenit ist, der Rest
+       gehoert dem Licht. */
+    /* Kein goldener Boden. Ein hoher Sonnenstand macht den Himmel oben warm
+       und unten blass, ein tiefer macht es umgekehrt. Genau daran erkennt man
+       Mittag von Abend, und genau das hatte ich vertauscht. */
+    stops:[[0,"#0d2b50"],[34,"#17466f"],[70,"#2f6178"],[100,"#617684"]],
+    glut:{x:26, farbe:"#ffd85e", alpha:.85, weite:66}
+  },
+  wechselnd:{
+    name:"wechselnd bew&ouml;lkt", zeit:"11:36", elev:28, deckung:48, mm:0,
+    stops:[[0,"#0f2a4c"],[36,"#1b4670"],[72,"#356579"],[100,"#5d7381"]],
+    glut:{x:24, farbe:"#ffd766", alpha:.75, weite:52}
+  },
+  bedeckt:{
+    name:"bedeckt", zeit:"10:12", elev:20, deckung:96, mm:0,
+    stops:[[0,"#1f242d"],[48,"#2c343e"],[80,"#3a434e"],[100,"#454e59"]]
+  },
+  regen:{
+    name:"Regen", zeit:"15:47", elev:14, deckung:100, mm:2.6,
+    stops:[[0,"#121822"],[50,"#1c2733"],[82,"#263544"],[100,"#2c3d4e"]]
+  },
+  nebel:{
+    name:"Nebel", zeit:"08:05", elev:6, deckung:100, mm:0,
+    stops:[[0,"#252b33"],[46,"#323a44"],[78,"#404955"],[100,"#49525e"]],
+    nebel:.28
+  },
+  gewitter:{
+    name:"Gewitter", zeit:"17:23", elev:10, deckung:92, mm:5.4,
+    stops:[[0,"#0c1018"],[52,"#161c27"],[84,"#1f2734"],[100,"#252e3c"]],
+    glut:{x:66, farbe:"#ffd058", alpha:.34, elev:30}
+  },
+  schnee:{
+    name:"Schnee", zeit:"09:18", elev:9, deckung:98, mm:1.4, schnee:true,
+    stops:[[0,"#222b36"],[48,"#303945"],[80,"#3d4753"],[100,"#46505c"]]
+  },
+  daemmerung_spaet:{
+    name:"Abendd&auml;mmerung", zeit:"19:31", elev:-1, deckung:12, mm:0,
+    stops:[[0,"#081124"],[30,"#191a3a"],[56,"#3f2449"],[76,"#743733"],[92,"#a4512a"],[100,"#b45a25"]],
+    glut:{x:76, farbe:"#ffa64a", alpha:.50}, sterne:true, sterneHoch:36
+  },
+  nacht_klar:{
+    name:"klare Nacht", zeit:"22:38", elev:-14, deckung:0, mm:0,
+    stops:[[0,"#04070e"],[46,"#080f1e"],[80,"#0d182b"],[100,"#111e35"]],
+    glut:{x:82, farbe:"#c6d8f5", alpha:.20, elev:42}, sterne:true
+  }
+};
+
+/* ---- gewuerfelt, aber immer gleich ---------------------------- */
+function wuerfel(saat){
+  let z=saat>>>0;
+  return ()=>{ z=(z+0x6D2B79F5)>>>0;
+    let t=Math.imul(z^(z>>>15), 1|z);
+    t=(t+Math.imul(t^(t>>>7), 61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296; };
+}
+/* Das Bild rechnet in 1280 auf 100, also in der Groesse, in der es auf der
+   Wand steht. preserveAspectRatio="none" laesst es sich strecken, die kleine
+   Verzerrung bei anderer Hoehe faellt bei Tropfen und Flocken nicht auf. */
+const BB="0 0 1280 100";
+/* Alles, was aus einzelnen Punkten und Strichen besteht, wird nach unten
+   ausgeblendet. Dort sitzt die Schrift, und ein Stern mitten im Wort ist
+   ein Fleck, kein Stern. Der Uebergang ist weich, sonst sieht man die Kante. */
+const SANFT="linear-gradient(180deg,#000 0%,#000 38%,rgba(0,0,0,.38) 64%,transparent 86%)";
+const bild=inhalt=>`<svg class="hg" viewBox="${BB}" preserveAspectRatio="none"
+  style="-webkit-mask-image:${SANFT};mask-image:${SANFT}">${inhalt}</svg>`;
+
+/* Sterne: je mehr Wolken, desto weniger sind zu sehen. Bei halber Deckung
+   ist der halbe Himmel zu. */
+function sterne(deckung, saat, hoch=90){
+  const n=Math.round(150*Math.max(0,1-deckung/100));
+  if(!n) return "";
+  const w=wuerfel(saat); let s="";
+  for(let i=0;i<n;i++){
+    const x=w()*1280, y=w()*hoch, r=0.6+w()*0.9;
+    /* Klein und blass. Ein Stern soll man sehen, wenn man hinschaut, und
+       uebersehen, wenn man eine Zeile liest. */
+    s+=`<circle cx="${x.toFixed(0)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}"
+          fill="#dce6f7" opacity="${(0.16+w()*0.44).toFixed(2)}"/>`;
+  }
+  return bild(s);
+}
+
+/* Schoenwetterwolken: flache Unterkante, gebuckelte Oberseite. Aus ein paar
+   Kreisen und einem Sockel, alles in einer Gruppe, damit die Ueberlappungen
+   nicht dunkler werden als die Wolke selbst. */
+function haufenwolke(cx, basis, breite, hoehe, w){
+  const r=hoehe*0.52;
+  let t=`<rect x="${(cx-breite/2).toFixed(0)}" y="${(basis-r).toFixed(0)}"
+           width="${breite.toFixed(0)}" height="${r.toFixed(0)}" rx="${(r*0.35).toFixed(0)}"/>`;
+  const n=3+Math.floor(w()*2);
+  for(let i=0;i<n;i++){
+    const px=cx-breite/2+breite*(i+0.5)/n+(w()-0.5)*breite*0.12;
+    const pr=r*(0.72+w()*0.6)*(i===Math.floor(n/2)?1.25:1);
+    t+=`<circle cx="${px.toFixed(0)}" cy="${(basis-r-pr*0.45).toFixed(0)}" r="${pr.toFixed(0)}"/>`;
+  }
+  return t;
+}
+function wolken(deckung, alpha, saat){
+  if(deckung<12) return "";
+  const w=wuerfel(saat);
+  /* Bis etwa drei Viertel sind es einzelne Haufen, darueber schliesst sich
+     die Decke und einzelne Wolken zu zeichnen waere falsch. */
+  if(deckung<78){
+    const n=Math.max(1,Math.round(deckung/13));
+    let t="";
+    for(let i=0;i<n;i++){
+      const cx=60+ (1280-120)*((i+0.5)/n) + (w()-0.5)*120;
+      const h=26+w()*20, b=h*(2.4+w()*1.2);
+      t+=haufenwolke(cx, 62+w()*16, b, h, w);
+    }
+    return bild(`<g fill="#ffffff" opacity="${alpha.toFixed(3)}">${t}</g>`);
+  }
+  const dicht=Math.min(1,(deckung-70)/30);
+  return `<div class="hg" style="background:
+    ${P("18% 58%","44% 74%",rgba("#ffffff",alpha*(0.6+0.4*dicht)),"transparent")},
+    ${P("52% 50%","40% 66%",rgba("#ffffff",alpha*(0.5+0.45*dicht)),"transparent")},
+    ${P("84% 56%","42% 70%",rgba("#ffffff",alpha*(0.55+0.4*dicht)),"transparent")}"></div>`;
+}
+
+/* Regen: einzelne Striche, keine Schraffur. Anzahl und Laenge kommen aus den
+   Millimetern, die im Banner danebenstehen. Sie enden auf halber Hoehe, tiefer
+   sitzt die Schrift. */
+function regen(mm, alpha, saat){
+  if(mm<=0.05) return "";
+  const n=Math.round(Math.min(260, 26*Math.pow(mm,0.72)));
+  const lang=9+Math.min(20,mm*1.7);
+  const w=wuerfel(saat); let t="";
+  for(let i=0;i<n;i++){
+    const l=lang*(0.6+w()*0.8);
+    const x=w()*1300-20, y=w()*(62-l);
+    t+=`<line x1="${x.toFixed(0)}" y1="${y.toFixed(1)}"
+              x2="${(x-l*0.22).toFixed(0)}" y2="${(y+l).toFixed(1)}"
+              stroke-width="${(0.9+w()*0.7).toFixed(2)}"
+              stroke-opacity="${(0.45+w()*0.55).toFixed(2)}"/>`;
+  }
+  return bild(`<g stroke="#c4dcf4" stroke-linecap="round"
+    opacity="${alpha.toFixed(3)}">${t}</g>`);
+}
+
+/* Schnee: dieselbe Rechnung, nur langsamer und runder. */
+function flocken(mm, saat){
+  if(mm<=0.05) return "";
+  const n=Math.round(Math.min(220, 30*Math.pow(mm,0.7)));
+  const w=wuerfel(saat); let t="";
+  for(let i=0;i<n;i++){
+    const x=w()*1280, y=w()*58, r=0.9+w()*1.9;
+    t+=`<circle cx="${x.toFixed(0)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}"
+          opacity="${(0.4+w()*0.6).toFixed(2)}"/>`;
+  }
+  return bild(`<g fill="#ffffff">${t}</g>`);
+}
+
+/* ---- bauen und zugleich nachmessen ---------------------------- */
+function himmelBauen(L){
+  const stops=L.stops.map(([p,f])=>[p,deckeln(f)]);
+  const hellste=stops.reduce((a,b)=>lum(a[1])>lum(b[1])?a:b)[1];
+  /* Eine Schicht weiss, wo sie wie dicht ist. `bei(hoehe)` gibt den Anteil
+     ihrer Deckkraft auf dieser Hoehe. Flaechige Schichten liegen ueberall
+     gleich, ein Lichtschein nur um seine Mitte. Genau das macht den
+     Unterschied: den Schein gegen die hellste Farbe des ganzen Himmels zu
+     deckeln waere falsch, wenn die unten liegt und die Sonne oben steht. */
+  const schichten=[]; let html="";
+  const verlauf=`linear-gradient(180deg,${stops.map(([p,f])=>f+" "+p+"%").join(",")})`;
+  html+=`<div class="hg" style="background:${verlauf}"></div>`;
+
+  if(L.sterne) html+=sterne(L.deckung, 11, L.sterneHoch||90);
+
+  if(L.glut){
+    const y=scheinY(L.glut.elev!=null?L.glut.elev:L.elev);
+    const wt=L.glut.weite||32, R=wt*3.4;
+    const bei=pz=>Math.max(0,1-Math.abs(pz-y)/R);
+    /* Die groesste Deckkraft suchen, bei der die Schicht auf jeder Hoehe
+       unter der Decke bleibt, jede Hoehe mit ihrem eigenen Anteil. */
+    const passt=aa=>stops.every(([pz,f])=>
+      lum(ueber(L.glut.farbe, aa*bei(pz), f))<=DECKE_SCHEIN);
+    let a=L.glut.alpha;
+    if(!passt(a)){ let lo=0, hi=a;
+      for(let i=0;i<24;i++){ const m=(lo+hi)/2; if(passt(m)) lo=m; else hi=m; }
+      a=lo; }
+    schichten.push({name:"Schein", farbe:L.glut.farbe, alpha:a, bei});
+    html+=`<div class="hg" style="background:${P(L.glut.x+"% "+y.toFixed(0)+"%",
+      wt+"% "+R.toFixed(0)+"%", rgba(L.glut.farbe,a),"transparent")}"></div>`;
+  }
+  if(L.deckung>=12){
+    const roh=L.deckung<78 ? .34 : .30;
+    const wirk=L.deckung<78?doppelt:(x=>x);
+    const a=deckelnSchicht("#ffffff",roh,hellste,DECKE_SCHEIN,wirk);
+    schichten.push({name:"Wolke", farbe:"#ffffff", alpha:wirk(a), bei:()=>1});
+    html+=wolken(L.deckung,a,5);
+  }
+  if(L.nebel){
+    const a=deckelnSchicht("#e8eef5",L.nebel,hellste);
+    schichten.push({name:"Nebelbank", farbe:"#e8eef5", alpha:a, bei:()=>1});
+    html+=`<div class="hg" style="background:
+      linear-gradient(180deg,${rgba("#e8eef5",a*0.3)} 0%,${rgba("#e8eef5",a)} 18%,
+       ${rgba("#e8eef5",a*0.1)} 34%,${rgba("#e8eef5",a*0.95)} 50%,${rgba("#e8eef5",a*0.14)} 66%,
+       ${rgba("#e8eef5",a*0.7)} 80%,${rgba("#e8eef5",a*0.07)} 96%);filter:blur(3px)"></div>`;
+  }
+  if(L.mm>0.05 && !L.schnee){
+    const a=deckelnSchicht("#c4dcf4",.55,hellste);
+    schichten.push({name:"Regen", farbe:"#c4dcf4", alpha:a, bei:()=>1});
+    html+=regen(L.mm,a,23);
+  }
+  if(L.schnee){
+    /* Flocken bleiben aus der Messung heraus. Sie sind zwei Pixel gross und
+       liegen nie laenger als eine Strichbreite unter einem Buchstaben. */
+    html+=flocken(L.mm,19);
+  }
+
+  let vMin=99, vWo="", sMin=99, sWo="";
+  for(const [pz,f] of stops){
+    const k=kontrast(f,SCHRIFT.matt);
+    if(k<vMin){ vMin=k; vWo=pz+"%"; }
+    for(const sch of schichten){
+      const aa=sch.alpha*sch.bei(pz);
+      if(aa<0.01) continue;
+      const k2=kontrast(ueber(sch.farbe,aa,f),SCHRIFT.hell);
+      if(k2<sMin){ sMin=k2; sWo=sch.name+" auf "+pz+"%"; }
+    }
+  }
+  return {html, vMin, vWo, sMin:sMin<99?sMin:null, sWo};
+}
+
+/* ============================================================
+   Der Banner selbst, Markup wie in der Kioskseite
+   ============================================================ */
+let solarHtml="";
+
+function banner(lage){
+  const L=LAGEN[lage], d=DATEN[lage], H=himmelBauen(L);
+  const kl=v=>v>=MINDEST?"gut":"knapp";
+  let mass=`<span class="mass ${kl(H.vMin)}">Verlauf ${H.vMin.toFixed(2)}:1
+      <span>schw&auml;chste Stelle ${H.vWo}, gegen die matteste Zeile</span></span>`;
+  if(H.sMin!=null) mass+=`<span class="mass ${kl(H.sMin)}">Schichten ${H.sMin.toFixed(2)}:1
+      <span>${H.sWo}, gegen helle Schrift</span></span>`;
+  return {mass,
+    html:`<header class="himmel">
+    ${H.html}
+    <div class="zelle"><div>
+      <div class="place">Uedorf</div>
+      <div class="clock">${L.zeit}</div>
+      <div class="date">${d.datum} &middot; <span class="stand">Stand ${L.zeit}</span></div>
+    </div></div>
+    <div class="zelle current">
+      <div class="icon">${weatherIcon(d.spec)}</div>
+      <div class="temp">${d.temp}&deg;</div>
+      <div class="details">${d.details}</div>
+    </div>
+    <div class="zelle today">
+      <div class="summary">${d.summary}</div>
+      <div class="sub">${d.sub}</div>
+      <div class="extra">${d.extra}</div>
+    </div>
+    <div class="zelle solar">${solarHtml}</div>
+  </header>`};
+}
+
+/* Echte Werte, wie sie an so einem Tag im Banner stehen wuerden */
+const DATEN={
+  daemmerung_frueh:{datum:"Samstag, 26.09.",temp:9,spec:{sky:1,elev:-1.5},
+    summary:"Heute sonnig, 9&ndash;23&nbsp;&deg;C",
+    sub:`Regenrisiko bis 0&nbsp;%, 0,0&nbsp;mm &middot; <span class="inl">${mi("sun")}9,6&nbsp;h Sonne</span>`,
+    extra:`<span class="inl">${mi("up")}07:25</span> &middot; <span class="inl">${mi("down")}19:19</span> &middot; <span class="inl">${mi("sock")}Wind bis 12 km/h</span>`,
+    details:`klar<br>gef&uuml;hlt 7&deg; &middot; Wolken 8&nbsp;%<br><span class="inl">${mi("sock")}Wind 5 km/h, B&ouml;en 9 km/h</span>`},
+  klar_tag:{datum:"Samstag, 26.09.",temp:22,spec:{sky:0,elev:34},
+    summary:"Heute sonnig, 9&ndash;23&nbsp;&deg;C",
+    sub:`Regenrisiko bis 0&nbsp;%, 0,0&nbsp;mm &middot; <span class="inl">${mi("sun")}9,6&nbsp;h Sonne</span>`,
+    extra:`<span class="inl">${mi("up")}07:25</span> &middot; <span class="inl">${mi("down")}19:19</span> &middot; <span class="inl">${mi("sock")}Wind bis 12 km/h</span>`,
+    details:`sonnig<br>gef&uuml;hlt 21&deg; &middot; Wolken 6&nbsp;% &middot; Sonne 94&nbsp;%<br><span class="inl">${mi("sock")}Wind 9 km/h, B&ouml;en 17 km/h</span>`},
+  wechselnd:{datum:"Sonntag, 27.09.",temp:19,spec:{sky:2,elev:28},
+    summary:"Heute wechselnd, 11&ndash;21&nbsp;&deg;C",
+    sub:`Regenrisiko bis 15&nbsp;%, 0,2&nbsp;mm &middot; <span class="inl">${mi("sun")}5,4&nbsp;h Sonne</span>`,
+    extra:`<span class="inl">${mi("up")}07:27</span> &middot; <span class="inl">${mi("down")}19:17</span> &middot; <span class="inl">${mi("sock")}Wind bis 21 km/h</span>`,
+    details:`teils bew&ouml;lkt<br>gef&uuml;hlt 18&deg; &middot; Wolken 48&nbsp;% &middot; Sonne 52&nbsp;%<br><span class="inl">${mi("sock")}Wind 14 km/h, B&ouml;en 26 km/h</span>`},
+  bedeckt:{datum:"Montag, 28.09.",temp:15,spec:{sky:4,elev:20},
+    summary:"Heute bedeckt, 12&ndash;17&nbsp;&deg;C",
+    sub:`Regenrisiko bis 25&nbsp;%, 0,4&nbsp;mm &middot; <span class="inl">${mi("sun")}0,8&nbsp;h Sonne</span>`,
+    extra:`<span class="inl">${mi("up")}07:29</span> &middot; <span class="inl">${mi("down")}19:14</span> &middot; <span class="inl">${mi("sock")}Wind bis 24 km/h</span>`,
+    details:`stark bew&ouml;lkt<br>gef&uuml;hlt 13&deg; &middot; Wolken 96&nbsp;%<br><span class="inl">${mi("sock")}Wind 16 km/h, B&ouml;en 29 km/h</span>`},
+  regen:{datum:"Dienstag, 29.09.",temp:13,spec:{sky:4,wet:"regen",elev:14},
+    summary:"Heute Regen, 11&ndash;15&nbsp;&deg;C",
+    sub:`Regenrisiko bis 85&nbsp;%, 7,4&nbsp;mm &middot; <span class="inl">${mi("sun")}0,2&nbsp;h Sonne</span>`,
+    extra:`<span class="inl">${mi("up")}07:31</span> &middot; <span class="inl">${mi("down")}19:12</span> &middot; <span class="inl">${mi("sock")}Wind bis 34 km/h</span>`,
+    details:`Regen<br>gef&uuml;hlt 10&deg; &middot; Wolken 100&nbsp;%<br><span class="inl">${mi("sock")}Wind 22 km/h, B&ouml;en 38 km/h</span>`},
+  nebel:{datum:"Mittwoch, 30.09.",temp:8,spec:{fog:true},
+    summary:"Heute neblig, 7&ndash;14&nbsp;&deg;C",
+    sub:`Regenrisiko bis 10&nbsp;%, 0,0&nbsp;mm &middot; <span class="inl">${mi("sun")}2,1&nbsp;h Sonne</span>`,
+    extra:`<span class="inl">${mi("up")}07:33</span> &middot; <span class="inl">${mi("down")}19:10</span> &middot; <span class="inl">${mi("sock")}Wind bis 7 km/h</span>`,
+    details:`Nebel<br>gef&uuml;hlt 6&deg; &middot; Sicht 180&nbsp;m<br><span class="inl">${mi("sock")}Wind 3 km/h, B&ouml;en 6 km/h</span>`},
+  gewitter:{datum:"Donnerstag, 01.10.",temp:18,spec:{sky:4,wet:"regen",storm:true,elev:10},
+    summary:"Heute Gewitter, 14&ndash;22&nbsp;&deg;C",
+    sub:`Regenrisiko bis 70&nbsp;%, 12,8&nbsp;mm &middot; <span class="inl">${mi("bolt")}Gewitterrisiko</span>`,
+    extra:`<span class="inl">${mi("up")}07:35</span> &middot; <span class="inl">${mi("down")}19:07</span> &middot; <span class="inl">${mi("sock")}Wind bis 52 km/h</span>`,
+    details:`Gewitter<br>gef&uuml;hlt 19&deg; &middot; Wolken 92&nbsp;%<br><span class="inl">${mi("sock")}Wind 28 km/h, B&ouml;en 52 km/h</span>`},
+  schnee:{datum:"Freitag, 09.01.",temp:-2,spec:{sky:4,wet:"schnee",frost:1,elev:9},
+    summary:"Heute Schnee, &minus;4&ndash;0&nbsp;&deg;C",
+    sub:`Regenrisiko bis 80&nbsp;%, 4,2&nbsp;mm &middot; <span class="inl">${mi("sun")}0,4&nbsp;h Sonne</span>`,
+    extra:`<span class="inl">${mi("up")}08:33</span> &middot; <span class="inl">${mi("down")}16:48</span> &middot; <span class="inl">${mi("sock")}Wind bis 26 km/h</span>`,
+    details:`Schneefall<br>gef&uuml;hlt &minus;7&deg; &middot; Wolken 98&nbsp;%<br><span class="inl">${mi("sock")}Wind 17 km/h, B&ouml;en 30 km/h</span>`},
+  daemmerung_spaet:{datum:"Samstag, 26.09.",temp:16,spec:{sky:1,elev:-1.0},
+    summary:"Morgen wechselnd, 11&ndash;21&nbsp;&deg;C",
+    sub:`Regenrisiko bis 15&nbsp;%, 0,2&nbsp;mm &middot; <span class="inl">${mi("sun")}5,4&nbsp;h Sonne</span>`,
+    extra:`<span class="inl">${mi("up")}07:27</span> &middot; <span class="inl">${mi("down")}19:17</span> &middot; <span class="inl">${mi("sock")}Wind bis 21 km/h</span>`,
+    details:`klarer Abend<br>gef&uuml;hlt 15&deg; &middot; Wolken 12&nbsp;%<br><span class="inl">${mi("sock")}Wind 7 km/h, B&ouml;en 13 km/h</span>`},
+  nacht_klar:{datum:"Samstag, 26.09.",temp:13,spec:{sky:0,night:true,elev:-14},
+    summary:"Morgen wechselnd, 11&ndash;21&nbsp;&deg;C",
+    sub:`Regenrisiko bis 15&nbsp;%, 0,2&nbsp;mm &middot; <span class="inl">${mi("sun")}5,4&nbsp;h Sonne</span>`,
+    extra:`<span class="inl">${mi("up")}07:27</span> &middot; <span class="inl">${mi("down")}19:17</span> &middot; <span class="inl">${mi("sock")}Wind bis 21 km/h</span>`,
+    details:`klare Nacht<br>gef&uuml;hlt 12&deg; &middot; Wolken 0&nbsp;%<br><span class="inl">${mi("sock")}Wind 4 km/h, B&ouml;en 7 km/h</span>`}
+};
+
+/* ============================================================
+   Aufbau
+   ============================================================ */
+async function los(){
+  SOLAR.setzePrognose(H,SONNE);
+  await SOLAR.holeDaten();
+  solarHtml=document.getElementById("solar").innerHTML;
+
+  let s=`<p class="note">Der Himmel zeigt das Wetter <b>jetzt</b>, nicht das des Tages.
+    Die Zeile rechts im Banner fasst den Tag zusammen, der Hintergrund tut das nicht:
+    bei wechselnd bew&ouml;lkt stehen dort 0,2&nbsp;mm f&uuml;r den Tag, gerade f&auml;llt
+    aber nichts, also f&auml;llt am Himmel auch nichts.</p>
+    <p class="note">Gefordert sind 4,5:1. Neben jeder Lage stehen zwei gemessene
+    Werte: der Verlauf gegen die matteste Zeile, weil darauf jede Zeile sitzt, und
+    die aufgelegten Schichten gegen helle Schrift, weil unter einem Lichtschein nur
+    das Symbol und helle Zeilen liegen.</p>`;
+  for(const l of Object.keys(LAGEN)){
+    const b=banner(l);
+    s+=`<div class="marke">${LAGEN[l].name}
+          <span class="menge">jetzt ${LAGEN[l].deckung}&nbsp;% Wolken${LAGEN[l].mm>0?
+            ", "+String(LAGEN[l].mm).replace(".",",")+"&nbsp;mm/h":", kein Niederschlag"}</span> ${b.mass}</div>
+        <div class="buehne"><div class="tablet">${b.html}</div></div>`;
+  }
+  document.getElementById("a").innerHTML=s;
+}
+
+/* Der Solarblock braucht die Elemente, die SOLAR anfasst. */
+document.body.insertAdjacentHTML("beforeend",
+  `<div style="position:absolute;left:-9999px;top:0" id="versteck">
+     <div id="kopf"><div id="solar"></div></div>
+     <div class="sdetail" id="sdetail"></div></div>`);
+los();
+</script></body></html>
