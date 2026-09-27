@@ -491,7 +491,7 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.24)}
       <div class="radar-stage">
         <div id="cloudMap"></div>
         <div class="radar-time" id="radarTime">Wolken laden&hellip;</div>
-        <div class="radar-legend" id="radarLegend">grau = Wolken &middot; blau/gelb/rot = Niederschlag</div>
+        <div class="radar-legend" id="radarLegend">weiß bis grau = Wolken &middot; Blau = Regen &middot; Gelb bis Lila = Gewitter</div>
         <div class="radar-msg" id="radarMsg"></div>
         <div class="velux-knopf" id="veluxKnopf" role="button" hidden
              aria-label="Rollladen"></div>
@@ -897,7 +897,11 @@ function skyDecision(o){
   if(precip>=0.3)                               return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, n1(precip)+NB+"mm Niederschlag");
   if([51,53,55,56,57].includes(code)||precip>0) return mit("drizzle",{wet:"niesel"}, "leichter Niederschlag ("+n1(precip)+NB+"mm)");
   if([45,48].includes(code))                    return mit("fog",    {fog:true}, "WMO-Code "+code+" = Nebel");
-  if(pop>=75)                                   return mit("rain",   {wet:"regen"}, "Regenrisiko "+pop+" %");
+  /* Hohe Wahrscheinlichkeit, aber keine Menge im Modell. Mai bis September
+     2026 war es in solchen Stunden nur zu 39 Prozent wirklich nass, und dann
+     im Mittel 0,15 mm. Das ist ein Hauch, kein Regen, also das leichte
+     Symbol statt des vollen. */
+  if(pop>=75)                                   return mit("drizzle",{wet:"niesel"}, "Regenrisiko "+pop+" %, aber keine Menge");
 
   if(!day){
     if(tot<25)  return mit("night_clear", {sky:0}, "Nacht, "+Math.round(tot)+" % Bewölkung");
@@ -1532,14 +1536,17 @@ function hoursOfDay(H,dayIso){
   if(!H||!H.time) return out;
   for(let k=0;k<H.time.length;k++){
     if(H.time[k].slice(0,10)!==dayIso) continue;
+    /* Summen und Code aus dem naechsten Zeitstempel, siehe blockAt. Sonst
+       stand "Regen von 14 bis 16 Uhr" fuer Regen, der von 13 bis 15 fiel. */
+    const n=Math.min(k+1,H.time.length-1);
     out.push({
       hour:Number(H.time[k].slice(11,13)),
-      code:H.weather_code?.[k],
-      precip:H.precipitation?.[k],
-      pop:H.precipitation_probability?.[k],
+      code:H.weather_code?.[n],
+      precip:H.precipitation?.[n],
+      pop:H.precipitation_probability?.[n],
       cloud:H.cloud_cover?.[k],
       low:H.cloud_cover_low?.[k], mid:H.cloud_cover_mid?.[k], high:H.cloud_cover_high?.[k],
-      sunSec:H.sunshine_duration?.[k],
+      sunSec:H.sunshine_duration?.[n],
       temp:H.temperature_2m?.[k],
       cape:H.cape?.[k]
     });
@@ -2981,15 +2988,25 @@ async function loadWeather(){
       return mid>=s.rise&&mid<=s.set;
     };
 
+    /* Was eine Stunde zusammenfasst, gilt bei Open-Meteo fuer die Stunde vor
+       dem Zeitstempel: Niederschlag, seine Wahrscheinlichkeit, der Wettercode,
+       Sonnenschein und Strahlung. Die Kachel "15 Uhr" meint aber 15 bis 16
+       Uhr, und das Symbol "jetzt" die laufende Stunde. Deshalb kommen diese
+       Werte aus dem naechsten Zeitstempel. Temperatur, Wolken und Wind sind
+       Augenblickswerte und bleiben, wo sie sind.
+       Geprueft Mai bis September 2026 gegen drei DWD-Stationen: der
+       Niederschlag passt zur Stunde davor mit r = 0,69, zur Stunde danach
+       mit 0,33; beim Wettercode 31 statt 34 Prozent Fehlalarme. */
+    const naechst=i=>Math.min(i+1,H.time.length-1);
     const blockAt=i=>({
-      time:H.time[i], temp:H.temperature_2m[i], code:H.weather_code[i],
+      time:H.time[i], temp:H.temperature_2m[i], code:H.weather_code[naechst(i)],
       app:H.apparent_temperature?.[i],
       tot:H.cloud_cover?.[i]??0, low:H.cloud_cover_low?.[i]??0,
       mid:H.cloud_cover_mid?.[i]??0, high:H.cloud_cover_high?.[i]??0,
-      precip:H.precipitation?.[i]??0, pop:H.precipitation_probability?.[i]??0,
-      rain:H.rain?.[i]??0, showers:H.showers?.[i]??0, snow:H.snowfall?.[i]??0,
-      sunSec:H.sunshine_duration?.[i]??0, swrad:H.shortwave_radiation?.[i]??0,
-      toa:H.terrestrial_radiation?.[i]??0,
+      precip:H.precipitation?.[naechst(i)]??0, pop:H.precipitation_probability?.[naechst(i)]??0,
+      rain:H.rain?.[naechst(i)]??0, showers:H.showers?.[naechst(i)]??0, snow:H.snowfall?.[naechst(i)]??0,
+      sunSec:H.sunshine_duration?.[naechst(i)]??0, swrad:H.shortwave_radiation?.[naechst(i)]??0,
+      toa:H.terrestrial_radiation?.[naechst(i)]??0,
       rh:H.relative_humidity_2m?.[i], dew:H.dew_point_2m?.[i],
       pmsl:H.pressure_msl?.[i], vis:H.visibility?.[i],
       wind:H.wind_speed_10m?.[i]??0, gust:H.wind_gusts_10m?.[i]??0,
@@ -3159,21 +3176,44 @@ function computeGridBox(){
   return {s,n,w,e};
 }
 
+/*
+  Farben der Karte, drei getrennte Bedeutungen, die sich nicht ueberschneiden:
+  Wolken weiss bis grau, Regen in Blau von hell bis dunkel, Gewitter von Gelb
+  ueber Rot bis Lila. Vorher lief der Regen durch den ganzen Regenbogen, und
+  starker Regen war genauso gelb und rot wie ein Gewitter.
+*/
+const mischRGB=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*Math.max(0,Math.min(1,t)));
+function stufeRGB(v,stufen){
+  if(v<=stufen[0][0]) return stufen[0][1];
+  for(let i=1;i<stufen.length;i++)
+    if(v<=stufen[i][0]) return mischRGB(stufen[i-1][1],stufen[i][1],
+      (v-stufen[i-1][0])/(stufen[i][0]-stufen[i-1][0]));
+  return stufen[stufen.length-1][1];
+}
+const WOLKE_HELL=[246,248,251], WOLKE_DUNKEL=[118,127,140];
+const REGEN_STUFEN=[[0.1,[176,214,255]],[0.5,[118,178,250]],[1,[70,140,236]],
+                    [2,[42,104,212]],[4,[30,74,178]],[8,[22,46,128]]];
+const STURM_STUFEN=[[1,[255,214,74]],[2,[255,150,46]],[3,[232,64,58]],[4,[150,60,205]]];
 function rainRGB(mm){
   const v=Number(mm||0);
-  if(v<=0) return null;
-  if(v<0.2) return [90,169,255];
-  if(v<0.5) return [62,197,255];
-  if(v<1)   return [49,211,208];
-  if(v<2)   return [111,214,107];
-  if(v<4)   return [240,216,74];
-  if(v<8)   return [255,159,50];
-  return      [239,75,75];
+  return v<0.1?null:stufeRGB(v,REGEN_STUFEN);
+}
+/* Gewitterstufe eines Punkts: nur wo ICON ein Gewitter rechnet, also Code
+   95, 96 oder 99. CAPE allein zeigt nur, dass eines entstehen koennte, und
+   lag Mai bis September 2026 an der Haelfte der Tage daneben. Die Staerke
+   kommt aus der Regenmenge, Hagel (96, 99) ist immer die hoechste Stufe. */
+function sturmStufe(code,mm){
+  if(![95,96,99].includes(code)) return 0;
+  if(code>=96) return 4;
+  /* Stetig statt in Stufen: 0 mm ist 1, 2 mm ist 2, 5 mm ist 3, ab 15 mm
+     ist 4. Mit harten Stufen zeichnete das grobe Raster eckige Kerne. */
+  const m=Math.max(0,Number(mm||0));
+  return m<2?1+m/2 : m<5?2+(m-2)/3 : Math.min(4,3+(m-5)/10);
 }
 function cloudFrameLabel(iso,idx){
   const t=new Date(iso).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
   if(radarLegend&&!radarLegend.dataset.done){
-    radarLegend.innerHTML=`grau = Wolken · blau/gelb/rot = Niederschlag · <span class="inl">${mi("bolt")}Gewitterrisiko</span>`;
+    radarLegend.innerHTML=`weiß bis grau = Wolken · Blau = Regen · <span class="inl">${mi("bolt")}Gelb bis Lila = Gewitter</span>`;
     radarLegend.dataset.done="1";
   }
   return idx===0?`Jetzt / ${t}`:`+${idx} h · ${t}`;
@@ -3201,7 +3241,7 @@ function taper(t){
   return 0.5-0.5*Math.cos(Math.PI*t/EDGE_FADE);
 }
 /* rasterise one hour into a data URL; image rows run north -> south */
-function renderFrame(cloud,precip){
+function renderFrame(cloud,precip,sturm){
   const W=(GRID_X-1)*SS+1, H=(GRID_Y-1)*SS+1;
   const cv=document.createElement("canvas");
   cv.width=W; cv.height=H;
@@ -3216,13 +3256,27 @@ function renderFrame(cloud,precip){
       const edge=Math.min(ey,taper(Math.min(px,W-1-px)/(W-1)));
       const cc=Math.max(0,Math.min(100,bilinear(cloud,GRID_X,GRID_Y,gx,gy)));
       const mm=Math.max(0,bilinear(precip,GRID_X,GRID_Y,gx,gy));
-      let r=233,g=238,b=245;
-      let a=(0.03+Math.pow(cc/100,1.15)*0.60)*0.55;
+      const st=sturm?Math.max(0,bilinear(sturm,GRID_X,GRID_Y,gx,gy)):0;
+      /* Wolken: duenn und weiss, dicht und grau. Die Deckkraft waechst mit. */
+      let [r,g,b]=mischRGB(WOLKE_HELL,WOLKE_DUNKEL,Math.pow(cc/100,1.3));
+      /* Dichte Wolken deutlich grauer und deckender als duenne, sonst sieht
+         man auf der Karte nicht, wo es wirklich zu ist. */
+      let a=0.02+Math.pow(cc/100,1.25)*0.52;
       const rc=rainRGB(mm);
       if(rc){
-        const ra=Math.min(.80,.20+Math.sqrt(mm)*0.42);
+        const ra=Math.min(.82,.26+Math.sqrt(mm)*0.40);
         r=r*(1-ra)+rc[0]*ra; g=g*(1-ra)+rc[1]*ra; b=b*(1-ra)+rc[2]*ra;
         a=Math.max(a,ra);
+      }
+      /* Gewitter zuletzt, es liegt ueber allem. Unter einer halben Stufe ist
+         es nur der Rand der Glaettung und bleibt weg. */
+      /* Weicher Einstieg zwischen 0,3 und 1, sonst schneidet die Schwelle
+         einen Zacken in den Rand der Zelle. */
+      const ein=Math.max(0,Math.min(1,(st-0.3)/0.7)), weich=ein*ein*(3-2*ein);
+      if(weich>0){
+        const sc=stufeRGB(Math.max(1,st),STURM_STUFEN), sa=weich*Math.min(.9,.55+0.1*st);
+        r=r*(1-sa)+sc[0]*sa; g=g*(1-sa)+sc[1]*sa; b=b*(1-sa)+sc[2]*sa;
+        a=Math.max(a,sa);
       }
       const o=(py*W+px)*4;
       img.data[o]=r; img.data[o+1]=g; img.data[o+2]=b;
@@ -3251,7 +3305,7 @@ function drawCloudFrame(idx){
   for(const st of f.storms){
     const m=L.marker([st.lat,st.lon],{
       interactive:false,
-      icon:L.divIcon({className:"",html:`<div style="width:20px;height:20px;color:#ffd45c;filter:drop-shadow(0 1px 2px #000)">${mi("bolt").replace('class="mi"','style="width:20px;height:20px;display:block"')}</div>`,iconSize:[22,22],iconAnchor:[11,11]})
+      icon:L.divIcon({className:"",html:`<div style="width:20px;height:20px;color:#fff6d0;filter:drop-shadow(0 1px 2px #000)">${mi("bolt").replace('class="mi"','style="width:20px;height:20px;display:block"')}</div>`,iconSize:[22,22],iconAnchor:[11,11]})
     }).addTo(cloudMap);
     cloudMarkers.push(m);
   }
@@ -3263,7 +3317,7 @@ function drawCloudFrame(idx){
   reload otherwise costs one request per grid point and that is what exhausted
   the daily quota during development.
 */
-const CACHE_KEY="wetter.cloudfield.v1";
+const CACHE_KEY="wetter.cloudfield.v2";   /* v2: Schichten und Wettercode */
 function cacheKeyNow(box){
   const h=new Date().toISOString().slice(0,13);
   return `${h}|${box.s.toFixed(3)},${box.n.toFixed(3)},${box.w.toFixed(3)},${box.e.toFixed(3)}`;
@@ -3289,8 +3343,13 @@ async function loadCloudForecast(){
     const lats=pts.map(p=>p.lat.toFixed(4)).join(",");
     const lons=pts.map(p=>p.lon.toFixed(4)).join(",");
     const url=`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}`+
-      `&models=icon_seamless&hourly=cloud_cover,precipitation,cape`+
-      `&forecast_hours=${CLOUD_HOURS}&timezone=Europe%2FBerlin`;
+      /* Sieben Variablen kosten so viel wie drei: Open-Meteo rechnet erst ab
+         mehr als zehn mehrfach. Die Schichten braucht die Wolkenfarbe, den
+         Wettercode das Gewitter. Eine Stunde mehr, weil Niederschlag und
+         Code zur Stunde vor dem Zeitstempel gehoeren. */
+      `&models=icon_seamless&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,`+
+      `precipitation,weather_code,cape`+
+      `&forecast_hours=${CLOUD_HOURS+1}&timezone=Europe%2FBerlin`;
 
     let j=readCache(gridBox);
     let fromCache=!!j;
@@ -3302,26 +3361,37 @@ async function loadCloudForecast(){
       j=j.map(p=>({hourly:{
         time:p.hourly.time,
         cloud_cover:p.hourly.cloud_cover,
+        cloud_cover_low:p.hourly.cloud_cover_low,
+        cloud_cover_mid:p.hourly.cloud_cover_mid,
+        cloud_cover_high:p.hourly.cloud_cover_high,
         precipitation:p.hourly.precipitation,
+        weather_code:p.hourly.weather_code,
         cape:p.hourly.cape
       }}));
       writeCache(gridBox,j);
     }
     if(fromCache) console.info("Wolkenfeld aus dem Puffer der laufenden Stunde");
 
-    const n=Math.min(CLOUD_HOURS,j[0].hourly?.time?.length||0);
+    const n=Math.min(CLOUD_HOURS,(j[0].hourly?.time?.length||1)-1);
     const frames=[];
     for(let h=0;h<n;h++){
       const cloud=new Float32Array(GRID_X*GRID_Y);
       const precip=new Float32Array(GRID_X*GRID_Y);
+      const sturm=new Float32Array(GRID_X*GRID_Y);
       const storms=[];
       for(let k=0;k<Math.min(j.length,pts.length);k++){
-        const p=pts[k], o=p.y*GRID_X+p.x;
-        cloud[o]=Number(j[k].hourly?.cloud_cover?.[h]??0);
-        precip[o]=Number(j[k].hourly?.precipitation?.[h]??0);
-        if(Number(j[k].hourly?.cape?.[h]??0)>=600) storms.push({lat:p.lat,lon:p.lon});
+        const p=pts[k], o=p.y*GRID_X+p.x, hh=j[k].hourly||{};
+        /* Wolken als Augenblickswert zur vollen Stunde, gewichtet nach
+           Schichten wie ueberall auf der Seite. Niederschlag und Code aus dem
+           naechsten Zeitstempel, denn der beschreibt die Stunde davor. */
+        cloud[o]=wolkenWirkung({tot:hh.cloud_cover?.[h],low:hh.cloud_cover_low?.[h],
+                                mid:hh.cloud_cover_mid?.[h],high:hh.cloud_cover_high?.[h]});
+        const mm=Number(hh.precipitation?.[h+1]??0), code=Number(hh.weather_code?.[h+1]??0);
+        precip[o]=mm;
+        sturm[o]=sturmStufe(code,mm);
+        if(sturm[o]>=1) storms.push({lat:p.lat,lon:p.lon,stufe:sturm[o]});
       }
-      frames.push({time:j[0].hourly.time[h],url:renderFrame(cloud,precip),storms,box:gridBox});
+      frames.push({time:j[0].hourly.time[h],url:renderFrame(cloud,precip,sturm),storms,box:gridBox});
     }
     if(!frames.length) throw new Error("keine Wolken-Frames");
     cloudFrames=frames;
