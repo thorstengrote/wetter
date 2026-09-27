@@ -1,0 +1,794 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Karte mit Radar &ndash; Simulation</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--rand:10px}
+*{box-sizing:border-box}
+html,body{margin:0;background:#0a0e14;color:#e8eef5;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{padding-block:22px;padding-inline:18px}
+h1{font-size:20px;margin:0 0 4px}
+p.lead{color:#8b97a6;margin:0 0 14px;max-width:960px;font-size:13px}
+.buehne{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+.radarbox{width:470px;height:360px}
+.gross .radarbox{width:940px;height:720px}
+.radarbox{
+  background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
+  padding:var(--rand);min-height:0;overflow:hidden;position:relative;
+  display:flex;flex-direction:column
+}
+.radar-stage{
+  flex:1 1 auto;min-height:0;position:relative;border-radius:10px;
+  background:#101720;overflow:hidden;border:1px solid #334155
+}
+#cloudMap{width:100%;height:100%;background:#111820}
+.cloudfield{image-rendering:auto;filter:blur(1.5px)}
+.radar-time{
+  position:absolute;z-index:800;left:10px;bottom:9px;background:rgba(5,8,12,.88);
+  border:1px solid #536276;border-radius:7px;padding:4px 8px;
+  font-size:12px;font-weight:700;color:#fff
+}
+.radar-legend{
+  position:absolute;z-index:800;right:10px;bottom:9px;background:rgba(5,8,12,.82);
+  border-radius:6px;padding:4px 7px;font-size:9px;color:#d5dee8
+}
+.leaflet-control-attribution{font-size:8px!important;background:rgba(255,255,255,.70)!important}
+.radarbild{filter:blur(1.1px);image-rendering:auto}
+.kartensymbol{display:block;width:100%;height:100%}
+.regler{width:360px;background:#121923;border:1px solid #273240;border-radius:12px;padding:14px 16px}
+.regler h2{font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:#8b97a6;margin:14px 0 8px}
+.regler h2:first-child{margin-top:0}
+button{background:#1d2836;color:#e8eef5;border:1px solid #33404f;border-radius:8px;padding:6px 11px;
+  font:inherit;font-size:12.5px;cursor:pointer;margin:0 6px 6px 0}
+button.an{background:#2a4a6e;border-color:#4d7fb3}
+.r{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-bottom:10px}
+.r label{font-size:13px;color:#c5ced8}
+.r output{font-size:13px;font-weight:650;color:#fff;font-variant-numeric:tabular-nums}
+.r input{grid-column:1/3;width:100%;accent-color:#6fb3ff}
+.chk{display:flex;gap:8px;align-items:center;font-size:13px;color:#c5ced8;margin:6px 0}
+.quelle{position:absolute;z-index:800;left:10px;top:9px;background:rgba(5,8,12,.82);border-radius:6px;padding:3px 7px;font-size:9px;color:#d5dee8}
+</style></head><body>
+<h1>Karte mit DWD-Radar, simuliert</h1>
+<p class="lead">Erfundenes Wetter über Uedorf, fein aufgelöst in 1 km. Die ersten zwei Stunden zeigt die Karte
+es so, wie das DWD-Radar es liefern würde: scharf, in den Regenklassen des Radars, Gewitter aus der
+Blitzdichte. Danach geht sie in ICON über, das dasselbe Wetter nur an 19 mal 10 Punkten sieht. Mit
+„wie heute" siehst du dasselbe Wetter so, wie die Wand es jetzt zeigt, ganz aus ICON.</p>
+<div class="buehne">
+  <div id="rahmen"><div class="radarbox"><div class="radar-stage">
+    <div id="cloudMap"></div>
+    <div class="quelle" id="quelle">Radar: DWD · danach ICON</div>
+    <div class="radar-time" id="radarTime">…</div>
+    <div class="radar-legend">weiß bis grau = Wolken · Blau = Regen · Gelb bis Lila = Gewitter</div>
+  </div></div></div>
+  <div class="regler">
+    <h2>Wetterlage</h2>
+    <button data-lage="schauer" class="an">Schauer</button><button data-lage="front">Regenfront</button>
+    <button data-lage="gewitter">Gewitterlinie</button><button data-lage="unwetter">Unwetter mit Hagel</button>
+    <div class="r"><label for="staerke">Stärke</label><output id="o_staerke"></output>
+      <input type="range" id="staerke" min="0.3" max="2" step="0.1" value="1"></div>
+    <h2>Zeit</h2>
+    <div class="r"><label for="schritt">Zeitpunkt</label><output id="o_schritt"></output>
+      <input type="range" id="schritt" min="0" max="13" step="1" value="0"></div>
+    <button id="spiel">Abspielen</button>
+    <h2>Vergleich</h2>
+    <label class="chk"><input type="checkbox" id="heute"> wie heute: alles aus ICON</label>
+    <label class="chk"><input type="checkbox" id="gross"> doppelt so groß</label>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const LAT=50.76, LON=7.00; const radarLegend=null;
+function mi(kind){
+  const a='viewBox="0 0 16 16" aria-hidden="true"';
+  if(kind==="drop") return `<svg class="mi" ${a}><path d="M8 1.5c2.7 3.4 4.1 5.7 4.1 7.5a4.1 4.1 0 0 1-8.2 0C3.9 7.2 5.3 4.9 8 1.5z" fill="currentColor"/></svg>`;
+  if(kind==="sun")  return `<svg class="mi" ${a}><circle cx="8" cy="8" r="3.1" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 .8v2.1M8 13.1v2.1M.8 8h2.1M13.1 8h2.1M2.9 2.9l1.5 1.5M11.6 11.6l1.5 1.5M13.1 2.9l-1.5 1.5M4.4 11.6l-1.5 1.5"/></g></svg>`;
+  if(kind==="sock") return `<svg class="mi sock" viewBox="0 0 20 14" aria-hidden="true"><path d="M2.3 1.2v11.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.7 2.4 L17.4 4.7 L14.7 10.2 L3.7 8.6 Z" fill="currentColor" opacity=".9"/></svg>`;
+  if(kind==="up")   return `<svg class="mi" ${a}><path d="M8 3.2 3.6 8.4h8.8z" fill="currentColor"/><path d="M2.6 12.4h10.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  if(kind==="down") return `<svg class="mi" ${a}><path d="M8 9.2 3.6 4h8.8z" fill="currentColor"/><path d="M2.6 12.4h10.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  if(kind==="bolt") return `<svg class="mi" ${a}><path d="M9.4 1 3.8 9h3.3l-1 6 6.1-8.6H8.7z" fill="currentColor"/></svg>`;
+  return "";
+}
+
+/*
+  Wettersymbole werden zusammengesetzt, nicht aus einer festen Liste gewaehlt.
+
+  Zwei Achsen, die sich nicht gegenseitig verdraengen: der Himmel in fuenf
+  Stufen von klar bis bedeckt, und was herunterfaellt. Vorher gewann genau ein
+  Name aus acht, deshalb loeschte ein einzelner Regentropfen die gesamte
+  Himmelsinformation und ein sonniger Tag mit einem Schauer sah aus wie
+  Dauerregen. Wind und Frost sitzen als Zeichen im selben Bild.
+
+  Aufruf entweder mit einem alten Namen ("clear", "rain", ...) oder mit
+  {sky, wet, storm, night, wind, frost}.
+*/
+const SKY_SUN=`<circle cx="32" cy="32" r="10" fill="#FFD65A"/>
+  <g stroke="#FFD65A" stroke-width="3" stroke-linecap="round">
+    <path d="M32 7v7M32 50v7M7 32h7M50 32h7M14.3 14.3l5 5M44.7 44.7l5 5M49.7 14.3l-5 5M19.3 44.7l-5 5"/>
+  </g>`;
+const SKY_MOON=`<g transform="translate(-6 0)"><path d="M40 14 A18 18 0 1 0 40 50 A22 22 0 0 1 40 14 Z" fill="#E9EEF6"/></g>`;
+const SKY_STARS=`<g fill="#C9D6EA"><circle cx="48" cy="16" r="2"/><circle cx="55" cy="27" r="1.5"/><circle cx="44" cy="30" r="1.2"/></g>`;
+const SKY_CLOUD_D=`M18 45h28c8 0 14-5 14-12s-6-12-13-12c-2 0-4 .4-5.7 1.3C38.4 16.8 33.2 14 27.5 14 19 14 12 21 12 29.5v.6C6.8 31.3 3 35.8 3 41c0 2.5.8 4.8 2.3 6.8C8 44.7 12.5 45 18 45z`;
+const SKY_CLOUD =`<path d="${SKY_CLOUD_D}" fill="#E8EDF3"/>`;
+const SKY_CLOUD_G=`<path d="${SKY_CLOUD_D}" fill="#B8C2CF"/>`;
+const SKY_FOG=`<g stroke="#C7D0DA" stroke-width="3" stroke-linecap="round">
+    <path d="M10 42h44M14 49h36M19 56h26"/></g>`;
+const SKY_BOLT=`<path d="M34 42h10l-8 10h6L29 63l4-13h-7z" fill="#FFD65A"/>`;
+
+/* Staerke ueber Laenge und Zahl der Striche, nicht ueber die Farbe: aus vier
+   Metern ist Laenge lesbar, ein Blauton nicht. */
+function nassStriche(art){
+  const P={niesel:{n:3,lang:5,dick:3,farbe:"#8FD8FF"},
+           regen:{n:3,lang:9,dick:4,farbe:"#65C7FF"},
+           viel:{n:4,lang:12,dick:4.5,farbe:"#65C7FF"}}[art];
+  if(!P) return "";
+  const breite=P.n===4?36:26, start=32-breite/2;
+  let d="";
+  for(let i=0;i<P.n;i++) d+=`M${start+i*(breite/(P.n-1))} 48l-${(P.lang*0.38).toFixed(1)} ${P.lang}`;
+  return `<g stroke="${P.farbe}" stroke-width="${P.dick}" stroke-linecap="round"><path d="${d}"/></g>`;
+}
+function nassFlocken(viel){
+  const n=viel?5:3, breite=viel?42:26, start=32-breite/2, r=viel?3.6:4.4;
+  let d="";
+  for(let i=0;i<n;i++){
+    const x=start+i*(breite/(n-1)), y=51+(i%2)*3;
+    d+=`M${x} ${y-r}v${2*r}M${x-r} ${y}h${2*r}`;
+  }
+  return `<g stroke="#D9F2FF" stroke-width="${viel?2.4:3}" stroke-linecap="round"><path d="${d}"/></g>`;
+}
+/*
+  Windsack statt Wimpel: das Zeichen vom Flugplatz, mit der Streifung schon
+  eingebaut. Weiss und grau bei Wind, weiss und rot bei Sturm. Duenne dunkle
+  Kontur, sonst verschwindet er auf einer hellen Wolke.
+*/
+function windsack(stufe){
+  if(!stufe) return "";
+  const zweite=stufe>=2?"#FF5B4E":"#AEB8C5";
+  const x0=3.6,x1=23.4, h=x=>5.6-3.6*(x-x0)/(x1-x0);
+  let baender="";
+  for(let i=0;i<4;i++){
+    const a=x0+(x1-x0)*i/4, b=x0+(x1-x0)*(i+1)/4;
+    baender+=`<path d="M${a.toFixed(2)} ${(7-h(a)).toFixed(2)}L${b.toFixed(2)} ${(7-h(b)).toFixed(2)}`+
+             `L${b.toFixed(2)} ${(7+h(b)).toFixed(2)}L${a.toFixed(2)} ${(7+h(a)).toFixed(2)}Z"`+
+             ` fill="${i%2?zweite:"#FFFFFF"}" stroke="#222B38" stroke-width=".55"/>`;
+  }
+  return `<g><path d="M2.0 1.0v18.4" stroke="#222B38" stroke-width="3.3" stroke-linecap="round"/>`+
+    `<path d="M2.0 1.0v18.4" stroke="#E8EDF3" stroke-width="1.9" stroke-linecap="round"/>`+
+    baender+`<path d="M3.6 1.4L3.6 12.6" stroke="#E8EDF3" stroke-width="1.2" stroke-linecap="round"/></g>`;
+}
+function frostKristall(stufe){
+  if(!stufe) return "";
+  const farbe=stufe>=2?"#5FB7FF":"#9EC9E8";
+  return `<g stroke="${farbe}" stroke-width="1.7" stroke-linecap="round">
+    <path d="M9 1.6v14.8M2.6 5.3l12.8 7.8M15.4 5.3L2.6 13.1"/>
+    <path d="M6.9 3.4 9 5.1l2.1-1.7M6.9 14.6 9 12.9l2.1 1.7
+             M3.3 7.9 3.0 5.5l2.4.1M14.7 7.9l.3-2.4-2.4.1
+             M3.3 10.5 3.0 12.9l2.4-.1M14.7 10.5l.3 2.4-2.4-.1" stroke-width="1.3"/></g>`;
+}
+
+/* Lage von Sonne und Wolke je Himmelsstufe. Die Wolke waechst und schiebt
+   sich vor die Sonne, statt dass ein Symbol das andere ersetzt. */
+const SKY_LAGE=[
+  {sonne:[0,0,1],      wolke:null},
+  {sonne:[-1,-3,.88],  wolke:[20,22,.52]},
+  {sonne:[-2,-3,.80],  wolke:[7,8,.82]},
+  {sonne:[-1,0,.60],   wolke:[1,2,.98]},
+  {sonne:null,         wolke:[0,1,1]}
+];
+const svgG=(t,inhalt)=>t?`<g transform="translate(${t[0]} ${t[1]}) scale(${t[2]})">${inhalt}</g>`:inhalt;
+/* Der Niederschlag haengt am Wolkenrand und folgt der Wolke in Groesse und
+   Lage, sonst haengen die Tropfen bei kleiner Wolke in der Luft. */
+function nassLage(w){
+  const [tx,ty,sc]=w, mitteX=31.5*sc+tx, unten=47.5*sc+ty, ds=Math.max(.66,sc);
+  return [mitteX-32*ds, unten+1.5-48*ds, ds];
+}
+
+const LEGACY={
+  clear:{sky:0}, partly:{sky:2}, cloud:{sky:4},
+  night_clear:{sky:0,night:true}, night_partly:{sky:2,night:true},
+  fog:{fog:true}, drizzle:{sky:3,wet:"niesel"}, rain:{sky:4,wet:"regen"},
+  snow:{sky:4,wet:"schnee"}, storm:{sky:4,wet:"regen",storm:true}
+};
+
+/* ===================================================================
+   Sonnenstand
+
+   Bis September hat die Seite je Stunde nach deren Mitte entschieden: liegt
+   19:30 nach Sonnenuntergang, war die ganze Stunde Nacht. Um 18 Uhr stand
+   die Sonne, um 19 Uhr der Mond, obwohl um 18:40 noch die Sonne schien.
+
+   Jetzt richtet sich das Symbol nach der Hoehe der Sonne. Ueber 10 Grad
+   sieht es aus wie vorher, darunter erscheint ein Horizont, die Sonne sinkt
+   darauf zu und faerbt sich warm, unter null Grad bleibt ein Schein und der
+   Mond blendet auf, unter -8 Grad ist es die Nachtkachel. Nichts springt.
+
+   Verfahren der NOAA, genau genug fuer ein Symbol. Gegengeprueft am
+   25.09.2026: Aufgang 07:21 und Untergang 19:26 gegen 07:22 und 19:23 von
+   Open-Meteo, Sonnenwenden auf zwei Minuten.
+   =================================================================== */
+function sonnenhoehe(tagImJahr, stunde, tzStunden){
+  const g=2*Math.PI/365*(tagImJahr-1+(stunde-12)/24);
+  const zeitgleichung=229.18*(0.000075+0.001868*Math.cos(g)-0.032077*Math.sin(g)
+    -0.014615*Math.cos(2*g)-0.040849*Math.sin(2*g));
+  const neigung=0.006918-0.399912*Math.cos(g)+0.070257*Math.sin(g)
+    -0.006758*Math.cos(2*g)+0.000907*Math.sin(2*g)
+    -0.002697*Math.cos(3*g)+0.00148*Math.sin(3*g);
+  const versatz=zeitgleichung+4*LON-60*tzStunden;
+  const winkel=((stunde*60+versatz)/4)-180;
+  const w=winkel*Math.PI/180, b=LAT*Math.PI/180;
+  const cosZ=Math.sin(b)*Math.sin(neigung)+Math.cos(b)*Math.cos(neigung)*Math.cos(w);
+  return 90-Math.acos(Math.max(-1,Math.min(1,cosZ)))*180/Math.PI;
+}
+
+/* Hoehe zur Mitte der Stunde, die bei iso beginnt. Die Zeitzone kommt vom
+   Geraet, damit die Sommerzeit nicht von Hand gepflegt werden muss. */
+function sonnenhoeheStunde(iso, versatzStunden=0.5){
+  const d=new Date(iso);
+  if(isNaN(d)) return null;
+  const jahresbeginn=new Date(d.getFullYear(),0,0);
+  const tag=Math.round((d-jahresbeginn)/86400000);
+  const std=d.getHours()+d.getMinutes()/60+versatzStunden;
+  return sonnenhoehe(tag, std, -d.getTimezoneOffset()/60);
+}
+
+const SONNE_OBEN=10, SONNE_UNTEN=-8, SONNE_HORIZONT=38;
+let sonneLfd=0;
+const mischWert=(a,b,t)=>a+(b-a)*Math.max(0,Math.min(1,t));
+function mischFarbe(c1,c2,t){
+  const z=c=>[1,3,5].map(i=>parseInt(c.substr(i,2),16));
+  const [r1,g1,b1]=z(c1), [r2,g2,b2]=z(c2);
+  const h=v=>Math.round(v).toString(16).padStart(2,"0");
+  return "#"+h(mischWert(r1,r2,t))+h(mischWert(g1,g2,t))+h(mischWert(b1,b2,t));
+}
+
+/* Die Sonne, wie sie bei dieser Hoehe aussieht. Ueber 10 Grad unveraendert. */
+function sonneVerlauf(elev){
+  if(elev>=SONNE_OBEN) return SKY_SUN;
+  const id="sh"+(++sonneLfd);
+  const y=mischWert(32, SONNE_HORIZONT, (SONNE_OBEN-elev)/SONNE_OBEN)
+          + (elev<0 ? -elev*1.5 : 0);
+  const warm=Math.max(0,Math.min(1,(SONNE_OBEN-elev)/(SONNE_OBEN+4)));
+  const farbe=mischFarbe("#FFD65A","#FF7A3D",warm);
+  const strahl=Math.max(0,Math.min(1,(elev+2)/8));
+  const r=7*strahl;
+  const linie=Math.max(0,Math.min(1,(SONNE_OBEN-elev)/6));
+  const schein=elev<0 ? Math.max(0,Math.min(1,(-elev)/6)) : 0;
+  return `<defs><clipPath id="${id}">
+      <rect x="0" y="0" width="64" height="${SONNE_HORIZONT}"/></clipPath></defs>
+    ${schein>0?`<ellipse cx="32" cy="${SONNE_HORIZONT}" rx="${20+8*schein}" ry="${9*schein}"
+        fill="${farbe}" opacity="${(.50*schein).toFixed(2)}"/>
+      <ellipse cx="32" cy="${SONNE_HORIZONT}" rx="${12+4*schein}" ry="${5*schein}"
+        fill="${farbe}" opacity="${(.45*schein).toFixed(2)}"/>`:""}
+    <g clip-path="url(#${id})">
+      <circle cx="32" cy="${y.toFixed(1)}" r="10" fill="${farbe}"/>
+      ${r>0.6?`<g stroke="${farbe}" stroke-width="3" stroke-linecap="round" opacity="${strahl.toFixed(2)}">
+        <path d="M32 ${(y-15).toFixed(1)}v${r.toFixed(1)}
+                 M17 ${y.toFixed(1)}h${r.toFixed(1)}
+                 M${(47-r).toFixed(1)} ${y.toFixed(1)}h${r.toFixed(1)}
+                 M${(32-10.6).toFixed(1)} ${(y-10.6).toFixed(1)}l${(r*0.7).toFixed(1)} ${(r*0.7).toFixed(1)}
+                 M${(32+10.6).toFixed(1)} ${(y-10.6).toFixed(1)}l${(-r*0.7).toFixed(1)} ${(r*0.7).toFixed(1)}"/>
+      </g>`:""}
+    </g>
+    ${linie>0?`<path d="M11 ${SONNE_HORIZONT}h42" stroke="#7E8DA1" stroke-width="2.8"
+       stroke-linecap="round" opacity="${(0.85*linie).toFixed(2)}"/>`:""}`;
+}
+
+function weatherIcon(spec, cls="wicon"){
+  if(typeof spec==="string") spec=LEGACY[spec]||{sky:2};
+  const common=`class="${cls}" viewBox="0 0 64 64" aria-hidden="true"`;
+  if(spec.fog) return `<svg ${common}>${svgG([0,-2,.95],SKY_CLOUD_G)}${svgG([0,-2,.95],SKY_FOG)}</svg>`;
+
+  let stufe=Math.max(0,Math.min(4,Number(spec.sky||0)));
+  const nass=spec.wet||"", blitz=!!spec.storm;
+  if(nass||blitz) stufe=Math.max(stufe,1);         /* es braucht eine Wolke */
+  const L=SKY_LAGE[stufe], teile=[];
+  if(L.sonne){
+    const hoehe=spec.elev;
+    if(typeof hoehe==="number"){
+      /* Der Mond blendet auf, waehrend die Sonne untergeht. Beide koennen
+         kurz gleichzeitig zu sehen sein, genau wie draussen. */
+      const mond=Math.max(0,Math.min(1,(0-hoehe)/6));
+      if(mond>0) teile.push(`<g opacity="${mond.toFixed(2)}">${SKY_STARS}${svgG(L.sonne,SKY_MOON)}</g>`);
+      if(hoehe>SONNE_UNTEN) teile.push(svgG(L.sonne,sonneVerlauf(hoehe)));
+    }
+    else if(spec.night){ teile.push(SKY_STARS); teile.push(svgG(L.sonne,SKY_MOON)); }
+    else teile.push(svgG(L.sonne,SKY_SUN));
+  }
+  if(L.wolke) teile.push(svgG(L.wolke,(nass||blitz)?SKY_CLOUD_G:SKY_CLOUD));
+  if(L.wolke&&(nass||blitz)){
+    const lg=nassLage(L.wolke);
+    if(nass==="schnee"||nass==="schnee-viel") teile.push(svgG(lg,nassFlocken(nass==="schnee-viel")));
+    else if(nass) teile.push(svgG(lg,nassStriche(nass)));
+    if(blitz) teile.push(svgG(lg,SKY_BOLT));
+  }
+  if(spec.frost) teile.push(`<g transform="translate(0 0) scale(.95)">${frostKristall(spec.frost)}</g>`);
+  if(spec.wind)  teile.push(`<g transform="translate(37 0) scale(1.05)">${windsack(spec.wind)}</g>`);
+  return `<svg ${common}>${teile.join("")}</svg>`;
+}
+
+/*
+  Windstufe fuer den Windsack im Symbol, an der Beaufortskala und den
+  Warnstufen des DWD orientiert. Die Wertzeile faerbt sich schon ab 35 km/h in
+  Boeen ein, das ist fuer ein Zeichen am Symbol zu frueh.
+*/
+function windLevel(speed,gust){
+  speed=Number(speed||0); gust=Number(gust||0);
+  if(gust>=55||speed>=34) return 2;
+  if(gust>=38||speed>=24) return 1;
+  return 0;
+}
+/* Frost wie der Wind in zwei Stufen: Bodenfrost und echter Frost. */
+function frostLevel(tmin){
+  tmin=Number(tmin);
+  if(!isFinite(tmin)) return 0;
+  if(tmin<0) return 2;
+  if(tmin<=3) return 1;
+  return 0;
+}
+/* Temperaturfarbe: warm nach rot, mild nach gruen, kalt nach blau. Stufen
+   statt weichem Verlauf, sonst sind benachbarte Werte nicht zu trennen. */
+function tempFarbe(t){
+  t=Number(t);
+  if(!isFinite(t)) return "var(--text)";
+  if(t>=30) return "#FF3B30";
+  if(t>=25) return "#FF6A3D";
+  if(t>=20) return "#FF9A3C";
+  if(t>=16) return "#E8C13C";
+  if(t>=5)  return "#4CC76A";
+  if(t>=0)  return "#5FD0C8";
+  if(t>=-8) return "#58B0FF";
+  return "#8E9BFF";
+}
+const tempSpan=v=>`<span style="color:${tempFarbe(v)}">${deg(v)}</span>`;
+
+/* Die Beschriftung folgt derselben Stufe wie das Symbol. Ohne das stand
+   "sonnig" neben einem Bild mit Wolke. */
+function specLabel(spec,icon){
+  /* Waehrend die Sonne den Horizont kreuzt, heisst es weder Tag noch Nacht */
+  if(spec&&typeof spec.elev==="number"&&spec.elev>-6&&spec.elev<6
+     &&!spec.fog&&!spec.wet&&!spec.storm) return "Dämmerung";
+  if(!spec||spec.fog||spec.wet||spec.storm||spec.night) return ICON_LABEL[icon]||"";
+  return TAG_NAMEN[Math.max(0,Math.min(4,Number(spec.sky||0)))];
+}
+const ICON_LABEL={
+  clear:"sonnig", partly:"sonnig mit Wolken", cloud:"bedeckt",
+  night_clear:"klare Nacht", night_partly:"Nacht, teils Wolken",
+  fog:"neblig", drizzle:"Nieselregen", rain:"Regen", snow:"Schnee", storm:"Gewitter"
+};
+
+function wmoText(c){
+  c=Number(c);
+  if(c===0)return"klar";
+  if(c===1)return"überwiegend klar";
+  if(c===2)return"teils bewölkt";
+  if(c===3)return"bedeckt";
+  if([45,48].includes(c))return"Nebel";
+  if([51,53,55].includes(c))return"Nieselregen";
+  if([56,57].includes(c))return"gefrierender Niesel";
+  if([61,63,65].includes(c))return"Regen";
+  if([66,67].includes(c))return"gefrierender Regen";
+  if([71,73,75,77].includes(c))return"Schnee";
+  if([80,81,82].includes(c))return"Regenschauer";
+  if([85,86].includes(c))return"Schneeschauer";
+  if([95,96,99].includes(c))return"Gewitter";
+  return"unbekannt ("+c+")";
+}
+
+/*
+  Icon selection.
+
+  Cloud cover percentages alone are a bad predictor of "do I see the sun".
+  Open-Meteo/ICON regularly reports 80-100 % total cover for an hour that also
+  carries 60 minutes of sunshine duration and 550 W/m2 of shortwave radiation.
+  So for daylight hours the sky symbol is derived from how much solar energy
+  actually reaches the ground, measured against the clear-sky maximum
+  (terrestrial_radiation is the extraterrestrial value; ~0.78 of it arrives on a
+  clean, cloud-free day). Cloud cover only caps the "fully sunny" case.
+  At night there is no radiation signal, so total cloud cover is all we have.
+*/
+const CLEAR_SKY_FACTOR=0.78;
+
+/*
+  Wie viel des Himmels die Wolken wirklich zudecken.
+
+  cloud_cover zaehlt jede Schicht voll, auch einen duennen Schleier aus
+  Zirren in zehn Kilometern Hoehe. Am 26.09.2026 meldete ICON den ganzen Tag
+  94 bis 100 Prozent, ausschliesslich hohe Wolken, bei 60 Minuten Sonne in
+  jeder Stunde, und die Anlage auf dem Dach machte 47,5 kWh. Die Seite zeigte
+  dazu "bedeckt".
+
+  Deshalb werden die Schichten gewichtet: tiefe Wolken sind dicht, mittlere
+  meist, hohe fast nie. Die Schichten ueberlappen zufaellig, daher das
+  Produkt der Luecken statt einer Summe. Fehlen die Schichten, bleibt es bei
+  der Gesamtbedeckung.
+
+  Geprueft ueber 14 Tage gegen ICONs eigene Sonnenscheindauer: vorher waren
+  53 Prozent der trockenen Tagesstunden zu truebe dargestellt und 3 Prozent
+  zu freundlich, jetzt 21 und 10.
+*/
+function wolkenWirkung(o){
+  const l=o.low, m=o.mid, h=o.high;
+  if(l==null&&m==null&&h==null) return Number(o.tot??o.cloud??0);
+  return 100*(1-(1-Number(l||0)/100)*(1-0.8*Number(m||0)/100)*(1-0.35*Number(h||0)/100));
+}
+/* Nur hohe Wolken: dann sagt die Prozentzahl wenig ueber die Sonne. */
+const nurHoheWolken=o=>Number(o.low||0)<10&&Number(o.mid||0)<10&&Number(o.high||0)>=40;
+
+function skyDecision(o){
+  const code=Number(o.code||0);
+  const precip=Number(o.precip||0), pop=Number(o.pop||0);
+  const toa=Number(o.toa||0), swrad=Number(o.swrad||0);
+  /* Die wirksame Bewoelkung, nicht die gemeldete. Siehe wolkenWirkung. */
+  const tot=wolkenWirkung(o);
+  /* the hour counts as daylight when its midpoint lies between sunrise and
+     sunset; radiation is only the fallback when those times are missing */
+  const day=typeof o.isDay==="boolean"?o.isDay:toa>15;
+
+  const clearSky=toa>0?CLEAR_SKY_FACTOR*toa:0;
+  const ratio=clearSky>0?Math.min(1.25,swrad/clearSky):0;
+  const sunFrac=Math.max(0,Math.min(1,Number(o.sunSec||0)/3600));
+  /* Sonnenscheindauer ist nach WMO die Zeit mit ueber 120 W/m2 direkter
+     Strahlung, also genau "die Sonne ist zu sehen". Sie zaehlt deshalb voll,
+     sobald die Sonne hoch genug steht, dass klare Luft die 120 ueberhaupt
+     schafft. Darunter, morgens und abends, sagt sie wenig und wird wie
+     bisher nur zur Haelfte genommen. */
+  const hochGenug=typeof o.elev!=="number"||o.elev>=10;
+  const brightness=hochGenug?Math.max(ratio,sunFrac):Math.max(ratio,sunFrac*0.55);
+
+  /*
+    Himmelsstufe 0 bis 4 aus der Bewoelkung, nach oben korrigiert, wenn die
+    Strahlung trotz gemeldeter Wolken hoch ist. Damit bekommen auch die
+    Stundenkacheln die fuenf Abstufungen statt nur klar, Mix und bedeckt.
+  */
+  let stufe = tot<15?0 : tot<40?1 : tot<65?2 : tot<88?3 : 4;
+  if(day&&brightness>=0.85&&stufe>1) stufe=1;
+  else if(day&&brightness>=0.60&&stufe>2) stufe=2;
+  const d={ratio,sunFrac,brightness,clearSky,day,stufe,wirkung:tot};
+
+  /* Der Name bleibt fuer die Beschriftung erhalten, dazu kommt die Vorschrift
+     fuer das zusammengesetzte Symbol. */
+  const mit=(icon,spec,why)=>({...d,icon,
+    spec:{sky:stufe,night:!day,...(typeof o.elev==="number"?{elev:o.elev}:{}),...spec},why});
+
+  if([95,96,99].includes(code))                 return mit("storm",  {wet:"regen",storm:true}, "WMO-Code "+code+" = Gewitter");
+  if([71,73,75,77,85,86].includes(code))        return mit("snow",   {wet:precip>=3?"schnee-viel":"schnee"}, "WMO-Code "+code+" = Schnee");
+  if([61,63,65,66,67,80,81,82].includes(code))  return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, "WMO-Code "+code+" = Regen");
+  if(precip>=0.3)                               return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, n1(precip)+NB+"mm Niederschlag");
+  if([51,53,55,56,57].includes(code)||precip>0) return mit("drizzle",{wet:"niesel"}, "leichter Niederschlag ("+n1(precip)+NB+"mm)");
+  if([45,48].includes(code))                    return mit("fog",    {fog:true}, "WMO-Code "+code+" = Nebel");
+  /* Hohe Wahrscheinlichkeit, aber keine Menge im Modell. Mai bis September
+     2026 war es in solchen Stunden nur zu 39 Prozent wirklich nass, und dann
+     im Mittel 0,15 mm. Das ist ein Hauch, kein Regen, also das leichte
+     Symbol statt des vollen. */
+  if(pop>=75)                                   return mit("drizzle",{wet:"niesel"}, "Regenrisiko "+pop+" %, aber keine Menge");
+
+  if(!day){
+    if(tot<25)  return mit("night_clear", {sky:0}, "Nacht, "+Math.round(tot)+" % Bewölkung");
+    if(tot<75)  return mit("night_partly",{sky:2}, "Nacht, "+Math.round(tot)+" % Bewölkung");
+    return        mit("cloud",            {sky:4}, "Nacht, "+Math.round(tot)+" % Bewölkung");
+  }
+
+  /* near sunrise and sunset the long atmospheric path depresses the radiation
+     ratio, so a nearly cloud-free sky is trusted on cloud cover alone */
+  if(tot<25)
+    return mit("clear", {}, `nur ${Math.round(tot)} % Bewölkung`);
+  if(brightness>=0.70&&tot<50)
+    return mit("clear", {}, `Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel, nur ${Math.round(tot)} % Bewölkung`);
+  if(brightness>=0.40||tot<75)
+    return mit("partly",{}, `Helligkeit ${(brightness*100).toFixed(0)} % vom Klarhimmel bei ${Math.round(tot)} % Bewölkung`);
+  return   mit("cloud", {}, `nur ${(brightness*100).toFixed(0)} % Helligkeit bei ${Math.round(tot)} % Bewölkung`);
+}
+
+const CLOUD_HOURS=7;
+/*
+  19 x 10 over the padded viewport gives roughly 12 km cells instead of the
+  26 km this started with. 25 x 13 was tried first and was a planning mistake:
+  325 points times 25 hourly fetches is 8125 of a 10000 request daily budget,
+  which leaves no room for page reloads, and one afternoon of testing exhausted
+  the quota. 190 points times 25 fetches is 4750, about half the budget.
+*/
+const GRID_X=19, GRID_Y=10;
+const LAT_SPAN_FB=1.30, LON_SPAN_FB=2.15;  /* only used if the map has no size yet */
+const GRID_PAD=0.12;   /* raster margin beyond the visible map */
+const EDGE_FADE=0.05;  /* alpha taper, ends well inside that off-screen margin */
+const SS=8;   /* raster stays 145 x 73 px, so the canvas cost is unchanged */
+let gridBox=null;
+
+/*
+  The raster has to cover more ground than the map shows.
+  Until v20 it was a fixed 2.15 x 1.30 degree box, while the map at zoom 7.9
+  shows about 3.57 x 1.08 degrees. The western data edge therefore fell inside
+  the picture at lon 5.925 and drew a dead straight vertical line across the
+  map near Aachen, which looked like a weather front. The box is now derived
+  from the map viewport and padded, and the alpha fades out inside that padding,
+  so a data edge can never reach the visible area.
+*/
+function computeGridBox(){
+  let s=LAT-LAT_SPAN_FB/2, n=LAT+LAT_SPAN_FB/2,
+      w=LON-LON_SPAN_FB/2, e=LON+LON_SPAN_FB/2;
+  try{
+    const b=cloudMap.getBounds();
+    const dLat=b.getNorth()-b.getSouth(), dLon=b.getEast()-b.getWest();
+    if(dLat>0.05&&dLon>0.05){
+      s=b.getSouth()-dLat*GRID_PAD; n=b.getNorth()+dLat*GRID_PAD;
+      w=b.getWest() -dLon*GRID_PAD; e=b.getEast() +dLon*GRID_PAD;
+    }
+  }catch(err){ /* keep the fallback box */ }
+  return {s,n,w,e};
+}
+
+/*
+  Farben der Karte, drei getrennte Bedeutungen, die sich nicht ueberschneiden:
+  Wolken weiss bis grau, Regen in Blau von hell bis dunkel, Gewitter von Gelb
+  ueber Rot bis Lila. Vorher lief der Regen durch den ganzen Regenbogen, und
+  starker Regen war genauso gelb und rot wie ein Gewitter.
+*/
+const mischRGB=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*Math.max(0,Math.min(1,t)));
+function stufeRGB(v,stufen){
+  if(v<=stufen[0][0]) return stufen[0][1];
+  for(let i=1;i<stufen.length;i++)
+    if(v<=stufen[i][0]) return mischRGB(stufen[i-1][1],stufen[i][1],
+      (v-stufen[i-1][0])/(stufen[i][0]-stufen[i-1][0]));
+  return stufen[stufen.length-1][1];
+}
+/* Die helle Seite ist ein lichtes Grau, kein Weiss. Auf den hellen Kacheln
+   von OpenStreetMap verschwindet reines Weiss, und duenne Wolken waren dann
+   gar nicht mehr zu sehen. */
+const WOLKE_HELL=[214,221,230], WOLKE_DUNKEL=[104,113,127];
+const REGEN_STUFEN=[[0.1,[176,214,255]],[0.5,[118,178,250]],[1,[70,140,236]],
+                    [2,[42,104,212]],[4,[30,74,178]],[8,[22,46,128]]];
+const STURM_STUFEN=[[1,[255,214,74]],[2,[255,150,46]],[3,[232,64,58]],[4,[150,60,205]]];
+function rainRGB(mm){
+  const v=Number(mm||0);
+  return v<0.1?null:stufeRGB(v,REGEN_STUFEN);
+}
+/* Gewitterstufe eines Punkts: nur wo ICON ein Gewitter rechnet, also Code
+   95, 96 oder 99. CAPE allein zeigt nur, dass eines entstehen koennte, und
+   lag Mai bis September 2026 an der Haelfte der Tage daneben. Die Staerke
+   kommt aus der Regenmenge, Hagel (96, 99) ist immer die hoechste Stufe. */
+function sturmStufe(code,mm){
+  if(![95,96,99].includes(code)) return 0;
+  if(code>=96) return 4;
+  /* Stetig statt in Stufen: 0 mm ist 1, 2 mm ist 2, 5 mm ist 3, ab 15 mm
+     ist 4. Mit harten Stufen zeichnete das grobe Raster eckige Kerne. */
+  const m=Math.max(0,Number(mm||0));
+  return m<2?1+m/2 : m<5?2+(m-2)/3 : Math.min(4,3+(m-5)/10);
+}
+/* Ein Blitz je Gewittergebiet, an seiner staerksten Stelle. ICON meldet ein
+   Gewitter oft auf vielen Nachbarpunkten zugleich, und ein Blitz auf jedem
+   ergab ein Raster aus zwanzig Blitzen. Zwei Blitze stehen mindestens drei
+   Rasterfelder auseinander, also gut 35 km. */
+function blitzOrte(sturm,pts){
+  const kand=[];
+  for(let o=0;o<sturm.length;o++) if(sturm[o]>=1) kand.push(o);
+  kand.sort((a,b)=>sturm[b]-sturm[a]);
+  const wahl=[];
+  for(const o of kand){
+    const x=o%GRID_X, y=Math.floor(o/GRID_X);
+    if(wahl.every(w=>Math.hypot(w.x-x,w.y-y)>=3)) wahl.push({x,y,o});
+  }
+  return wahl.filter(w=>pts[w.o]).map(w=>({lat:pts[w.o].lat,lon:pts[w.o].lon,stufe:sturm[w.o]}));
+}
+function cloudFrameLabel(iso,idx){
+  const t=new Date(iso).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+  if(radarLegend&&!radarLegend.dataset.done){
+    radarLegend.innerHTML=`weiß bis grau = Wolken · Blau = Regen · Gelb bis Lila = Gewitter`;
+    radarLegend.dataset.done="1";
+  }
+  return idx===0?`Jetzt / ${t}`:`+${idx} h · ${t}`;
+}
+function makeGrid(box){
+  const pts=[];
+  const dLat=(box.n-box.s)/(GRID_Y-1), dLon=(box.e-box.w)/(GRID_X-1);
+  for(let y=0;y<GRID_Y;y++){
+    const lat=box.s+y*dLat;
+    for(let x=0;x<GRID_X;x++) pts.push({lat,lon:box.w+x*dLon,x,y});
+  }
+  return {pts,dLat,dLon};
+}
+function bilinear(f,W,H,fx,fy){
+  const x0=Math.max(0,Math.min(W-1,Math.floor(fx))), x1=Math.min(W-1,x0+1);
+  const y0=Math.max(0,Math.min(H-1,Math.floor(fy))), y1=Math.min(H-1,y0+1);
+  const tx=fx-x0, ty=fy-y0;
+  const a=f[y0*W+x0], b=f[y0*W+x1], c=f[y1*W+x0], e=f[y1*W+x1];
+  return (a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+e*tx)*ty;
+}
+/* raised-cosine taper, 1 in the interior, 0 at the very border */
+function taper(t){
+  if(t>=EDGE_FADE) return 1;
+  if(t<=0) return 0;
+  return 0.5-0.5*Math.cos(Math.PI*t/EDGE_FADE);
+}
+/* rasterise one hour into a data URL; image rows run north -> south */
+function renderFrame(cloud,precip,sturm){
+  const W=(GRID_X-1)*SS+1, H=(GRID_Y-1)*SS+1;
+  const cv=document.createElement("canvas");
+  cv.width=W; cv.height=H;
+  const ctx=cv.getContext("2d");
+  const img=ctx.createImageData(W,H);
+  for(let py=0;py<H;py++){
+    /* grid row 0 is the southern edge, image row 0 is the northern edge */
+    const gy=(GRID_Y-1)-py/SS;
+    const ey=taper(Math.min(py,H-1-py)/(H-1));
+    for(let px=0;px<W;px++){
+      const gx=px/SS;
+      const edge=Math.min(ey,taper(Math.min(px,W-1-px)/(W-1)));
+      const cc=Math.max(0,Math.min(100,bilinear(cloud,GRID_X,GRID_Y,gx,gy)));
+      const mm=Math.max(0,bilinear(precip,GRID_X,GRID_Y,gx,gy));
+      const st=sturm?Math.max(0,bilinear(sturm,GRID_X,GRID_Y,gx,gy)):0;
+      /* Wolken: duenn und weiss, dicht und grau. Die Deckkraft waechst mit. */
+      let [r,g,b]=mischRGB(WOLKE_HELL,WOLKE_DUNKEL,Math.pow(cc/100,1.3));
+      /* Dichte Wolken deutlich grauer und deckender als duenne, sonst sieht
+         man auf der Karte nicht, wo es wirklich zu ist. */
+      let a=cc<3?0:0.06+Math.pow(cc/100,1.1)*0.50;
+      const rc=rainRGB(mm);
+      if(rc){
+        const ra=Math.min(.82,.26+Math.sqrt(mm)*0.40);
+        r=r*(1-ra)+rc[0]*ra; g=g*(1-ra)+rc[1]*ra; b=b*(1-ra)+rc[2]*ra;
+        a=Math.max(a,ra);
+      }
+      /* Gewitter zuletzt, es liegt ueber allem. Unter einer halben Stufe ist
+         es nur der Rand der Glaettung und bleibt weg. */
+      /* Weicher Einstieg zwischen 0,3 und 1, sonst schneidet die Schwelle
+         einen Zacken in den Rand der Zelle. */
+      const ein=Math.max(0,Math.min(1,(st-0.3)/0.7)), weich=ein*ein*(3-2*ein);
+      if(weich>0){
+        const sc=stufeRGB(Math.max(1,st),STURM_STUFEN), sa=weich*Math.min(.9,.55+0.1*st);
+        r=r*(1-sa)+sc[0]*sa; g=g*(1-sa)+sc[1]*sa; b=b*(1-sa)+sc[2]*sa;
+        a=Math.max(a,sa);
+      }
+      const o=(py*W+px)*4;
+      img.data[o]=r; img.data[o+1]=g; img.data[o+2]=b;
+      img.data[o+3]=Math.round(a*edge*255);
+    }
+  }
+  ctx.putImageData(img,0,0);
+  return cv.toDataURL("image/png");
+}
+
+/* ---------------------------------------------------------------- Karte */
+let cloudMap=L.map("cloudMap",{zoomControl:false,attributionControl:true,dragging:false,scrollWheelZoom:false,
+  doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false}).setView([LAT,LON],7.9);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(cloudMap);
+const punkt=L.circleMarker([LAT,LON],{radius:5,weight:2,color:"#fff",fillColor:"#ff3b30",fillOpacity:1})
+  .addTo(cloudMap).bindTooltip("Uedorf",{permanent:true,direction:"right",offset:[7,0]});
+let ebenen=[], marker=[];
+
+/* ---------------------------------------------------------------- Zeitschritte */
+/* 0 bis 120 Minuten in Viertelstunden im Radar, dann Uebergang, dann ICON stuendlich */
+const SCHRITTE=[0,15,30,45,60,75,90,105,120,150,180,240,300,360];
+const quelleVon=m=>m<=120?"radar":m<180?"uebergang":"icon";
+
+/* ---------------------------------------------------------------- das erfundene Wetter */
+function rausch(saat){ const h=(x,y)=>{ let v=(x*374761393+y*668265263+saat*1442695041)|0;
+    v=Math.imul(v^(v>>>13),1274126177); return ((v^(v>>>16))>>>0)/4294967296; };
+  const g=t=>t*t*(3-2*t);
+  return (x,y)=>{ const xi=Math.floor(x),yi=Math.floor(y),u=g(x-xi),v=g(y-yi);
+    const a=h(xi,yi),b=h(xi+1,yi),c=h(xi,yi+1),d=h(xi+1,yi+1); return (a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v; }; }
+const N1=rausch(3), N2=rausch(11);
+const fbm=(n,x,y,o=4)=>{ let s=0,a=.5,f=1,t=0; for(let i=0;i<o;i++){ s+=a*n(x*f,y*f); t+=a; a*=.5; f*=2.1; } return s/t; };
+let lage="schauer";
+/* x, y in km vom Suedwesteck, t in Minuten. Alles zieht mit 36 km/h nach Osten. */
+function wetter(x,y,t){
+  const k=Number(document.getElementById("staerke").value), v=0.6, xs=x-v*t;
+  if(lage==="schauer"){
+    const n=fbm(N1,xs/13,y/13); const mm=Math.max(0,n-0.60)*48*k;
+    return {mm, blitz:0};
+  }
+  if(lage==="front"){
+    const d=xs-(20+0.38*y), band=Math.exp(-d*d/(2*16*16));
+    const mm=band*(0.6+0.9*fbm(N2,xs/9,y/9))*4.5*k + Math.max(0,fbm(N1,xs/8,y/8)-0.66)*band*30*k;
+    return {mm, blitz:0};
+  }
+  /* Gewitter: eine Linie einzelner Zellen, jede ein paar Kilometer gross */
+  const zellen=lage==="gewitter"
+    ? [[30,20,7],[45,45,6],[58,70,8],[74,96,6],[86,120,7]]
+    : [[42,40,11],[66,82,13]];
+  let mm=Math.max(0,fbm(N1,xs/14,y/14)-0.66)*20*k, blitz=0;
+  /* Zellen sind nicht rund. Die Koordinaten werden mit Rauschen verbogen, und
+     die Staerke schwankt fein, dann franst der Rand aus wie im echten Radar. */
+  const xw=xs+9*(fbm(N2,xs/9,y/9)-0.5), yw=y+9*(fbm(N1,xs/9+7,y/9)-0.5);
+  for(const [cx,cy,r] of zellen){
+    const d=Math.hypot(xw-cx,(yw-cy)*1.3);
+    const kern=Math.exp(-Math.pow(d/r,1.6)/1.3)*(0.45+0.9*fbm(N2,xs/3.2,y/3.2,3));
+    const spitze=(lage==="unwetter"?70:28)*k;
+    mm=Math.max(mm,kern*spitze);
+    if(kern*spitze>=6) blitz=Math.max(blitz, lage==="unwetter"&&kern>0.72?4:Math.min(3.6,1+kern*spitze/12));
+  }
+  return {mm, blitz};
+}
+function wolken(x,y,t){
+  const basis={schauer:45,front:70,gewitter:55,unwetter:65}[lage];
+  return Math.max(0,Math.min(100,basis+40*(fbm(N2,(x-0.6*t)/30,y/30)-0.5)*2));
+}
+
+/* ---------------------------------------------------------------- Radarbild */
+/* Die Klassen des DWD-Radars, jeweils ihr Mittelwert. So sieht auch das echte
+   umgefaerbte Radar aus: stufig, nicht stetig. */
+const KLASSEN=[[.1,.15],[.2,.3],[.4,.7],[1,1.5],[2,2.5],[3,4],[5,6.25],[7.5,8.75],[10,12.5],[15,22.5],[30,37.5],[45,60],[75,87.5],[100,125],[150,175]];
+const inKlasse=mm=>{ let v=null; for(const [ab,m] of KLASSEN) if(mm>=ab) v=m; return v; };
+function radarBild(t,b){
+  const sw=b.getSouthWest(), ne=b.getNorthEast();
+  const kmX=(ne.lng-sw.lng)*111.32*Math.cos(LAT*Math.PI/180), kmY=(ne.lat-sw.lat)*111.32;
+  const W=Math.round(kmX), H=Math.round(kmY);          /* ein Pixel je Kilometer, wie das Radar */
+  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+  const cx=cv.getContext("2d"), d=cx.createImageData(W,H);
+  for(let py=0;py<H;py++) for(let px=0;px<W;px++){
+    const y=H-1-py, w=wetter(px,y,t), o=(py*W+px)*4;
+    let r=0,g=0,bl=0,a=0;
+    const mm=inKlasse(w.mm);
+    if(mm!=null){ const c=rainRGB(mm); r=c[0]; g=c[1]; bl=c[2]; a=Math.min(.82,.26+Math.sqrt(mm)*.40); }
+    if(w.blitz>=1){ const c=stufeRGB(w.blitz,STURM_STUFEN), sa=Math.min(.9,.55+.1*w.blitz);
+      r=r*(1-sa)+c[0]*sa; g=g*(1-sa)+c[1]*sa; bl=bl*(1-sa)+c[2]*sa; a=Math.max(a,sa); }
+    d.data[o]=r; d.data[o+1]=g; d.data[o+2]=bl; d.data[o+3]=Math.round(a*255);
+  }
+  cx.putImageData(d,0,0);
+  return cv.toDataURL();
+}
+/* ---------------------------------------------------------------- ICON-Bild */
+/* ICON sieht dasselbe Wetter nur an 19 mal 10 Punkten, gemittelt ueber seine
+   Gitterzelle von gut zwoelf Kilometern. Gezeichnet mit dem echten Code der Wand. */
+function iconBild(t,mitRegen){
+  const N=GRID_X*GRID_Y, cloud=new Float32Array(N), precip=new Float32Array(N), sturm=new Float32Array(N);
+  const {pts}=makeGrid(gridBox), b=cloudMap.getBounds(), sw=b.getSouthWest();
+  const km=(lat,lon)=>[(lon-sw.lng)*111.32*Math.cos(LAT*Math.PI/180),(lat-sw.lat)*111.32];
+  for(const p of pts){
+    const o=p.y*GRID_X+p.x, [x,y]=km(p.lat,p.lon);
+    let s=0,bl=0,n=0;
+    for(let dx=-5;dx<=5;dx+=2.5) for(let dy=-5;dy<=5;dy+=2.5){ const w=wetter(x+dx,y+dy,t); s+=w.mm; bl=Math.max(bl,w.blitz); n++; }
+    const mm=s/n;
+    cloud[o]=mm>0.1?96:wolken(x,y,t);
+    if(mitRegen){ precip[o]=mm; sturm[o]=bl>=1?sturmStufe(lage==="unwetter"&&bl>=4?96:95,mm):0; }
+  }
+  return {url:renderFrame(cloud,precip,sturm), sturm, pts};
+}
+
+/* ---------------------------------------------------------------- zeichnen */
+function zeichne(){
+  gridBox=computeGridBox();
+  const i=+document.getElementById("schritt").value, m=SCHRITTE[i];
+  const heute=document.getElementById("heute").checked, q=heute?"icon":quelleVon(m);
+  for(const e of ebenen) cloudMap.removeLayer(e); ebenen=[];
+  for(const e of marker) cloudMap.removeLayer(e); marker=[];
+  const gb=[[gridBox.s,gridBox.w],[gridBox.n,gridBox.e]], b=cloudMap.getBounds();
+  /* Wolken immer aus ICON. Regen und Gewitter je nach Zeitpunkt. */
+  const ic=iconBild(m,q!=="radar");
+  ebenen.push(L.imageOverlay(ic.url,gb,{interactive:false,className:"cloudfield"}).addTo(cloudMap));
+  if(q!=="icon"){
+    const ueber=q==="uebergang";
+    ebenen.push(L.imageOverlay(radarBild(m,b),b,{interactive:false,opacity:ueber?0.5:1,className:"radarbild"}).addTo(cloudMap));
+  }
+  if(q!=="radar"){
+    for(const st of blitzOrte(ic.sturm,ic.pts)) marker.push(L.marker([st.lat,st.lon],{interactive:false,icon:L.divIcon({className:"",
+      html:`<div style="width:30px;height:30px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))">${weatherIcon({sky:4,wet:"regen",storm:true},"kartensymbol")}</div>`,
+      iconSize:[30,30],iconAnchor:[15,15]})}).addTo(cloudMap));
+  }
+  punkt.bringToFront();
+  const z=new Date(); z.setMinutes(Math.floor(z.getMinutes()/15)*15+m,0,0);
+  const uhr=z.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+  const was=q==="radar"?(m===0?"Radar":"Radar-Vorhersage"):q==="uebergang"?"Radar geht in ICON über":"ICON";
+  /* kurz, wie auf der Wand, sonst schiebt sich die Legende darueber */
+  const kurz=q==="radar"?"Radar":q==="uebergang"?"Übergang":"ICON";
+  document.getElementById("radarTime").textContent=(m===0?`Jetzt · ${uhr}`:`+${m>=60?(m/60).toFixed(m%60?1:0).replace(".",",")+" h":m+" min"}`)+` · ${kurz}`;
+  document.getElementById("o_schritt").textContent=m===0?"jetzt":"+"+(m<60?m+" min":(m/60).toString().replace(".",",")+" h");
+  document.getElementById("o_staerke").textContent=String(document.getElementById("staerke").value).replace(".",",")+"×";
+  document.getElementById("quelle").textContent=heute?"alles ICON, wie heute":"Radar: DWD · ab +2 h ICON";
+}
+document.querySelectorAll("[data-lage]").forEach(k=>k.addEventListener("click",()=>{
+  document.querySelectorAll("[data-lage]").forEach(x=>x.classList.toggle("an",x===k)); lage=k.dataset.lage; zeichne(); }));
+["schritt","staerke"].forEach(id=>document.getElementById(id).addEventListener("input",zeichne));
+document.getElementById("heute").addEventListener("change",zeichne);
+document.getElementById("gross").addEventListener("change",e=>{
+  document.getElementById("rahmen").classList.toggle("gross",e.target.checked);
+  setTimeout(()=>{ cloudMap.invalidateSize(); cloudMap.setView([LAT,LON],e.target.checked?8.9:7.9); setTimeout(zeichne,200); },50); });
+let spiel=null;
+document.getElementById("spiel").addEventListener("click",e=>{
+  if(spiel){ clearInterval(spiel); spiel=null; e.target.textContent="Abspielen"; return; }
+  e.target.textContent="Anhalten";
+  spiel=setInterval(()=>{ const s=document.getElementById("schritt"); s.value=(+s.value+1)%SCHRITTE.length; zeichne(); },1400); });
+/* ?lage=gewitter&schritt=4&heute=1 zum Pruefen */
+cloudMap.whenReady(()=>setTimeout(()=>{ const q=new URLSearchParams(location.search);
+  if(q.get("lage")) { lage=q.get("lage"); document.querySelectorAll("[data-lage]").forEach(x=>x.classList.toggle("an",x.dataset.lage===lage)); }
+  if(q.get("schritt")) document.getElementById("schritt").value=q.get("schritt");
+  if(q.get("heute")) document.getElementById("heute").checked=true;
+  zeichne(); },200));
+</script></body></html>

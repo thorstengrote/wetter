@@ -138,8 +138,17 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 .solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px}
 .solar:active{background:rgba(255,255,255,.06)}
 .solar[hidden]{display:none}
-.solarraster{display:grid;grid-template-columns:auto auto;column-gap:9px;row-gap:5px;align-items:center}
-.solarraster .sr-links{display:flex;justify-content:center}
+/* Drei Spalten fester Breite: Batterie und Knoten auf einer Achse, schmale
+   Pfeilspalte, Streifen und Strahl buendig. 9 Pixel Fuge fuer den Akkupfeil. */
+.solarraster{display:grid;grid-template-columns:24px 22px auto;column-gap:5px;row-gap:9px;
+  align-items:center;position:relative}
+.solarraster .sr-links{display:flex;justify-content:center;align-items:center}
+/* Schrift genau wie "morgen" im Stundenstreifen */
+.kn{font-size:8.5px;font-weight:700;line-height:1;letter-spacing:.3px;color:#8b97a6;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.kn-quer{display:flex;flex-direction:column;align-items:center;gap:1.5px}
+.kn-senk{position:absolute;left:0;top:0;pointer-events:none}
+.pfz{height:.72em;width:auto;vertical-align:baseline;margin-right:1.5px;overflow:visible}
 
 .sdetail{
   position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
@@ -2423,12 +2432,10 @@ const SOLAR=(()=>{
     let teile, endIkon, endFarbe;
     if(knapp){
       teile=[[Math.min(pv,haus),"#ffd166","strom"],
-             [Math.max(0,-akku),F_AKKU,"akku"],
              [bez,F_BEZUG,"euro-"]];
       endIkon="haus"; endFarbe=F_EIGEN;
     }else{
       teile=[[Math.min(pv,haus),F_EIGEN,"haus"],
-             [Math.max(0,akku),F_AKKU,"akku"],
              [ein,F_EIN,"euro+"]];
       endIkon="pv"; endFarbe=F_SOC;
     }
@@ -2458,18 +2465,27 @@ const SOLAR=(()=>{
     const rahmen=teuer&&nutz>4?`<rect x=".6" y=".6" width="${(nutz-1.2).toFixed(1)}"
                               height="${h-1.2}" rx="3.4"
                               fill="none" stroke="${F_BEZUG}" stroke-width="1.2" opacity=".9"/>`:"";
-    /* Modul mit Pfeil nach rechts: der Strom geht hinaus. Haus mit Pfeil
-       nach links: das Haus bezieht. Rot, sobald Netzstrom fliesst. */
-    const pfeil=knapp?`<path d="M9 5H3M5 2.4 1.6 5 5 7.6"/>`:`<path d="M1 5h6M4.6 2.4 8 5 4.6 7.6"/>`;
-    const symbol=`<div style="display:flex;align-items:center;justify-content:center;gap:3px">
-      ${mini(endIkon,endFarbe,endIkon==="pv"?17:16)}
-      <svg width="10" height="10" viewBox="0 0 10 10" style="display:block;flex:0 0 auto">
-        <g fill="none" stroke="${teuer?"#ff9a8c":"#e8eef5"}" stroke-width="1.4" opacity=".9"
-           stroke-linecap="round" stroke-linejoin="round">${pfeil}</g></svg></div>`;
+    /* Das Symbol ist ein Knoten, jeder Strom erscheint genau einmal. Der Akku
+       laeuft nur ueber den senkrechten Pfeil und ist deshalb nicht im Strahl.
+       Der waagerechte Pfeil traegt, was wirklich in den Strahl geht oder aus
+       ihm kommt. So gehen die Zahlen auf: mittags 6,4 = 1,5 in den Akku plus
+       4,9 in den Strahl. Vorher stand abends zweimal dieselbe 1,0 da, einmal
+       am Akku und einmal im Strahl. Ist ein Strom null, fehlt sein Pfeil.
+       Pfeile drehen mit der Richtung, das Vorzeichen steht trotzdem. */
+    const vz=v=>(v>=0?"+":"\u2212")+Math.abs(v).toFixed(1).replace(".",",");
+    const G="#8b97a6";
+    const pfW=rechts=>`<svg width="8" height="5" viewBox="0 0 8 5" style="display:block"><path d="${rechts
+      ?"M.5 2.5h6.4M5 .8 6.9 2.5 5 4.2":"M7.5 2.5H1.1M3 .8 1.1 2.5 3 4.2"}" fill="none" stroke="${G}" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    const pfS=hoch=>`<svg class="pfz" viewBox="0 0 5 7"><path d="${hoch
+      ?"M2.5 6.6V.4M.9 2.1 2.5 .4 4.1 2.1":"M2.5 .4v6.2M.9 4.9 2.5 6.6 4.1 4.9"}" fill="none" stroke="${G}" stroke-width=".9" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    const summe0=teile.reduce((a,[v])=>a+v,0), wert=knapp?-summe0:summe0;
+    const symbol=mini(endIkon,endFarbe,endIkon==="pv"?17:16);
+    const quer=summe0>0.05?`<div class="kn-quer"><span class="kn">${vz(wert)}</span>${pfW(wert>=0)}</div>`:"";
+    const senk=Math.abs(akku)>0.05?`<span class="kn">${pfS(akku>0)}${vz(akku)}</span>`:"";
     const balken=`<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
            style="display:block;border-radius:4px;overflow:hidden">
         <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${skala}${s}${rahmen}</svg>`;
-    return {symbol,balken};
+    return {symbol,quer,senk,balken};
   }
 
   /* --- Der Block in der Kopfzeile ---------------------------------- */
@@ -2489,9 +2505,19 @@ const SOLAR=(()=>{
     const w=wohin();
     el.innerHTML=`<div class="solarraster">
       <div class="sr-links">${batterie(Number(jetzt.soc||0), Number(jetzt.akku||0)>0.05)}</div>
-      <div>${streifen(ST,44,m)}</div>
+      <div></div><div>${streifen(ST,44,m)}</div>
       <div class="sr-links">${w.symbol}</div>
-      <div>${w.balken}</div></div>`;
+      <div class="sr-links">${w.quer}</div><div>${w.balken}</div>
+      ${w.senk?`<div class="kn-senk">${w.senk}</div>`:""}</div>`;
+    /* Akkupfeil samt Zahl mittig auf die Achse und mittig in die Fuge */
+    const sk=el.querySelector(".kn-senk");
+    if(sk){
+      const r=el.querySelector(".solarraster"), R=r.getBoundingClientRect();
+      const a=r.children[0].querySelector("svg").getBoundingClientRect();
+      const y=r.children[3].querySelector("svg").getBoundingClientRect();
+      sk.style.left=(a.left-R.left+a.width/2-sk.offsetWidth/2).toFixed(2)+"px";
+      sk.style.top=(a.bottom-R.top+(y.top-a.bottom-sk.offsetHeight)/2).toFixed(2)+"px";
+    }
     if(document.getElementById("sdetail").classList.contains("on")) detailZeigen();
   }
 

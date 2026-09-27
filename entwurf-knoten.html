@@ -1,0 +1,1235 @@
+<!doctype html><meta charset=utf-8><style>
+:root{
+  --bg:#090c11;
+  --panel:#121821;
+  --panel2:#1a2230;
+  --panel3:#202b3a;
+  --fg:#f7f9fb;
+  --muted:#aeb8c5;
+  --line:#3a4657;
+  --blue:#6ec8ff;
+  --yellow:#ffd45c;
+  --orange:#ffb27f;
+}
+*{box-sizing:border-box}
+html,body{
+  margin:0;width:100%;height:100%;
+  background:var(--bg);color:var(--fg);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  overflow:hidden
+}
+body{padding:12px 16px 10px}
+/*
+  Ein Raster fuer alles.
+
+  --kachel ist die Breite einer Kachel, zwoelf davon plus elf Spalten fuellen
+  den Kasten genau aus. Die alte Formel rechnete einen Pixel je Kachel zu
+  wenig, dadurch blieben rechts zwoelf Pixel Rest, waehrend links die erste
+  Kachel buendig sass.
+
+  --rand gilt fuer alle Kaesten gleich, damit das Karteninnere auf derselben
+  Linie liegt wie die Tageskacheln daneben. Vorher waren es 4 gegen 10.
+
+  --wsize ist eine Symbolgroesse fuer Stunden- wie Tageskacheln. Vorher war
+  das Symbol in der Stundenkachel 38 Pixel gross und auf der Tageskachel 48,
+  dieselbe Wetterlage wirkte dadurch je nach Kachel unterschiedlich wichtig.
+*/
+:root{
+  --rand:6px;               /* Innenrand jedes Kastens */
+  --spalt:4px;              /* Abstand zwischen Kacheln */
+  --kastenspalt:6px;        /* Abstand zwischen Karte und Tagesleiste */
+  --legende:11px;           /* Breite der senkrechten Tageszeit-Legende */
+  --legspalt:4px;
+  --kachel:calc((100vw - 32px - 2px - 2*var(--rand) - 11*var(--spalt))/12);
+  --wsize:clamp(44px,8vh,104px);
+}
+#app{
+  height:100%;
+  display:grid;
+  grid-template-rows:auto 36fr 64fr;
+  gap:9px
+}
+header{
+  background:linear-gradient(180deg,#171f2a,#111821);
+  border:1px solid #4a586b;
+  border-radius:15px;
+  padding:10px 14px;
+  display:grid;
+  grid-template-columns:auto auto 1fr auto;
+  gap:0;
+  align-items:stretch;
+  box-shadow:0 0 0 1px rgba(255,255,255,.025) inset
+}
+/* Jeder Bereich der Kopfzeile bekommt dieselbe Einrueckung und eine
+   Trennlinie ueber die volle Hoehe. Gleicher Abstand links und rechts der
+   Linie, sonst kippt das Bild. */
+.zelle{display:flex;align-items:center;padding:2px 17px}
+.zelle:first-child{padding-left:2px}
+.zelle:last-child{padding-right:2px}
+.zelle + .zelle{border-left:1px solid #3a4756}
+header.ohne-solar{grid-template-columns:auto auto 1fr}
+.place{font-size:21px;font-weight:700}
+.clock{font-size:38px;font-weight:750;line-height:1}
+.date{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap}
+.date .stand{color:#8b97a6}
+.date .stale{color:#ff8a8a;font-weight:650}
+#stand{cursor:pointer;-webkit-user-select:none;user-select:none}
+.diag .evlog{
+  margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;
+  line-height:1.5;max-height:46vh;overflow:auto
+}
+.diag .evlog div{white-space:nowrap}
+.diag .evlog .e-ok{color:#8fcf9a}
+.diag .evlog .e-netz{color:#ff9e9e}
+.diag .evlog .e-http{color:#ffc46b}
+.diag .evlog .e-api{color:#ffc46b}
+.diag .evlog .e-json{color:#ffc46b}
+.current{display:flex;align-items:center;gap:12px}
+.current .icon{display:flex;align-items:center}
+.current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
+.current .temp{font-size:34px;font-weight:750}
+.current .details{font-size:13px;line-height:1.5;color:#c9d2dc;white-space:nowrap}
+/* Uhr, Datum und Jetzt-Zeilen brechen nie um. Sonst genuegte "Sonne 100 %"
+   statt "Sonne 57 %", und die Zeile wie auch das Datum links daneben
+   sprangen in eine zweite Zeile. Den Rest bekommt der Tagestext, der darf
+   zweizeilig sein. */
+.today{flex-direction:column;align-items:flex-start;cursor:pointer;
+  -webkit-user-select:none;user-select:none}
+.today:active{background:rgba(255,255,255,.06)}
+.today .summary{font-size:17px;font-weight:700}
+.today .sub{font-size:12px;color:#c5ced8;margin-top:3px}
+.today .extra{font-size:12px;color:#c5ced8;margin-top:4px}
+
+/* ---------- Himmel hinter der Kopfzeile ---------- */
+header{position:relative;overflow:hidden;isolation:isolate}
+header > .zelle{position:relative;z-index:2}
+.himmelhalter{position:absolute;inset:0;z-index:0;pointer-events:none}
+.hg{position:absolute;inset:0;pointer-events:none}
+/* Ein SVG ist ein ersetztes Element. Absolut gesetzt mit inset:0 dehnt es
+   sich nicht, es behaelt seine eigene Groesse, und die ist ohne viewBox
+   300 auf 150. Ohne diese Zeile faellt der Schnee nur im linken Viertel. */
+svg.hg{width:100%;height:100%}
+/* Auf farbigem Grund brauchen die matten Zeilen mehr Helligkeit. Die Werte
+   der Seite sind fuer einen fast schwarzen Kasten gewaehlt, auf einem
+   Abendhimmel traegt #8b97a6 nicht mehr. */
+/* Auf dem Himmel ist alle Schrift weiss, wie bei WetterOnline. Graue
+   Nebenzeilen wuerden auf dem hellen Blau untergehen. */
+header.himmel .date, header.himmel .date .stand, header.himmel .details,
+header.himmel .sub, header.himmel .extra, header.himmel .place,
+header.himmel .clock, header.himmel .temp, header.himmel .summary{color:#fff}
+header.himmel{border-color:rgba(255,255,255,.28)}
+header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
+
+/* ---------- Solar ---------- */
+.solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px}
+.solar:active{background:rgba(255,255,255,.06)}
+.solar[hidden]{display:none}
+.solarraster{display:grid;grid-template-columns:auto auto;column-gap:9px;row-gap:5px;align-items:center}
+.solarraster .sr-links{display:flex;justify-content:center}
+
+.sdetail{
+  position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
+  transform:translateY(-50%);max-height:93%;overflow:auto;
+  background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:14px;
+  padding:15px 22px 13px;display:none;cursor:pointer;
+  font-size:15px;line-height:1.6;color:#e6ecf3
+}
+.sdetail.on{display:block}
+.sdetail .schliessen{float:right;font-size:11px;color:#7d8896}
+.sdetail h4{margin:0 0 2px;font-size:21px;font-weight:750;color:#fff}
+.sdetail .unter{color:#8b97a6;font-size:12.5px;margin-bottom:12px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.kpi{background:#131c26;border:1px solid #29343f;border-radius:10px;padding:8px 11px}
+.kpi .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b97a6}
+.kpi .z{font-size:25px;font-weight:750;line-height:1.15;font-variant-numeric:tabular-nums}
+.kpi .n{font-size:11.5px;color:#8b97a6;font-variant-numeric:tabular-nums}
+/* Die Kaesten einer Zeile sind gleich hoch, sonst stehen Loecher zwischen
+   ihnen. Der Inhalt verteilt sich in der Hoehe, statt oben zu kleben. */
+.sgrid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);
+       gap:12px;align-items:stretch}
+.sgrid > .sblock{margin:0;display:flex;flex-direction:column}
+.sblock{background:#111925;border:1px solid #263141;border-radius:10px;padding:10px 12px}
+.sblock .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+           color:#8b97a6;margin-bottom:7px}
+/* Sieben Eintraege seit "aus dem Akku". Bei 11,5 Pixel und 12 Pixel Abstand
+   brach die Legende um, und die Detailseite wurde hoeher als der Schirm. */
+.leg{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:10.5px;color:#c5ced8;margin-top:auto;padding-top:6px}
+.leg i{display:inline-block;width:10px;height:10px;border-radius:2.5px;margin-right:5px;
+       vertical-align:-1px}
+.paare{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 14px;
+       font-size:13px;flex:1;align-content:space-between}
+.paare .k{color:#9dabbb;white-space:nowrap}
+.paare .v{font-weight:650;font-variant-numeric:tabular-nums;text-align:right}
+.sdetail .quelle{margin-top:11px;font-size:11px;color:#7d8896}
+
+/* ---------- Velux ----------
+   Der Einstieg sitzt in der linken oberen Ecke der Wolkenkarte. Im Banner
+   waere kein Platz mehr, dort steht schon Uhr, Wetter, Vorschau und Solar.
+   Die Ecke der Karte ist frei: Zeitstempel und Legende sitzen unten. */
+.velux-knopf{
+  position:absolute;z-index:802;left:10px;top:10px;
+  width:46px;height:50px;padding:4px;
+  background:rgba(5,8,12,.86);border:1px solid #536276;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;-webkit-user-select:none;user-select:none
+}
+.velux-knopf:active{background:rgba(40,52,66,.95)}
+.velux-knopf svg{display:block;width:100%;height:100%}
+
+.vdetail{position:fixed;z-index:1001;inset:0;display:none;
+  background:rgba(4,7,11,.72);cursor:pointer}
+.vdetail.on{display:block}
+.vflaeche{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:470px;max-height:92%;overflow:auto;cursor:default;
+  background:rgba(7,11,17,.985);border:1px solid #5b6b81;border-radius:16px;
+  padding:14px 18px}
+.vzeile{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;
+  padding:9px 2px 9px 8px}
+.vzeile + .vzeile{border-top:1px solid #1d2734}
+.vzeile .n{font-size:16px;font-weight:650;white-space:nowrap;color:#e8eef5}
+.vzeile.gruppe .n{font-size:19px;font-weight:750}
+.vtrenner{height:1px;background:#33404f;margin:8px 2px}
+.vtasten{display:flex;gap:9px}
+/* Alle Tasten gleich gross, damit die drei Spalten ueber alle Zeilen
+   fluchten. Nur die Beschriftung der beiden Gruppen ist groesser. */
+.vtaste{width:72px;height:58px;background:#1a2430;border:1px solid #33404f;
+  border-radius:11px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;-webkit-user-select:none;user-select:none}
+.vtaste:active{background:#26323f}
+/* Die Stellung, in der die Gruppe gerade steht, ist leicht hervorgehoben.
+   Kein zusaetzliches Zeichen, nur ein hellerer Rahmen. */
+.vtaste[data-ist=ja]{border-color:#7d8da0;background:#202c3a}
+.vtaste[data-zustand=faehrt]{border-color:#ffd166;background:#262a1d}
+.vtaste[data-zustand=fertig]{border-color:#3ddc97;background:#16281f}
+.vzeichen{width:34px;height:37px}
+.vkopf{display:flex;justify-content:flex-end;font-size:11px;color:#7d8896;
+  margin-bottom:2px}
+.vfehler{font-size:12px;color:#ff9a8c;min-height:16px;margin-top:8px;padding:0 2px}
+
+/* One label system for every secondary value on the page.
+   Same size, same weight, same icon box, never wraps, never absent.
+   Grey means unremarkable, colour means worth a look. */
+.lbl{
+  font-size:10px;line-height:14px;font-weight:600;
+  white-space:nowrap;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;gap:3px;
+  font-variant-numeric:tabular-nums;
+  color:#8b97a6
+}
+.lbl.rain{color:var(--blue)}
+.lbl.sun{color:var(--yellow)}
+.lbl.wind{color:#ffb86b}
+.mi{width:11px;height:11px;flex:0 0 auto}
+.mi.sock{width:14px;height:10px}
+.inl{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.inl .mi{width:12px;height:12px}
+.inl .mi.sock{width:15px;height:11px}
+
+.box{
+  background:#0f151d;
+  border:1px solid #3e4a5b;
+  border-radius:15px;
+  padding:var(--rand);
+  min-height:0;
+  overflow:hidden;
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  box-shadow:0 0 0 1px rgba(255,255,255,.02) inset
+}
+.title{
+  flex:0 0 auto;
+  font-size:12px;
+  color:#c5cfdb;
+  margin:0 0 6px 2px;
+  letter-spacing:.25px
+}
+.hourly-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  touch-action:pan-x;
+}
+.hourly-scroll::-webkit-scrollbar{display:none}
+.hours{
+  height:100%;
+  display:flex;
+  gap:var(--spalt);
+  width:max-content;
+}
+.hour{
+  width:var(--kachel);
+  flex:0 0 var(--kachel);
+  background:linear-gradient(180deg,var(--panel3),var(--panel2));
+  border:1px solid #46546a;
+  border-radius:8px;
+  padding:6px 1px 4px;
+  text-align:center;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr) auto auto;
+  align-items:center;
+  min-width:0
+}
+.hour.night{background:linear-gradient(180deg,#161d29,#111722);border-color:#364254}
+.hour .t{font-size:11px;color:#d5dce4;font-weight:600;font-variant-numeric:tabular-nums}
+.hour .icon{line-height:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.hour .icon .wicon{width:var(--wsize);height:var(--wsize);max-width:100%;max-height:100%;display:block}
+.hour .deg{font-size:16px;font-weight:750;line-height:20px;font-variant-numeric:tabular-nums}
+
+/* Tap any tile to see every value the model delivers for it. */
+/* the card takes the height of its content and centres itself, instead of
+   stretching to a fixed share of the screen and leaving half of it black */
+.diag{
+  position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
+  transform:translateY(-50%);max-height:93%;overflow:auto;
+  background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:14px;
+  padding:15px 24px 13px;display:none;
+  font-size:15px;line-height:1.7;color:#e6ecf3
+}
+.diag.on{display:block}
+.diag h4{margin:0;font-size:21px;font-weight:750;color:#fff}
+.diag .why{margin:2px 0 11px;color:var(--yellow);font-weight:650;font-size:14px}
+.diag .rows{
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
+  gap:2px 22px;align-content:start
+}
+.diag .k{color:#9dabbb;white-space:nowrap}
+.diag .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.diag .src{margin-top:10px;font-size:11px;color:#7d8896}
+.diag .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 34px;margin-top:6px}
+/* a line of 60 to 70 characters reads comfortably; the full column would run
+   past 100 and force the eye to hunt for the next line */
+.diag .story{font-size:17px;line-height:1.65;color:#dfe6ef;max-width:64ch}
+.diag .rows.two{grid-template-columns:auto minmax(0,1fr)}
+.diag .close{position:absolute;right:16px;top:12px;color:#9dabbb;font-size:11px}
+
+/*
+  Stunden- und Tagesleiste stehen auf demselben Zwoelferraster: die Karte
+  belegt fuenf Spalten, die sieben Tage je eine. Dadurch steht jede
+  Tageskachel genau unter einer Stundenkachel. Die elf Pixel Zuschlag gleichen
+  den Rand der Kaesten aus, der breiter ist als der Kachelabstand.
+*/
+/*
+  Die sieben Tageskacheln stehen auf den letzten sieben der zwoelf Spalten,
+  die Karte belegt die ersten fuenf. Von der Kartenbreite gehen die Legende
+  und die Raender ab, damit die erste Tageskachel genau unter der sechsten
+  Stundenkachel beginnt.
+*/
+.bottom-grid{
+  display:grid;
+  grid-template-columns:
+    calc(5*(var(--kachel) + var(--spalt)) - var(--legende) - var(--legspalt)
+         - var(--kastenspalt))
+    minmax(0,1fr);
+  gap:var(--kastenspalt);min-height:0
+}
+/* Legende und Kachelband nebeneinander im selben Kasten. Die Legende liegt
+   ausserhalb des Scrollbereichs und bleibt deshalb beim Wischen stehen. */
+.tagereihe{display:flex;gap:var(--legspalt);flex:1 1 auto;min-height:0;min-width:0}
+/* Ohne Titelzeile ist der Kasten nur noch ein Rahmen um die Karte, der Rand
+   darf deshalb schmal sein. Was hier wegfaellt, bekommt die Karte. */
+.radarbox{
+  background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
+  padding:var(--rand);min-height:0;overflow:hidden;position:relative;
+  display:flex;flex-direction:column
+}
+.radar-stage{
+  flex:1 1 auto;min-height:0;position:relative;border-radius:10px;
+  background:#101720;overflow:hidden;border:1px solid #334155
+}
+#cloudMap{width:100%;height:100%;background:#111820}
+/* smooth-scaled interpolated field instead of visible grid squares */
+.cloudfield{image-rendering:auto;filter:blur(1.5px)}
+.radar-time{
+  position:absolute;z-index:800;left:10px;bottom:9px;background:rgba(5,8,12,.88);
+  border:1px solid #536276;border-radius:7px;padding:4px 8px;
+  font-size:12px;font-weight:700;color:#fff
+}
+.radar-legend{
+  position:absolute;z-index:800;right:10px;bottom:9px;background:rgba(5,8,12,.82);
+  border-radius:6px;padding:4px 7px;font-size:9px;color:#d5dee8
+}
+.radar-msg{
+  position:absolute;z-index:801;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(5,8,12,.92);border:1px solid #536276;border-radius:8px;
+  padding:7px 10px;font-size:11px;color:#fff;display:none;text-align:center;max-width:80%
+}
+.kartensymbol{display:block;width:100%;height:100%}
+.leaflet-control-attribution{font-size:8px!important;background:rgba(255,255,255,.70)!important}
+.days-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  touch-action:pan-x;
+}
+.days-scroll::-webkit-scrollbar{display:none}
+.days{
+  height:100%;
+  display:flex;
+  gap:var(--spalt);
+  width:max-content;
+}
+.day{
+  width:var(--kachel);
+  flex:0 0 var(--kachel);
+  background:linear-gradient(180deg,#222d3d,#1a2230);
+  border:1px solid #4b5a70;
+  border-radius:11px;
+  padding:7px 3px;
+  text-align:center;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr) auto auto;
+  align-items:center;
+  min-width:0
+}
+.day.trend{opacity:.72;border-style:dashed}
+.day .name{font-size:13px;font-weight:750;color:#f5f7f9}
+.day .icon{min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.day .icon{position:relative}
+.day .icon .wicon{width:var(--wsize);height:var(--wsize);max-width:100%;max-height:100%;display:block}
+.day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.day .lbl{gap:2.5px;letter-spacing:-.15px}
+
+/* Drei Tagesabschnitte untereinander: Vormittag, Nachmittag, Abend. */
+.teile{display:flex;flex-direction:column;gap:7px;align-items:center;justify-content:center}
+.teile .wicon{width:var(--wsize);height:var(--wsize);display:block}
+.day .temps .slash{color:#7a8798}
+
+/*
+  Alle Wertzeilen einer Kachel in einem Raster. Einzeln zentrierte Zeilen
+  standen treppenartig versetzt, weil die Werte verschieden breit sind.
+*/
+.werte{display:grid;grid-template-columns:auto auto;column-gap:3.5px;align-items:center;
+       justify-content:center;font-size:11px;color:#9fb0c4;white-space:nowrap;
+       letter-spacing:-.15px;line-height:1.45}
+.werte .i{display:flex;align-items:center;justify-content:center;line-height:0}
+.werte .v{text-align:left;font-variant-numeric:tabular-nums}
+.werte .rain{color:var(--blue)} .werte .sun{color:var(--yellow)} .werte .wind{color:var(--orange)}
+.werte .mi{width:11px;height:11px;display:block}
+.werte .mi.sock{width:14px;height:10px}
+
+/* Legendenspalte: senkrechte Woerter, ausserhalb des Scrollbereichs. */
+.day.legende{background:none;border:none;box-shadow:none;
+             flex:0 0 var(--legende);width:var(--legende);
+             padding:0;opacity:.95}
+/* Die Platzhalter halten nur die Zeilenhoehen, damit die Woerter neben den
+   Symbolen sitzen. Ohne width:0 zwingt ihr Inhalt, etwa "0°/0°", die ganze
+   Spalte auf ihre Breite, und die Schrift rutscht weit vom Rahmen weg. */
+.day.legende .name,.day.legende .temps,.day.legende .werte{
+  visibility:hidden;width:0;overflow:hidden}
+.day.legende .teile{width:100%}
+/*
+  Senkrechte Schrift. Bei vertical-rl laeuft die Hauptachse des Flexkastens von
+  oben nach unten; align-items:flex-start haette die Woerter nach rechts aus
+  der Spalte geschoben, wo .icon sie abschneidet. Die Luft zum Rahmen wird
+  deshalb ueber die Spaltenbreite geregelt: --legende ist genau so breit wie
+  die Zeile hoch ist, dann bleibt beim Zentrieren nichts uebrig.
+*/
+.day.legende .zeile{height:var(--wsize);display:flex;align-items:center;
+                    justify-content:center;line-height:1;
+                    font-size:9px;font-weight:700;color:#93a0b0;letter-spacing:.3px;
+                    white-space:nowrap;writing-mode:vertical-rl}
+
+/* shown until the page runs without browser chrome; any tap takes it there,
+   and this is a real target so a deliberate tap cannot miss */
+#hint{
+  position:fixed;z-index:1200;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(12,18,26,.97);border:1px solid #6d7f96;border-radius:14px;
+  padding:18px 30px;font-size:18px;font-weight:700;color:#e6ecf3;
+  text-align:center;line-height:1.45;
+  box-shadow:0 10px 40px rgba(0,0,0,.55);
+  cursor:pointer;-webkit-user-select:none;user-select:none
+}
+#hint small{display:block;margin-top:5px;font-size:12.5px;font-weight:500;color:#9dabbb}
+#hint[hidden]{display:none}
+
+html,body{height:auto;overflow:visible}
+body{background:#080b10;padding:16px;color:#e8eef5;font:13px -apple-system,sans-serif}
+.g{background:linear-gradient(180deg,#3b75ab,#427eb7 35%,#5286b5 70%,#5d88aa);border-radius:12px;
+   padding:12px 16px;display:inline-block;margin:0 14px 10px 0}
+.n{background:linear-gradient(180deg,#16284a,#2d476b)}
+.gross{transform:scale(2.4);transform-origin:0 0;margin-bottom:150px}
+.t{font-size:12px;color:#8b97a6;margin-bottom:4px}
+h1{font-size:20px;margin:0 0 4px} p{color:#8b97a6;font-size:13px;max-width:920px;margin:0 0 12px}
+/* Raster wie Variante 2, Fuge zwischen den Zeilen 9 Pixel fuer den senkrechten Pfeil */
+.raster{display:grid;grid-template-columns:24px 22px auto;column-gap:5px;row-gap:9px;position:relative}
+.raster > *{display:flex;align-items:center}
+.mitte{justify-content:center}
+/* Genau wie "morgen" im Stundenstreifen: 8,5 Pixel, fett, #8b97a6, Abstand 0,3 */
+.klein{font-size:8.5px;font-weight:700;line-height:1;letter-spacing:.3px;color:#8b97a6;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Senkrechter Pfeil in der Textzeile: steht auf der Grundlinie und ist genau
+   so hoch wie die Ziffern, egal wie gross die Schrift ist */
+.pfz{height:.72em;width:auto;vertical-align:baseline;margin-right:1.5px;overflow:visible}
+.gross3{transform:scale(3);transform-origin:0 0}
+.platz{height:300px;margin-top:14px}
+.linie{position:absolute;pointer-events:none;background:rgba(255,80,160,.9)}
+</style><body>
+<h1>Solarblock als Knoten</h1>
+<p>Das Symbol unten ist ein Knoten, jeder Strom erscheint genau einmal. Der Akku läuft nur über den
+senkrechten Pfeil und ist deshalb nicht mehr im Strahl. Der Strahl zeigt den Rest: mittags Haus und
+Einspeisung, nachts, was aus dem Netz kommt. Die Zahlen gehen auf: was in den Knoten fließt, kommt
+wieder heraus. Ist ein Strom null, fehlt sein Pfeil.</p>
+<div id=a></div><div id=kopf style="display:none"><div id=solar></div></div><div id=sdetail></div>
+<script>const isoDay=dt=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+
+const EchtDate=Date; function uhr(iso){ const t=new EchtDate(iso).getTime();
+  window.Date=class extends EchtDate{ constructor(...a){ if(a.length===0) super(t); else super(...a); } static now(){ return t; } }; }
+let DATEN=null; window.fetch=async()=>({ok:true,json:async()=>DATEN});
+const SOLAR=(()=>{
+  /* Leistung je W/m2 auf der Modulebene.
+
+     Die Module liegen nicht waagerecht, sondern um 35 Grad geneigt und 55
+     Grad nach Osten gedreht. Das ist aus der Messung vom 26.09.2026
+     geschaetzt: direkte und diffuse Strahlung von ICON auf eine schraege
+     Flaeche umgerechnet und Neigung und Richtung so gesucht, dass die Kurve
+     die gemessene trifft. Restfehler 0,36 gegen 11,2 bei waagerechter
+     Rechnung, Tagessumme 47,7 gegen gemessen 47,5 kWh. Mit waagerechter
+     Einstrahlung lag die Prognose morgens zu tief und nachmittags zu hoch.
+
+     Ein Tag ist wenig, Neigung und Richtung sind aber Eigenschaften des
+     Dachs und aendern sich nicht. Der Faktor kann es, er bekommt im Winter
+     vermutlich eine Korrektur. */
+  const FAKTOR=0.01249;          /* kW je W/m2, schraeg */
+  const FAKTOR_WAAGERECHT=0.014; /* Rueckfall, falls die schraege Reihe fehlt */
+  const AKKU_KWH=10.0, AKKU_MAX=5.0, WP=12.42;
+  /* Tarife von Thorsten, Stand 25.09.2026. Der Arbeitspreis ist brutto.
+     Die Einspeiseverguetung gilt 20 Jahre ab Inbetriebnahme und teilt sich
+     nach Anlagengroesse: bis 10 kWp ein Satz, darueber ein niedrigerer.
+     Bei 12,42 kWp und Inbetriebnahme im zweiten Halbjahr 2024 sind das
+     8,03 und 6,95 Cent, gewichtet also 7,82 Cent.
+     Der Grundpreis haengt nicht an der Erzeugung und steht deshalb nur
+     nachrichtlich in den Zahlen, nicht in der Bilanz. */
+  const VERGUETUNG=0.0782, ARBEITSPREIS=0.2455, GRUNDPREIS_JAHR=253.64;
+  const VOLL_KW=10.0;            /* volle Balkenlaenge, die Grenze des Wechselrichters */
+  const ALT_MS=25*60*1000;       /* aelter als das, dann keine Anzeige */
+
+  const F_EIGEN="#63b3ff", F_AKKU="#4fd6c9", F_EIN="#3ddc97",
+        F_BEZUG="#ff7b6b", F_HAUS="#e8eef5", F_SOC="#ffd166";
+
+  /* Tagesgang des Hausverbrauchs. Wird fuer die Stunden gebraucht, die noch
+     nicht gemessen sind. Grundlast, Morgenspitze, Abendspitze. */
+  const HAUS=[.30,.28,.27,.27,.28,.36,.72,1.45,1.15,.82,.74,.80,
+              1.10,.92,.78,.76,.84,1.25,2.10,2.30,1.55,1.02,.58,.38];
+
+  let jetzt=null, mess={}, heuteKwh=0, standZeit=0;
+  /* Die letzten drei Messungen, fuer den Flussbalken.
+
+     Warum gemittelt: springt der Hausverbrauch, braucht der
+     Batteriewechselrichter bis zu ein paar Minuten, um nachzuziehen, und
+     solange deckt das Netz die Luecke. Ein Einzelwert friert so einen
+     Anlaufmoment als roten Block auf der Wand ein, obwohl die Stunde am
+     Ende kaum Bezug hat. Am 26.09.2026 gemessen: Stundenmittel 46 Watt
+     Bezug, der Balken zeigte in dem Augenblick 790. Die App der Anlage
+     mittelt ebenfalls und zeigt so etwas gar nicht erst.
+
+     Nur der Balken wird gemittelt. Batterie, Stundenstreifen und die
+     Zahlen der Detailseite bleiben der Augenblick. */
+  const VERLAUF_N=3;
+  let verlauf=[];
+  let prog=new Array(24).fill(0), progM=new Array(24).fill(0);
+  let progMorgen=0, progUeber=0, sonnenunter=0;
+  /* Ist der Tag gelaufen, interessiert nicht mehr die Vergangenheit, sondern
+     was morgen kommt. Zwei Stunden nach Sonnenuntergang schaltet der Streifen
+     deshalb auf die Ladekurve des naechsten Tages um. */
+  const NACHLAUF_MS=2*3600*1000;
+  const morgenModus=()=>sonnenunter>0&&Date.now()>sonnenunter+NACHLAUF_MS
+                        &&new Date().getHours()>=12;
+
+  const z1=v=>Number(v||0).toFixed(1).replace(".",",");
+  const z2=v=>Number(v||0).toFixed(2).replace(".",",");
+  const z3=v=>Number(v||0).toFixed(Math.abs(v)<10?2:1).replace(".",",");
+
+  /* --- Prognose aus der Einstrahlung ------------------------------ */
+  function setzePrognose(H,sonne){
+    if(!H||!H.time||!H.shortwave_radiation) return;
+    const schraeg=Array.isArray(H.global_tilted_irradiance);
+    const heute=isoDay(new Date());
+    const morgen=isoDay(new Date(Date.now()+864e5));
+    const ueber=isoDay(new Date(Date.now()+1728e5));
+    const neu=new Array(24).fill(0), neuM=new Array(24).fill(0);
+    let sM=0, sU=0;
+    for(let i=0;i<H.time.length;i++){
+      /* Strahlung ist bei Open-Meteo das Mittel der Stunde davor: der Wert
+         mit 13:00 gilt fuer 12 bis 13 Uhr. Die Seite hatte ihn in die Stunde
+         von 13 bis 14 gebucht, die Prognose lief also eine Stunde zu spaet.
+         Nachgewiesen am 26.09.2026: mit der Verschiebung trifft die schraege
+         Rechnung die Messung mit Restfehler 0,36, ohne sie ist das beste
+         Ergebnis 11,5, und das bei unmoeglichen 60 Grad Neigung. */
+      const beginn=new Date(new Date(H.time[i]).getTime()-3600000);
+      const tag=isoDay(beginn), std=beginn.getHours();
+      const kwv=Math.min(10, schraeg
+        ? (H.global_tilted_irradiance[i]||0)*FAKTOR
+        : (H.shortwave_radiation[i]||0)*FAKTOR_WAAGERECHT);
+      if(tag===heute) neu[std]=kwv;
+      else if(tag===morgen){ neuM[std]=kwv; sM+=kwv; }
+      else if(tag===ueber) sU+=kwv;
+    }
+    prog=neu; progM=neuM; progMorgen=sM; progUeber=sU;
+    if(sonne&&sonne[heute]) sonnenunter=sonne[heute].set;
+  }
+
+  /* --- Daten der Anlage -------------------------------------------
+
+     Zuerst beim Tablet selbst nachfragen. Dort laeuft wandsolar, liest die
+     Anlage ueber Modbus und liefert das Ergebnis auf 127.0.0.1:8099 aus.
+     Das ist erlaubt, obwohl diese Seite ueber HTTPS kommt: localhost und
+     127.0.0.1 gelten als vertrauenswuerdig und fallen nicht unter die
+     Sperre fuer gemischte Inhalte.
+
+     Antwortet dort nichts, wird solar.json neben der Seite gelesen. Das ist
+     der Weg fuer jeden anderen Browser und fuer die Arbeit am Rechner.
+  */
+  /* Gleicher Ursprung zuerst: auf dem Tablet liefert wandsolar die Seite
+     selbst aus, dann zeigt "solar.json" genau dorthin. Der zweite Eintrag
+     ist nur noch fuer den Fall, dass die Seite von woanders kommt. */
+  const QUELLEN=["solar.json","http://127.0.0.1:8099/solar.json"];
+  async function holeDaten(){
+    for(const q of QUELLEN){
+      try{
+        const ab=new AbortController();
+        const uhr=setTimeout(()=>ab.abort(),2500);
+        const r=await fetch(q+(q.includes("?")?"&":"?")+"t="+Date.now(),
+                            {cache:"no-store",signal:ab.signal});
+        clearTimeout(uhr);
+        if(!r.ok) continue;
+        const d=await r.json();
+        if(!d||!d.jetzt) continue;
+        /* Nur wirklich neue Messungen in den Verlauf, sonst zaehlt
+           dieselbe doppelt, wenn die Seite schneller fragt als gemessen
+           wird. */
+        const neuZeit=d.zeit?new Date(d.zeit).getTime():Date.now();
+        if(!verlauf.length||neuZeit!==standZeit){
+          verlauf.push(d.jetzt);
+          if(verlauf.length>VERLAUF_N) verlauf.shift();
+        }
+        jetzt=d.jetzt;
+        mess=d.stunden||{};
+        heuteKwh=Number(d.heute_kwh||0);
+        standZeit=d.zeit?new Date(d.zeit).getTime():Date.now();
+        break;
+      }catch(e){ /* naechste Quelle */ }
+    }
+    zeichne();
+  }
+
+  const frisch=()=>jetzt&&(Date.now()-standZeit)<ALT_MS;
+
+  /* Der Mittelwert der letzten Messungen. Ohne Verlauf der Augenblick. */
+  function gemittelt(){
+    if(verlauf.length<2) return jetzt||{};
+    const m={};
+    for(const f of ["pv","haus","akku","netz","soc"])
+      m[f]=verlauf.reduce((a,e)=>a+Number(e[f]||0),0)/verlauf.length;
+    return m;
+  }
+
+  /* --- Der Tag, gemessen und gerechnet ---------------------------- */
+  function schritt(pv,haus,soc){
+    const ausHaus=Math.min(pv,haus), rest=pv-haus;
+    let akku=0, ein=0, bez=0;
+    if(rest>0){
+      akku=Math.min(rest,AKKU_MAX,Math.max(0,(100-soc)/100*AKKU_KWH));
+      ein=rest-akku;
+    }else{
+      const ab=Math.min(-rest,AKKU_MAX,Math.max(0,(soc-5)/100*AKKU_KWH));
+      akku=-ab; bez=-rest-ab;
+    }
+    return {pv,haus,ausHaus,akku,ein,bez};
+  }
+
+  /* Der naechste Tag, ganz gerechnet. Damit der Ladezustand am Morgen
+     stimmt, laeuft die Rechnung erst durch den Rest des heutigen Abends:
+     der Akku entlaedt sich ueber Nacht, mit ihm faengt morgen frueh die
+     Kurve an. Gemessen ist an diesem Tag naturgemaess nichts. */
+  function tagMorgen(){
+    const jetztStd=new Date().getHours();
+    let soc=jetzt?Number(jetzt.soc||0):20;
+    for(let h=jetztStd;h<24;h++){
+      const e=schritt(prog[h]||0,HAUS[h],soc);
+      soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
+    }
+    const out=[];
+    for(let h=0;h<24;h++){
+      const e=schritt(progM[h]||0,HAUS[h],soc);
+      soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
+      out.push({...e,h,socEnde:soc,gemessen:false});
+    }
+    return out;
+  }
+
+  function tag(){
+    const jetztStd=new Date().getHours();
+    const soc0=jetzt?Number(jetzt.soc||0):20;
+    /* Rueckwaerts vom jetzigen Ladezustand laesst sich der Morgen nicht
+       rekonstruieren. Fuer die Vergangenheit nehmen wir die gemessenen
+       Fluesse, fuer die Zukunft rechnen wir ab dem jetzigen Stand weiter. */
+    const out=[];
+    let soc=soc0;
+    for(let h=0;h<24;h++){
+      const m=mess[String(h)];
+      if(h<jetztStd&&m){
+        out.push({h,pv:+m.pv||0,haus:+m.haus||0,
+                  ausHaus:Math.min(+m.pv||0,+m.haus||0),
+                  akku:+m.akku||0, ein:Math.max(0,+m.netz||0),
+                  bez:Math.max(0,-(+m.netz||0)), socEnde:null, gemessen:true});
+      }else if(h<jetztStd){
+        /* Stunde liegt zurueck, aber es gibt keine Messung. Gezeichnet wird
+           die Vorhersage, gezaehlt wird sie nicht. Die alte Fassung teilte
+           hier den ganzen Fehlbetrag dem Netz zu und behauptete damit
+           Netzbezug, den niemand gemessen hat. Am 26.09. waren das 0,85 kWh
+           in den Stunden 0 bis 2, die in "vom Netz" mitliefen. */
+        const pv=prog[h]||0, haus=HAUS[h];
+        out.push({h,pv,haus,ausHaus:Math.min(pv,haus),akku:0,ein:0,bez:0,
+                  socEnde:null,gemessen:false,unbekannt:true});
+      }else{
+        const e=schritt(prog[h]||0,HAUS[h],soc);
+        soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
+        const eintrag={...e,h,socEnde:soc,gemessen:false};
+        if(h===jetztStd&&m){
+          /* Die laufende Stunde. Grau steht die Vorhersage fuer die ganze
+             Stunde, gruen waechst darin, was bisher wirklich erzeugt wurde.
+             Gerechnet wird als Arbeit: der bisherige Mittelwert mal dem Teil
+             der Stunde, der schon vorbei ist. Am Ende der Stunde stehen
+             beide auf derselben Skala, und man sieht, ob sie gehalten hat,
+             was sie versprach, oder darueber hinausging. */
+          const anteil=Math.min(1,new Date().getMinutes()/60);
+          eintrag.teil=Math.max(0,(+m.pv||0)*anteil);
+          eintrag.teilU=(+m.pv||0)-(+m.haus||0);
+        }
+        out.push(eintrag);
+      }
+    }
+    /* Ladezustand der Vergangenheit ruecklaeufig aus den Akkufluessen.
+
+       Erst schreiben, dann zurueckrechnen. socEnde ist der Stand am Ende
+       der Stunde und wird dort auch gezeichnet. Die letzte volle Stunde
+       endet praktisch jetzt, ihr Ende ist also der jetzige Stand. Was
+       waehrend einer Stunde in den Akku floss, zieht man ab, um an ihren
+       Anfang zu kommen, und der ist das Ende der Stunde davor.
+
+       Vorher stand die Reihenfolge andersherum, jede Stunde bekam den Stand
+       ihres Anfangs, und die Linie lief eine Stunde hinterher. Am 26.09. um
+       22:06 endete sie deshalb bei 55 %, waehrend die Kennzahl daneben 33 %
+       zeigte. */
+    let s=soc0;
+    for(let h=jetztStd-1;h>=0;h--){
+      const e=out[h];
+      if(!e||!e.gemessen) break;   /* ohne Messung keine Linie */
+      e.socEnde=s;
+      s=Math.max(0,Math.min(100,s-e.akku/AKKU_KWH*100));
+    }
+    if(out[jetztStd]) out[jetztStd].socEnde=soc0;
+    return out;
+  }
+
+  function bilanz(ST){
+    let pv=0,haus=0,eigen=0,laden=0,entladen=0,ein=0,bez=0,bisher=0,spitze=0,luecke=0;
+    for(const e of ST){
+      if(e.unbekannt){ luecke++; continue; }
+      pv+=e.pv; haus+=e.haus; eigen+=e.ausHaus;
+      if(e.akku>0) laden+=e.akku; else entladen+=-e.akku;
+      ein+=e.ein; bez+=e.bez;
+      if(e.gemessen) bisher+=e.pv;
+      /* Die laufende Stunde zaehlt mit dem, was in ihr schon erzeugt wurde.
+         Sonst stand um 08:25 "Erzeugt 0,0 kWh", waehrend die Anlage seit
+         einer Stunde lieferte. */
+      else if(e.teil>0) bisher+=e.teil;
+      spitze=Math.max(spitze,e.pv);
+    }
+    if(heuteKwh>bisher) bisher=heuteKwh;
+    return {pv,haus,eigen,laden,entladen,ein,bez,bisher,spitze,luecke,
+            quote:pv>0?(pv-ein)/pv*100:0,
+            autarkie:haus>0?(haus-bez)/haus*100:0,
+            erloes:ein*VERGUETUNG, ersparnis:(eigen+entladen)*ARBEITSPREIS,
+            kosten:bez*ARBEITSPREIS};
+  }
+
+  /* --- Sinnbilder -------------------------------------------------- */
+  const MINI={
+    haus:`<path d="M1 9.2V4.4L5 1.1l4 3.3v4.8z" fill="currentColor"/>`,
+    akku:`<rect x="2.4" y="2.3" width="5.2" height="6.9" rx="1.1" fill="currentColor"/>
+          <rect x="3.9" y="1" width="2.2" height="1.5" rx=".5" fill="currentColor"/>`,
+    /* Der Euro traegt ein Vorzeichen: Minus kostet, Plus bringt ein. */
+    euro:`<text x="5" y="8.1" text-anchor="middle" font-size="10.2" font-weight="750"
+                fill="currentColor">&#8364;</text>`,
+    "euro+":`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750"
+                fill="currentColor">+&#8364;</text>`,
+    "euro-":`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750"
+                fill="currentColor">&#8722;&#8364;</text>`,
+    strom:`<path d="M6.3 .7 2.3 5.9h2.6L4.0 9.3 7.9 4.0H5.4z" fill="currentColor"/>`,
+    /* Ein Solarmodul: schraeg gestellte Flaeche mit Zellen und Staender */
+    pv:`<path d="M.9 7.2 2.4 1.9h6.6L10.5 7.2z" fill="currentColor"/>
+        <path d="M4.6 1.9 4.1 7.2M6.8 1.9 7.3 7.2M1.6 4.6h8.2" stroke="#101720" stroke-width=".55" fill="none"/>
+        <path d="M5.7 7.2v1.7M4 8.9h3.4" stroke="currentColor" stroke-width=".9" stroke-linecap="round" fill="none"/>`
+  };
+  const mini=(a,f,g=10)=>`<svg width="${g}" height="${g}" viewBox="0 0 10 10"
+    style="display:block;color:${f};flex:0 0 auto">${MINI[a]}</svg>`;
+
+  /* Aufrechte Batterie, ohne Zahl. Gruen ab 50 Prozent. */
+  /* Aufrechte Batterie, ohne Zahl. Gruen ab 50 Prozent.
+
+     Eine einzige Fuge g fuer alles: zwischen den Zellen, am Boden, an den
+     Seiten und oben. Vorher lagen zwischen den Zellen 1,6 Pixel dunkle
+     Linie, am Boden reichte die Fuellung aber bis an die Kontur, und die
+     Zellen sahen ungleich eingefasst aus. Jetzt ist jede Zelle ein eigenes
+     Kaestchen und fuellt sich von unten. */
+  function batterie(soc,laedt,b=24,h=44){
+    const kappe=Math.max(3,h*0.075), rand=1.6, g=1.6;
+    const x0=1+rand/2+g, x1=b-1-rand/2-g;
+    const y0=kappe+rand/2+g, y1=h-1-rand/2-g;
+    const n=5, zh=(y1-y0-(n-1)*g)/n, v=Math.max(0,Math.min(100,soc))/100*n;
+    const farbe=soc>=50?"#3ddc97":soc>=25?"#ffd166":"#ff7b6b";
+    let zellen="";
+    for(let i=0;i<n;i++){
+      const unten=y1-i*(zh+g), voll=Math.max(0,Math.min(1,v-i));
+      if(voll<=0) continue;
+      const hh=zh*voll;
+      zellen+=`<rect x="${x0.toFixed(2)}" y="${(unten-hh).toFixed(2)}" width="${(x1-x0).toFixed(2)}"
+                     height="${hh.toFixed(2)}" rx="1" fill="${farbe}"/>`;
+    }
+    const k=h/68;
+    const blitz=laedt?`<path transform="translate(${b/2} ${h/2+kappe/2}) scale(${k.toFixed(3)})"
+        d="M3 -10l-7 11h4.5l-2 8.5 7-11.2h-4.5z" fill="#0d131b" opacity=".85"/>`:"";
+    return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block">
+      <rect x="${(b/2-b*0.19).toFixed(2)}" y="0" width="${(b*0.38).toFixed(2)}" height="${kappe+1}" rx="1.4" fill="#5b6b7d"/>
+      <rect x="1" y="${kappe}" width="${b-2}" height="${h-kappe-1}" rx="${(b*0.15).toFixed(2)}"
+            fill="#1b232e" stroke="#6b7a8c" stroke-width="${rand}"/>
+      ${zellen}${blitz}</svg>`;
+  }
+
+  /* Eine Saeule je Stunde. Links vom Strich gemessen, rechts gerechnet.
+     Gruen heisst, dass dort mehr erzeugt wird als das Haus braucht. */
+  const SVON=5,SBIS=21,SBH=8,SAB=3;
+  const SB=(SBIS-SVON)*(SBH+SAB)+SBH;
+  function streifen(ST,hoehe=44,morgen=false){
+    let s="";
+    for(let t=SVON;t<=SBIS;t++){
+      const e=ST[t], v=e.pv, hh=Math.max(1.5,(v/10)*(hoehe-6));
+      const x=(t-SVON)*(SBH+SAB);
+      /* Farbe sagt etwas ueber Gemessenes, sonst nichts. Gruen heisst: diese
+         Stunde ist gelaufen und hat mehr erzeugt, als das Haus gebraucht hat.
+         Eine Vorhersage hat noch gar nichts geladen und bleibt deshalb grau,
+         egal wie viel sie verspricht. */
+      const u=v-e.haus;
+      const f=!e.gemessen ? "#5b6b7d" : u>1.0 ? "#3ddc97" : u>0 ? "#9ad9b5" : "#5b6b7d";
+      s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${SBH}" height="${hh.toFixed(1)}"
+               rx="2" fill="${f}" opacity="${e.gemessen?1:.30}"/>`;
+      /* Erst das Gewachsene, dann der Umriss der Vorhersage darueber. So
+         bleibt sichtbar, wo die Stunde versprochen hatte, auch wenn der
+         gruene Balken schon darueber hinausgewachsen ist. */
+      if(e.teil>0.02){
+        const th=Math.max(1.5,(e.teil/10)*(hoehe-6));
+        const tf=e.teilU>1.0?"#3ddc97":e.teilU>0?"#9ad9b5":"#8b97a6";
+        s+=`<rect x="${x}" y="${(hoehe-th).toFixed(1)}" width="${SBH}"
+                 height="${th.toFixed(1)}" rx="2" fill="${tf}"/>`;
+      }
+      if(!e.gemessen) s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${SBH}"
+               height="${hh.toFixed(1)}" rx="2" fill="none" stroke="#c5ced8"
+               stroke-width="1" stroke-opacity="${e.teil>0.02?".8":".45"}"/>`;
+    }
+    /* Kein Jetzt-Strich mehr. Wo die gemessenen Saeulen aufhoeren und die
+       grauen anfangen, ist die Gegenwart, das zeigt der Streifen schon. Beim
+       naechsten Tag steht statt des Strichs ein Wort, sonst haelt man die
+       graue Kurve fuer den verpatzten heutigen Tag. */
+    if(morgen) s+=`<text x="0" y="8" font-size="8.5" font-weight="700"
+                fill="#8b97a6" letter-spacing=".3">morgen</text>`;
+    return `<svg width="${SB}" height="${hoehe}" viewBox="0 0 ${SB} ${hoehe}"
+                 style="display:block">${s}</svg>`;
+  }
+
+  /* Wohin der Strom geht, oder woher er kommt. Der Pfeil zeigt die Richtung,
+     ein roter Rahmen erscheint nur, wenn wirklich Netzstrom fliesst.
+
+     Symbol und Balken kommen getrennt zurueck. Das Symbol steht unter der
+     Batterie, der Balken ist so breit wie der Stundenstreifen darueber. */
+  function wohin(gesamt=SB,h=19){
+    const g=gemittelt();
+    const pv=Number(g.pv||0), haus=Number(g.haus||0);
+    const netz=Number(g.netz||0), akku=Number(g.akku||0);
+    const bez=Math.max(0,-netz), ein=Math.max(0,netz);
+    const knapp=pv+0.02<haus, teuer=bez>0.02;
+    const b=gesamt;
+    let teile, endIkon, endFarbe;
+    if(knapp){
+      teile=[[Math.min(pv,haus),"#ffd166","strom"],
+             [Math.max(0,-akku),F_AKKU,"akku"],
+             [bez,F_BEZUG,"euro-"]];
+      endIkon="haus"; endFarbe=F_EIGEN;
+    }else{
+      teile=[[Math.min(pv,haus),F_EIGEN,"haus"],
+             [Math.max(0,akku),F_AKKU,"akku"],
+             [ein,F_EIN,"euro+"]];
+      endIkon="pv"; endFarbe=F_SOC;
+    }
+    /* Die Laenge ist die Leistung, voll heisst VOLL_KW. Damit sagt der Balken
+       nicht nur wohin, sondern auch wie viel. Die feinen Striche geben der
+       Laenge einen Bezug, sonst hiesse ein kurzer Balken nur "wenig". */
+    const summe=teile.reduce((a,[v])=>a+v,0);
+    const nutz=summe>0.02 ? Math.max(3,Math.min(1,summe/VOLL_KW)*b) : 0;
+
+    let skala="";
+    for(let kwv=2;kwv<VOLL_KW;kwv+=2)
+      skala+=`<line x1="${(b*kwv/VOLL_KW).toFixed(1)}" y1="0"
+                    x2="${(b*kwv/VOLL_KW).toFixed(1)}" y2="${h}"
+                    stroke="#3a4756" stroke-width="1"/>`;
+
+    const gr=Math.min(13,h-4), sk=gr/10;
+    let x=0,s="";
+    for(const [v,f,a] of teile){
+      const w=summe>0 ? v/summe*nutz : 0;
+      if(w<0.6) continue;
+      s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${h}" fill="${f}"/>`;
+      if(w>=gr+4) s+=`<g transform="translate(${(x+w/2-gr/2).toFixed(1)} ${(h/2-gr/2).toFixed(1)})
+                          scale(${sk.toFixed(2)})" color="#101720" opacity=".92">${MINI[a]}</g>`;
+      x+=w;
+    }
+    /* Der Rahmen umfasst nur den Balken, nicht die leere Bahn dahinter */
+    const rahmen=teuer&&nutz>4?`<rect x=".6" y=".6" width="${(nutz-1.2).toFixed(1)}"
+                              height="${h-1.2}" rx="3.4"
+                              fill="none" stroke="${F_BEZUG}" stroke-width="1.2" opacity=".9"/>`:"";
+    /* Modul mit Pfeil nach rechts: der Strom geht hinaus. Haus mit Pfeil
+       nach links: das Haus bezieht. Rot, sobald Netzstrom fliesst. */
+    const pfeil=knapp?`<path d="M9 5H3M5 2.4 1.6 5 5 7.6"/>`:`<path d="M1 5h6M4.6 2.4 8 5 4.6 7.6"/>`;
+    const symbol=`<div style="display:flex;align-items:center;justify-content:center;gap:3px">
+      ${mini(endIkon,endFarbe,endIkon==="pv"?17:16)}
+      <svg width="10" height="10" viewBox="0 0 10 10" style="display:block;flex:0 0 auto">
+        <g fill="none" stroke="${teuer?"#ff9a8c":"#e8eef5"}" stroke-width="1.4" opacity=".9"
+           stroke-linecap="round" stroke-linejoin="round">${pfeil}</g></svg></div>`;
+    const balken=`<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+           style="display:block;border-radius:4px;overflow:hidden">
+        <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${skala}${s}${rahmen}</svg>`;
+    return {symbol,balken};
+  }
+
+  /* --- Der Block in der Kopfzeile ---------------------------------- */
+  function zeichne(){
+    const el=document.getElementById("solar");
+    const kopf=document.getElementById("kopf");
+    if(!el) return;
+    if(!frisch()){ el.hidden=true; kopf.classList.add("ohne-solar"); return; }
+    el.hidden=false; kopf.classList.remove("ohne-solar");
+    /* Batterie und Flussbalken zeigen immer das Jetzt. Nur der Streifen
+       wechselt abends auf den naechsten Tag. */
+    const m=morgenModus();
+    const ST=m?tagMorgen():tag();
+    /* Zwei Spalten, zwei Zeilen. Oben Batterie und Stundenstreifen, gleich
+       hoch, damit die Unterkante der Batterie auf der Grundlinie der Balken
+       steht. Unten Symbol und Strahl, der Strahl so breit wie der Streifen. */
+    const w=wohin();
+    el.innerHTML=`<div class="solarraster">
+      <div class="sr-links">${batterie(Number(jetzt.soc||0), Number(jetzt.akku||0)>0.05)}</div>
+      <div>${streifen(ST,44,m)}</div>
+      <div class="sr-links">${w.symbol}</div>
+      <div>${w.balken}</div></div>`;
+    if(document.getElementById("sdetail").classList.contains("on")) detailZeigen();
+  }
+
+  return {setzePrognose,holeDaten,zeichne,
+          detail:()=>detailZeigen(), frisch,
+          _intern:{tag,bilanz,prog:()=>prog,progMorgen:()=>progMorgen,
+                   progUeber:()=>progUeber,jetzt:()=>jetzt,
+                   farben:{F_EIGEN,F_AKKU,F_EIN,F_BEZUG,F_HAUS,F_SOC},
+                   z1,z2,z3,WP,VERGUETUNG,ARBEITSPREIS}};
+
+  /* --- Detailansicht ----------------------------------------------- */
+  function detailZeigen(){
+    const d=document.getElementById("sdetail");
+    d.innerHTML=detailHtml();
+    d.classList.add("on");
+  }
+
+  function detailHtml(){
+    const ST=tag(), z=bilanz(ST), l=jetzt;
+    const jetztStd=new Date().getHours();
+    const rest=ST.filter(e=>!e.gemessen&&e.h>=jetztStd).reduce((a,e)=>a+e.pv,0);
+    const fenster=ST.filter(e=>e.ein>=1.5).map(e=>e.h);
+    const fensterText=fenster.length
+      ? `${fenster[0]}–${fenster[fenster.length-1]} Uhr, ${fenster.length} Stunden über 1,5 kW`
+      : "heute kein nennenswerter Überschuss";
+    const kpi=(t,gr,kl,fa)=>`<div class="kpi"><div class="t">${t}</div>
+      <div class="z"${fa?` style="color:${fa}"`:""}>${gr}</div><div class="n">${kl}</div></div>`;
+    const eh=`<span style='font-size:14px;color:#8b97a6'>`;
+    return `<span class="schliessen">antippen zum Schließen</span>
+      <h4>Solar heute</h4>
+      <div class="unter">${new Date().toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"long"})}
+        · ${z1(WP)} kWp · SUN2000-10KTL-M1 mit 10 kWh Speicher${(()=>{
+        /* Die Kennzahlen summieren den ganzen Tag. Solange er laeuft, ist der
+           Rest davon Prognose, und das soll dastehen. Es steht in dieser Zeile
+           und nicht in einer eigenen, sonst wird die Seite hoeher als der
+           Schirm. */
+        const offen=ST.some(e=>!e.gemessen&&!e.unbekannt&&e.h>=jetztStd&&e.pv>0.05);
+        const t=[];
+        if(offen) t.push(`bis ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})} gemessen, danach Prognose`);
+        if(z.luecke) t.push(`${z.luecke} ${z.luecke===1?"Stunde":"Stunden"} ohne Messung nicht mitgezählt`);
+        return t.length?" · <b style='color:#c5ced8;font-weight:600'>"+t.join(" · ")+"</b>":"";
+      })()}</div>
+      <div class="kpis">
+        ${kpi("Erzeugt",z1(z.bisher)+" "+eh+"kWh</span>","Prognose heute "+z1(z.pv)+" kWh",F_SOC)}
+        ${kpi("Noch erwartet",z1(rest)+" "+eh+"kWh</span>",fensterText)}
+        ${kpi("Eigenverbrauch",Math.round(z.quote)+" "+eh+"%</span>",
+              "eingespeist "+z1(z.ein)+" kWh",F_EIGEN)}
+        ${kpi("Autarkie",Math.round(z.autarkie)+" "+eh+"%</span>",
+              "vom Netz "+z1(z.bez)+" kWh",F_EIN)}
+        ${kpi("Bilanz",z2(z.erloes+z.ersparnis-z.kosten)+" "+eh+"€</span>",
+              "Erlös "+z2(z.erloes)+" · gespart "+z2(z.ersparnis))}
+      </div>
+      <div class="sgrid">
+        <div class="sblock">
+          <div class="t">Tagesverlauf · links gemessen, rechts gerechnet</div>
+          ${tagesChart(ST)}
+          <div class="leg">
+            <span><i style="background:${F_EIGEN}"></i>ins Haus</span>
+            <span><i style="background:${F_AKKU}"></i>in den Akku</span>
+            <span><i style="background:${F_AKKU};opacity:.55"></i>aus dem Akku</span>
+            <span><i style="background:${F_EIN}"></i>ins Netz</span>
+            <span><i style="background:${F_BEZUG};opacity:.62"></i>aus dem Netz</span>
+            <span><i style="background:${F_HAUS}"></i>Verbrauch</span>
+            <span><i style="background:${F_SOC}"></i>Ladezustand</span>
+          </div>
+        </div>
+        <div class="sblock">
+          <div class="t">Zahlen</div>
+            <div class="paare">
+              <div class="k">Leistung jetzt</div><div class="v">${z3(l.pv)} kW</div>
+              <div class="k">Hausverbrauch jetzt</div><div class="v">${z3(l.haus)} kW</div>
+              <div class="k">Spitze heute</div><div class="v">${z3(z.spitze)} kW</div>
+              <div class="k">Ladezustand</div><div class="v">${Math.round(l.soc)} %</div>
+              <div class="k">Akku geladen / entladen</div><div class="v">${z1(z.laden)} / ${z1(z.entladen)} kWh</div>
+              <div class="k">Hausverbrauch heute</div><div class="v">${z1(z.haus)} kWh</div>
+              <div class="k">Netzbezug</div><div class="v">${z1(z.bez)} kWh · ${z2(z.kosten)} €</div>
+              <div class="k">Morgen erwartet</div><div class="v">${z1(progMorgen)} kWh</div>
+              <div class="k">Übermorgen erwartet</div><div class="v">${z1(progUeber)} kWh</div>
+              <div class="k">Grundpreis</div><div class="v">${z2(GRUNDPREIS_JAHR/365)} € am Tag</div>
+              <div class="k">Stand der Messung</div><div class="v">${new Date(standZeit).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}</div>
+          </div>
+        </div>
+
+        <div class="sblock">
+          <div class="t">Überschuss je Stunde in kW · wann sich Verschieben lohnt</div>
+          <div style="margin-block:auto">${band(ST,560,50)}</div>
+        </div>
+        <div class="sblock">
+          <div class="t">Wohin und woher, über den ganzen Tag</div>
+          ${balken(z)}
+        </div>
+      </div>
+      <div class="quelle">Anlage über Modbus am SDongle · Vorhersage aus der Einstrahlung
+        von Open-Meteo auf die Modulebene, 35° geneigt, 55° nach Osten,
+        ${z1(FAKTOR*1000)} kWh je kWh/m² · Vergütung
+        ${z1(VERGUETUNG*100)} ct, Arbeitspreis ${Math.round(ARBEITSPREIS*100)} ct je kWh</div>`;
+  }
+
+  function tagesChart(ST,b=560,h=186){
+    const VON=4,BIS=22,MAX=10,pL=26,pR=34,pT=9,pB=17;
+    const iw=b-pL-pR, ih=h-pT-pB;
+    const x=t=>pL+(t-VON)/(BIS-VON)*iw;
+    const y=v=>pT+ih-(Math.max(0,v)/MAX)*ih;
+    const ys=p=>pT+ih-(p/100)*ih;
+    const std=[]; for(let t=VON;t<BIS;t++) std.push(ST[t]);
+    const stufen=(u,o)=>{
+      let d="";
+      for(let i=0;i<o.length;i++)
+        d+=(i?"L":"M")+x(VON+i).toFixed(1)+" "+y(o[i]).toFixed(1)
+          +"L"+x(VON+i+1).toFixed(1)+" "+y(o[i]).toFixed(1);
+      for(let i=o.length-1;i>=0;i--)
+        d+="L"+x(VON+i+1).toFixed(1)+" "+y(u[i]).toFixed(1)
+          +"L"+x(VON+i).toFixed(1)+" "+y(u[i]).toFixed(1);
+      return d+"Z";
+    };
+    const s0=std.map(()=>0), s1=std.map(e=>e.ausHaus);
+    const s2=std.map(e=>e.ausHaus+Math.max(0,e.akku)), s3=std.map(e=>e.pv);
+    /* Unter der Hauslinie: was nicht direkt aus der Sonne kam, kam aus dem
+       Akku oder aus dem Netz. Vorher war die ganze Flaeche zwischen PV und
+       Haus rot und hiess "aus dem Netz". Abends, wenn der Akku das Haus
+       traegt, behauptete der Graph damit Netzbezug, den es nie gab, und
+       widersprach der eigenen Kennzahl darueber. Am 26.09. zeichnete er
+       ueber den Tag 9,34 kWh Bezug, gemessen waren es 3,17, und fuer 18
+       bis 22 Uhr 6,41 gegen tatsaechlich 0,16. */
+    const uAkku=std.map(e=>Math.min(e.pv,e.haus));
+    const oAkku=std.map((e,i)=>Math.min(e.haus,uAkku[i]+Math.max(0,-e.akku)));
+    const oNetz=std.map((e,i)=>Math.max(oAkku[i],e.haus));
+    let netz="",achse="";
+    for(let v=2;v<=8;v+=2)
+      netz+=`<line x1="${pL}" y1="${y(v)}" x2="${b-pR}" y2="${y(v)}" stroke="#233040" stroke-width="1"/>
+             <text x="${pL-5}" y="${y(v)+3.5}" text-anchor="end" font-size="9" fill="#6c7b8c">${v}</text>`;
+    for(let t=VON;t<=BIS;t+=3)
+      achse+=`<text x="${x(t)}" y="${h-4}" text-anchor="middle" font-size="9" fill="#6c7b8c">${t}</text>`;
+    for(const p of [0,50,100])
+      achse+=`<text x="${b-pR+5}" y="${ys(p)+3.5}" font-size="9" fill="#a08a45">${p===100?"100 %":p}</text>`;
+    let hl="",sl="";
+    for(let i=0;i<std.length;i++){
+      hl+=(i?"L":"M")+x(VON+i).toFixed(1)+" "+y(std[i].haus).toFixed(1)
+         +"L"+x(VON+i+1).toFixed(1)+" "+y(std[i].haus).toFixed(1);
+      if(std[i].socEnde!=null)
+        sl+=(sl?"L":"M")+x(VON+i+1).toFixed(1)+" "+ys(std[i].socEnde).toFixed(1);
+    }
+    const nowH=new Date().getHours()+new Date().getMinutes()/60;
+    const jx=x(Math.max(VON,Math.min(BIS,nowH)));
+    return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+                 style="display:block;width:100%;height:auto">
+      ${netz}
+      <path d="${stufen(s0,s1)}" fill="${F_EIGEN}" opacity=".78"/>
+      <path d="${stufen(s1,s2)}" fill="${F_AKKU}" opacity=".78"/>
+      <path d="${stufen(s2,s3)}" fill="${F_EIN}" opacity=".70"/>
+      <path d="${stufen(uAkku,oAkku)}" fill="${F_AKKU}" opacity=".40"/>
+      <path d="${stufen(oAkku,oNetz)}" fill="${F_BEZUG}" opacity=".42"/>
+      <path d="${hl}" fill="none" stroke="${F_HAUS}" stroke-width="1.5" opacity=".85"/>
+      <path d="${sl}" fill="none" stroke="${F_SOC}" stroke-width="1.4"
+            stroke-dasharray="4 3" opacity=".9"/>
+      <line x1="${jx.toFixed(1)}" y1="${pT}" x2="${jx.toFixed(1)}" y2="${pT+ih}"
+            stroke="#e8eef5" stroke-width="1" stroke-opacity=".5"/>
+      <text x="${pL-5}" y="${pT+7}" text-anchor="end" font-size="9" fill="#6c7b8c">kW</text>
+      ${achse}</svg>`;
+  }
+
+  function band(ST,b=560,h=40){
+    const VON=5,BIS=21,n=BIS-VON+1,zw=b/n;
+    const stufe=v=>v<.2?["#1d2634","#55637a"]:v<1?["#2a5c48","#b9d8c9"]
+                   :v<2.5?["#2f8f68","#0d131b"]:v<4?["#3ddc97","#0d131b"]:["#8df4c8","#0d131b"];
+    let s="";
+    for(let i=0;i<n;i++){
+      const t=VON+i,e=ST[t],[f,tf]=stufe(e.ein);
+      s+=`<rect x="${(i*zw+.7).toFixed(1)}" y="0" width="${(zw-1.4).toFixed(1)}"
+               height="${h-14}" rx="3" fill="${f}" opacity="${e.gemessen?1:.55}"/>`;
+      if(e.ein>=.2)
+        s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${(h-14)/2+4.5}" text-anchor="middle"
+                  font-size="10.5" font-weight="700" fill="${tf}">${z1(e.ein)}</text>`;
+      if(t%3===0||t===VON)
+        s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${h-1}" text-anchor="middle"
+                  font-size="9" fill="#6c7b8c">${t}</text>`;
+    }
+    const nowH=new Date().getHours()+new Date().getMinutes()/60;
+    const jx=(Math.max(VON,Math.min(BIS+1,nowH))-VON)*zw;
+    s+=`<line x1="${jx.toFixed(1)}" y1="-1" x2="${jx.toFixed(1)}" y2="${h-13}"
+              stroke="#e8eef5" stroke-width="1" stroke-opacity=".55"/>`;
+    return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+                 style="display:block;width:100%;height:auto">${s}</svg>`;
+  }
+
+  function balken(z,b=520){
+    const reihe=(titel,summe,teile)=>{
+      let x=0,s="";
+      for(const [v,f,a] of teile){
+        const w=summe>0?v/summe*b:0;
+        if(w<0.6) continue;
+        s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="20" fill="${f}"/>`;
+        if(w>=17) s+=`<g transform="translate(${(x+w/2-5.5).toFixed(1)} 4.5) scale(1.1)"
+                          color="#101720" opacity=".9">${MINI[a]}</g>`;
+        x+=w;
+      }
+      const zahlen=teile.filter(([v])=>v>0.05)
+        .map(([v,f])=>`<span style="color:${f}">${z1(v)}</span>`).join(" · ");
+      return `<div style="margin-bottom:9px">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;color:#8b97a6">
+          <span>${titel}</span><span style="font-weight:700;color:#e8eef5">${z1(summe)} kWh</span></div>
+        <svg width="${b}" height="20" viewBox="0 0 ${b} 20"
+             style="display:block;width:100%;height:auto;border-radius:4px;overflow:hidden;margin:3px 0 2px">
+          <rect x="0" y="0" width="${b}" height="20" fill="#222c38"/>${s}</svg>
+        <div style="font-size:11px;font-variant-numeric:tabular-nums">${zahlen}</div></div>`;
+    };
+    return reihe("Erzeugung geht nach",z.pv,
+             [[z.eigen,F_EIGEN,"haus"],[z.laden,F_AKKU,"akku"],[z.ein,F_EIN,"euro+"]])
+         + reihe("Verbrauch kommt aus",z.haus,
+             [[z.eigen,F_SOC,"strom"],[z.entladen,F_AKKU,"akku"],[z.bez,F_BEZUG,"euro-"]]);
+  }
+})();
+const H={time:[],shortwave_radiation:[],global_tilted_irradiance:[]};
+const BOGEN=h=>Math.max(0,Math.sin((h-6.3)/12.2*Math.PI));
+for(const tag of ["2026-09-27","2026-09-28"]) for(let h=0;h<24;h++){ H.time.push(`${tag}T${String(h).padStart(2,"0")}:00`);
+  const v=Math.round(BOGEN(h-1)*650); H.shortwave_radiation.push(v); H.global_tilted_irradiance.push(v); }
+
+const FAELLE=[["mittags, Akku lädt","2026-09-27T13:10",{pv:6.4,haus:1.0,akku:1.5,netz:3.9,soc:87},""],
+              ["mittags, Akku voll","2026-09-27T14:10",{pv:6.1,haus:0.9,akku:0,netz:5.2,soc:100},""],
+              ["abends aus dem Akku","2026-09-27T20:30",{pv:0,haus:1.0,akku:-1.0,netz:0,soc:43},"n"],
+              ["nachts mit Netzbezug","2026-09-27T23:20",{pv:0,haus:1.8,akku:-1.0,netz:-0.8,soc:9},"n"]];
+const GRAU="#8b97a6";   /* dieselbe Farbe wie die Schrift */
+/* + fliesst mit dem Pfeil, - dagegen */
+const vz=v=>(v>=0?"+":"−")+Math.abs(v).toFixed(1).replace(".",",");
+const PF_RECHTS=`<svg width="8" height="5" viewBox="0 0 8 5" style="display:block"><path d="M.5 2.5h6.4M5 .8 6.9 2.5 5 4.2" fill="none" stroke="${GRAU}" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const PF_LINKS=`<svg width="8" height="5" viewBox="0 0 8 5" style="display:block"><path d="M7.5 2.5H1.1M3 .8 1.1 2.5 3 4.2" fill="none" stroke="${GRAU}" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const PF_RUNTER=`<svg class="pfz" viewBox="0 0 5 7"><path d="M2.5 .4v6.2M.9 4.9 2.5 6.6 4.1 4.9" fill="none" stroke="${GRAU}" stroke-width=".9" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const PF_HOCH=`<svg class="pfz" viewBox="0 0 5 7"><path d="M2.5 6.6V.4M.9 2.1 2.5 .4 4.1 2.1" fill="none" stroke="${GRAU}" stroke-width=".9" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const F_EIGEN="#63b3ff", F_EIN="#3ddc97", F_BEZUG="#ff7b6b", F_PV="#ffd166";
+const MINI_H=`<path d="M1 9.2V4.4L5 1.1l4 3.3v4.8z" fill="currentColor"/>`;
+const MINI_P=`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750" fill="currentColor">+&#8364;</text>`;
+const MINI_M=`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750" fill="currentColor">&#8722;&#8364;</text>`;
+const MINI_S=`<path d="M6.3 .7 2.3 5.9h2.6L4.0 9.3 7.9 4.0H5.4z" fill="currentColor"/>`;
+/* Der Strahl ohne Akku. Mittags: Haus und Einspeisung. Wenn das Haus bezieht:
+   was noch von der Sonne kommt und was aus dem Netz. */
+function rest(j){
+  const knapp=j.pv+0.02<j.haus;
+  const teile=knapp?[[Math.min(j.pv,j.haus),F_PV,MINI_S],[Math.max(0,-j.netz),F_BEZUG,MINI_M]]
+                   :[[Math.min(j.pv,j.haus),F_EIGEN,MINI_H],[Math.max(0,j.netz),F_EIN,MINI_P]];
+  return {knapp,teile,summe:teile.reduce((a,[v])=>a+v,0)};
+}
+function strahl(j,b,h=19){
+  const {teile,summe}=rest(j), teuer=-j.netz>0.02;
+  const nutz=summe>0.05?Math.max(3,Math.min(1,summe/10)*b):0;
+  let skala=""; for(let k=2;k<10;k+=2) skala+=`<line x1="${(b*k/10).toFixed(1)}" y1="0" x2="${(b*k/10).toFixed(1)}" y2="${h}" stroke="#3a4756"/>`;
+  const gr=13, sk=gr/10; let x=0,t="";
+  for(const [v,f,m] of teile){ const w=summe>0?v/summe*nutz:0; if(w<0.6) continue;
+    t+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${h}" fill="${f}"/>`;
+    if(w>=gr+4) t+=`<g transform="translate(${(x+w/2-gr/2).toFixed(1)} ${(h/2-gr/2).toFixed(1)}) scale(${sk})" color="#101720" opacity=".92">${m}</g>`;
+    x+=w; }
+  const rahmen=teuer&&nutz>4?`<rect x=".6" y=".6" width="${(nutz-1.2).toFixed(1)}" height="${h-1.2}" rx="3.4" fill="none" stroke="${F_BEZUG}" stroke-width="1.2"/>`:"";
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block;border-radius:4px;overflow:hidden">
+    <rect width="${b}" height="${h}" fill="#222c38"/>${skala}${t}${rahmen}</svg>`;
+}
+function bauen(p,j){
+  const r=rest(j);
+  /* Unten steht, was wirklich in den Strahl geht oder aus ihm kommt */
+  const wert=r.knapp?-r.summe:r.summe;
+  const breite=+(p.balken.match(/width="([0-9.]+)"/)||[0,280])[1];
+  return `<div class="raster">
+    <div class="mitte">${p.akku}</div><div></div><div>${p.streifen}</div>
+    <div class="mitte">${p.symbol}</div>
+    <div class="mitte"><div style="display:flex;flex-direction:column;align-items:center;gap:1.5px">
+      ${r.summe>0.05?`<span class="klein">${vz(wert)}</span>${wert>=0?PF_RECHTS:PF_LINKS}`:""}</div></div>
+    <div>${strahl(j,breite)}</div></div>`;
+}
+function linien(r){
+  const R=r.getBoundingClientRect(), s=R.width/r.offsetWidth;
+  const rel=e=>{const b=e.getBoundingClientRect(); return {x:(b.left-R.left)/s,y:(b.top-R.top)/s,w:b.width/s,h:b.height/s};};
+  const z=[...r.children], a=rel(z[0].querySelector("svg")), st=rel(z[2].querySelector("svg")), ba=rel(z[5].querySelector("svg"));
+  const H=r.offsetHeight, W=r.offsetWidth, l=(x,y,w,h)=>`<div class="linie" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"></div>`;
+  return l(a.x+a.w/2-.15,-3,.3,H+6)+l(-3,a.y+a.h-.15,W+6,.3)+l(st.x-.15,-3,.3,H+6)+l(st.x+st.w-.15,-3,.3,H+6);
+}
+(async()=>{
+  const teile=[];
+  for(const [name,zeit,j,k] of FAELLE){
+    uhr(zeit); const st={}; for(let h=0;h<new Date().getHours();h++) st[h]={pv:+(BOGEN(h)*7.4).toFixed(2),haus:.8,akku:0,netz:0};
+    SOLAR.setzePrognose(H,{"2026-09-27":{set:new EchtDate("2026-09-27T19:19").getTime()}});
+    for(const sek of ["00","30","59"]){ DATEN={zeit:zeit+":"+sek,jetzt:j,heute_kwh:30,stunden:st}; await SOLAR.holeDaten(); }
+    const z=[...document.querySelectorAll("#solar .solarraster > div")];
+    teile.push({name,k,j,p:{akku:z[0].innerHTML,streifen:z[1].innerHTML,symbol:z[2].querySelector("svg").outerHTML,balken:z[3].innerHTML}});
+  }
+  let o="<div>";
+  for(const f of teile) o+=`<div style="display:inline-block;vertical-align:top"><div class=t>${f.name}</div>
+    <div class="g ${f.k}"><div class="zelle solar blk" data-j='${JSON.stringify(f.j)}' style="padding:0">${bauen(f.p,f.j)}</div></div></div>`;
+  o+="</div>";
+  for(const i of [0,2,3]) o+=`<div class="platz"><div class="t">${teile[i].name}, dreifach</div><div class="g gross3 ${teile[i].k}"><div class="zelle solar blk hilfe" data-j='${JSON.stringify(teile[i].j)}' style="padding:0">${bauen(teile[i].p,teile[i].j)}</div></div></div>`;
+  document.getElementById("a").innerHTML=o;
+  /* Senkrechter Pfeil vom Symbol zur Batterie, mittig in der Fuge, Zahl rechts daneben */
+  for(const z of document.querySelectorAll(".blk")){
+    const r=z.querySelector(".raster"), j=JSON.parse(z.dataset.j);
+    if(Math.abs(j.akku)<=0.05) continue;
+    const R=r.getBoundingClientRect(), s=R.width/r.offsetWidth;
+    const rel=e=>{const b=e.getBoundingClientRect(); return {x:(b.left-R.left)/s,y:(b.top-R.top)/s,w:b.width/s,h:b.height/s};};
+    const ak=rel(r.children[0].querySelector("svg")), sy=rel(r.children[3].querySelector("svg"));
+    const oben=ak.y+ak.h, fuge=sy.y-oben, mitte=ak.x+ak.w/2;
+    r.insertAdjacentHTML("beforeend",`<div style="position:absolute;left:0;top:0"><span class="klein">${j.akku>0?PF_HOCH:PF_RUNTER}${vz(j.akku)}</span></div>`);
+    /* Die ganze Gruppe, Pfeil und Zahl, mittig auf die Achse und mittig in die Fuge */
+    const el=r.lastElementChild;
+    el.style.left=(mitte-el.offsetWidth/2).toFixed(2)+"px";
+    el.style.top=(oben+(fuge-el.offsetHeight)/2).toFixed(2)+"px";
+  }
+  for(const h of document.querySelectorAll(".hilfe .raster")) h.insertAdjacentHTML("beforeend",linien(h));
+})();
+</script>
