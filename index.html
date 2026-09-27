@@ -369,6 +369,7 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
   background:rgba(5,8,12,.92);border:1px solid #536276;border-radius:8px;
   padding:7px 10px;font-size:11px;color:#fff;display:none;text-align:center;max-width:80%
 }
+.kartensymbol{display:block;width:100%;height:100%}
 .leaflet-control-attribution{font-size:8px!important;background:rgba(255,255,255,.70)!important}
 .days-scroll{
   flex:1 1 auto;
@@ -3070,7 +3071,7 @@ function blitzOrte(sturm,pts){
 function cloudFrameLabel(iso,idx){
   const t=new Date(iso).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
   if(radarLegend&&!radarLegend.dataset.done){
-    radarLegend.innerHTML=`weiß bis grau = Wolken · Blau = Regen · <span class="inl">${mi("bolt")}Gelb bis Lila = Gewitter</span>`;
+    radarLegend.innerHTML=`weiß bis grau = Wolken · Blau = Regen · Gelb bis Lila = Gewitter`;
     radarLegend.dataset.done="1";
   }
   return idx===0?`Jetzt / ${t}`:`+${idx} h · ${t}`;
@@ -3162,7 +3163,9 @@ function drawCloudFrame(idx){
   for(const st of f.storms){
     const m=L.marker([st.lat,st.lon],{
       interactive:false,
-      icon:L.divIcon({className:"",html:`<div style="width:20px;height:20px;color:#fff6d0;filter:drop-shadow(0 1px 2px #000)">${mi("bolt").replace('class="mi"','style="width:20px;height:20px;display:block"')}</div>`,iconSize:[22,22],iconAnchor:[11,11]})
+      /* Das Gewittersymbol der Stundenkacheln, Wolke mit Blitz und Regen. Der
+         einzelne Blitz sah aus wie das Stromsymbol im Solarblock. */
+      icon:L.divIcon({className:"",html:`<div style="width:30px;height:30px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))">${weatherIcon({sky:4,wet:"regen",storm:true},"kartensymbol")}</div>`,iconSize:[30,30],iconAnchor:[15,15]})
     }).addTo(cloudMap);
     cloudMarkers.push(m);
   }
