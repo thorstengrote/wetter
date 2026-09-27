@@ -381,6 +381,8 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
   padding:7px 10px;font-size:11px;color:#fff;display:none;text-align:center;max-width:80%
 }
 .kartensymbol{display:block;width:100%;height:100%}
+/* Radarpixel sind einen Kilometer gross, ein Hauch Weichzeichner gegen Treppchen */
+.radarbild{filter:blur(1.1px)}
 .leaflet-control-attribution{font-size:8px!important;background:rgba(255,255,255,.70)!important}
 .days-scroll{
   flex:1 1 auto;
@@ -3093,6 +3095,85 @@ function rainRGB(mm){
   const v=Number(mm||0);
   return v<0.1?null:stufeRGB(v,REGEN_STUFEN);
 }
+/*
+  DWD-Radar fuer die ersten zwei Stunden.
+
+  ICON sieht Regen nur an 19 mal 10 Punkten, also als weiche Flecken. Das
+  Radarkomposit des DWD hat 1 km und kommt alle fuenf Minuten, dazu eine
+  Vorhersage bis knapp zwei Stunden. Fuer jetzt, +1 h und +2 h kommt der
+  Regen deshalb aus dem Radar, fuer jetzt die Gewitter aus der gemessenen
+  Blitzdichte. Wolken und alles ab der dritten Stunde bleiben ICON.
+
+  Der DWD liefert fertige Bilder in seinen Farben. Jede Farbe steht fuer eine
+  Klasse, abgelesen aus seiner Legende am 27.09.2026, und wird in unsere
+  Farben zurueckgerechnet. Faellt der DWD aus, bleibt der Regen von ICON.
+*/
+const hexRGB=h=>[0,2,4].map(i=>parseInt(h.substr(i,2),16));
+const RADAR_KLASSEN=[["33ffff",.15],["1acc9a",.3],["019934",.7],["4db31b",1.5],["99cc01",2.5],["cce601",4],
+  ["ffff01",6.25],["ffc401",8.75],["ff8901",12.5],["ff4501",22.5],["fe0000",37.5],["e5004c",60],
+  ["cc0098",87.5],["6600cb",125],["0000fe",175]].map(([h,v])=>[hexRGB(h),v]);
+/* Blitzdichte in 1/min je 100 km2, abgebildet auf die Gewitterstufen */
+const BLITZ_KLASSEN=[["fcffc1",1],["fbff5c",1.3],["dffc26",1.7],["a0d626",2],["45c379",2.4],["00d6d8",2.8],
+  ["11a1d6",3.1],["0702fc",3.4],["9232b7",3.7],["da28c6",4],["e70d0c",4],["880e0d",4],["4f0e0d",4]]
+  .map(([h,v])=>[hexRGB(h),v]);
+function dwdKlasse(r,g,b,liste){
+  let best=null,d0=1e9;
+  for(const [c,v] of liste){ const d=(r-c[0])**2+(g-c[1])**2+(b-c[2])**2; if(d<d0){d0=d;best=v;} }
+  return d0<900?best:null;          /* Abdeckungsrand und Grau bleiben leer */
+}
+const iso5=d=>d.toISOString().slice(0,19)+"Z";
+async function dwdBild(layer,zeit,faerbe){
+  const b=cloudMap.getBounds(), sz=cloudMap.getSize(), W=Math.round(sz.x), H=Math.round(sz.y);
+  const p1=L.CRS.EPSG3857.project(b.getSouthWest()), p2=L.CRS.EPSG3857.project(b.getNorthEast());
+  const url="https://maps.dwd.de/geoserver/dwd/wms?service=WMS&version=1.3.0&request=GetMap"+
+    `&layers=dwd:${layer}&styles=&crs=EPSG:3857&bbox=${p1.x},${p1.y},${p2.x},${p2.y}`+
+    `&width=${W}&height=${H}&format=image/png&transparent=true&time=${iso5(zeit)}&format_options=antialias:none`;
+  const img=await new Promise((ok,nein)=>{ const i=new Image(); i.crossOrigin="anonymous";
+    const u=setTimeout(()=>nein(new Error("DWD antwortet nicht")),20000);
+    i.onload=()=>{clearTimeout(u);ok(i);}; i.onerror=()=>{clearTimeout(u);nein(new Error("DWD-Bild fehlt"));}; i.src=url; });
+  const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+  const cx=cv.getContext("2d"); cx.drawImage(img,0,0);
+  const d=cx.getImageData(0,0,W,H), px=d.data; let treffer=0;
+  for(let o=0;o<px.length;o+=4){
+    if(px[o+3]<128){ px[o+3]=0; continue; }
+    const f=faerbe(px[o],px[o+1],px[o+2]);
+    if(!f){ px[o+3]=0; continue; }
+    px[o]=f[0]; px[o+1]=f[1]; px[o+2]=f[2]; px[o+3]=Math.round(f[3]*255); treffer++;
+  }
+  cx.putImageData(d,0,0);
+  return {url:cv.toDataURL(),bounds:b,treffer};
+}
+const radarFarbe=(r,g,b)=>{ const mm=dwdKlasse(r,g,b,RADAR_KLASSEN); if(mm==null) return null;
+  const c=rainRGB(mm); return [c[0],c[1],c[2],Math.min(.82,.26+Math.sqrt(mm)*.40)]; };
+const blitzFarbe=(r,g,b)=>{ const st=dwdKlasse(r,g,b,BLITZ_KLASSEN); if(st==null) return null;
+  const c=stufeRGB(st,STURM_STUFEN); return [c[0],c[1],c[2],Math.min(.9,.55+.1*st)]; };
+
+/* Die ersten drei Bilder der Karte bekommen das Radar. Die letzte Analyse
+   liegt fuenf bis zehn Minuten zurueck, die Vorhersage reicht knapp zwei
+   Stunden, deshalb +115 statt +120 Minuten. */
+const RADAR_VERSATZ=[0,60,115];
+async function radarAnreichern(frames){
+  const t0=new Date(); t0.setUTCSeconds(0,0);
+  t0.setUTCMinutes(Math.floor(t0.getUTCMinutes()/5)*5-5);
+  for(let h=0;h<Math.min(frames.length,RADAR_VERSATZ.length);h++){
+    const f=frames[h];
+    try{
+      const zeit=new Date(t0.getTime()+RADAR_VERSATZ[h]*60000);
+      const r=await dwdBild("Radar_rv_product_1x1km_ger",zeit,radarFarbe);
+      let bl=null;
+      if(h===0) bl=await dwdBild("Blitzdichte",t0,blitzFarbe).catch(()=>null);
+      /* ICON-Regen raus, das Radar ersetzt ihn. Gewitter von ICON bleiben
+         fuer +1 h und +2 h, fuer jetzt gibt es die gemessenen Blitze. */
+      const leer=new Float32Array(f.cloud.length);
+      f.url=renderFrame(f.cloud,leer,h===0&&bl?leer:f.sturm);
+      if(h===0&&bl) f.storms=[];
+      f.radar=r; f.blitz=bl;
+    }catch(e){
+      diagPush({src:"Radar",kind:"netz",msg:e.message,ms:0});
+    }
+  }
+}
+
 /* Gewitterstufe eines Punkts: nur wo ICON ein Gewitter rechnet, also Code
    95, 96 oder 99. CAPE allein zeigt nur, dass eines entstehen koennte, und
    lag Mai bis September 2026 an der Haelfte der Tage daneben. Die Staerke
@@ -3211,6 +3292,10 @@ function drawCloudFrame(idx){
     cloudOverlay.setUrl(f.url);
     cloudOverlay.setBounds(L.latLngBounds(bounds));
   }
+  /* Radar und Blitze als eigene Schichten ueber dem ICON-Bild */
+  for(const k of ["radarEbene","blitzEbene"]) if(window[k]){ cloudMap.removeLayer(window[k]); window[k]=null; }
+  if(f.radar) window.radarEbene=L.imageOverlay(f.radar.url,f.radar.bounds,{interactive:false,className:"radarbild"}).addTo(cloudMap);
+  if(f.blitz) window.blitzEbene=L.imageOverlay(f.blitz.url,f.blitz.bounds,{interactive:false,className:"radarbild"}).addTo(cloudMap);
   clearMarkers();
   for(const st of f.storms){
     const m=L.marker([st.lat,st.lon],{
@@ -3221,7 +3306,7 @@ function drawCloudFrame(idx){
     }).addTo(cloudMap);
     cloudMarkers.push(m);
   }
-  radarTime.textContent=cloudFrameLabel(f.time,cloudIdx);
+  radarTime.textContent=cloudFrameLabel(f.time,cloudIdx)+(f.radar?" · Radar":"");
 }
 /*
   The field is hourly, so a reload inside the same hour would fetch numbers that
@@ -3302,9 +3387,10 @@ async function loadCloudForecast(){
         sturm[o]=sturmStufe(code,mm);
       }
       const storms=blitzOrte(sturm,pts);
-      frames.push({time:j[0].hourly.time[h],url:renderFrame(cloud,precip,sturm),storms,box:gridBox});
+      frames.push({time:j[0].hourly.time[h],url:renderFrame(cloud,precip,sturm),storms,box:gridBox,cloud,sturm});
     }
     if(!frames.length) throw new Error("keine Wolken-Frames");
+    await radarAnreichern(frames);
     cloudFrames=frames;
 
     cloudIdx=0;
@@ -3349,8 +3435,12 @@ function initCloudMap(){
       radius:5,weight:2,color:"#ffffff",fillColor:"#ff3b30",fillOpacity:1
     }).addTo(cloudMap).bindTooltip("Uedorf",{permanent:true,direction:"right",offset:[7,0]});
 
+    cloudMap.attributionControl.addAttribution("Radar © DWD");
     loadCloudForecast();
     scheduleCloudReload();
+    /* Das Radar erneuert sich alle fuenf Minuten, ICON nur stuendlich */
+    setInterval(async()=>{ if(!cloudFrames.length) return;
+      await radarAnreichern(cloudFrames); drawCloudFrame(cloudIdx); },600000);
     /* the viewport changes when the page enters fullscreen or the tablet
        rotates, and the raster is cut for the viewport it was built from */
     let resizeTimer=null;
