@@ -1092,8 +1092,56 @@ function diagPush(ev){
 }
 
 /* classify a failed request instead of letting every problem look the same */
+/*
+  Tageskontingent bei Open-Meteo.
+
+  Kostenlos sind 10 000 Abrufe am Tag, 5 000 in der Stunde. Gezahlt wird nach
+  der Formel aus dem Rechner auf open-meteo.com/en/pricing:
+    max(1, Variablen/10 * max(1, Tage/14)) * Orte
+  Die Karte mit 190 Gitterpunkten kostet also 190, die Prognose 5,4, der
+  Trend 3,2. Der Anschluss zu Hause teilt das Kontingent mit allen anderen
+  Geraeten, deshalb nimmt sich die Wand hoechstens 7 000 und die Karte
+  hoechstens 5 500 davon. Nach Plan braucht sie rund 4 800.
+  Gezaehlt wird je UTC-Tag. Antwortet der Dienst trotzdem mit 429, ruht jeder
+  Abruf: bei "Daily" bis Mitternacht UTC, bei "Hourly" bis zur naechsten
+  vollen Stunde, sonst zwei Minuten.
+*/
+const OM_BUDGET=7000, OM_BUDGET_KARTE=5500, OM_KEY="om-kontingent";
+function omKosten(url){
+  const q=new URL(url).searchParams;
+  const vars=["current","hourly","daily","minutely_15"]
+    .reduce((n,k)=>n+(q.get(k)?q.get(k).split(",").length:0),0);
+  const tage=Number(q.get("forecast_days")||(q.get("forecast_hours")?Number(q.get("forecast_hours"))/24:7));
+  const orte=(q.get("latitude")||"").split(",").length;
+  return Math.max(1,vars/10*Math.max(1,tage/14))*orte;
+}
+function omStand(){
+  const tag=new Date().toISOString().slice(0,10);
+  let k=null; try{ k=JSON.parse(localStorage.getItem(OM_KEY)||"null"); }catch(e){}
+  if(!k||k.tag!==tag) k={tag,summe:0,karte:0,ruheBis:k&&k.ruheBis||0};
+  return k;
+}
+function omMerke(k){ try{ localStorage.setItem(OM_KEY,JSON.stringify(k)); }catch(e){} }
+function omRuhe(grund){
+  const k=omStand(), jetzt=new Date();
+  let bis;
+  if(/daily/i.test(grund)) bis=Date.UTC(jetzt.getUTCFullYear(),jetzt.getUTCMonth(),jetzt.getUTCDate()+1,0,2);
+  else if(/hourly/i.test(grund)){ bis=new Date(jetzt); bis.setMinutes(62,0,0); bis=+bis; }
+  else bis=Date.now()+120000;
+  k.ruheBis=bis; omMerke(k);
+}
+
 async function fetchJson(url,label){
   const t0=Date.now();
+  const om=url.includes("open-meteo.com");
+  if(om){
+    const k=omStand(), kosten=omKosten(url), karte=label==="Karte";
+    if(Date.now()<k.ruheBis)
+      throw new Error(`${label}: Open-Meteo gesperrt bis ${new Date(k.ruheBis).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}`);
+    if(k.summe+kosten>OM_BUDGET||(karte&&k.karte+kosten>OM_BUDGET_KARTE))
+      throw new Error(`${label}: Tageskontingent aufgebraucht (${Math.round(k.summe)} von ${OM_BUDGET})`);
+    k.summe+=kosten; if(karte) k.karte+=kosten; omMerke(k);
+  }
   let r;
   try{
     r=await fetch(url,{cache:"no-store"});
@@ -1103,7 +1151,9 @@ async function fetchJson(url,label){
     throw new Error(`${label}: ${m}`);
   }
   if(!r.ok){
-    const m=`HTTP ${r.status}${r.statusText?" "+r.statusText:""}`;
+    let grund="";
+    if(om&&r.status===429){ try{ grund=String((await r.json()).reason||""); }catch(e){} omRuhe(grund); }
+    const m=`HTTP ${r.status}${r.statusText?" "+r.statusText:""}${grund?" · "+grund:""}`;
     diagPush({src:label,kind:"http",msg:m,ms:Date.now()-t0,status:r.status});
     throw new Error(`${label}: ${m}`);
   }
@@ -2824,6 +2874,7 @@ function showDiagnostics(){
     ["letzter Fehler", lastError?`${lastError.msg} (${ago(lastError.t)})`:"keiner"],
     ["letzter Erfolg", lastGoodAt?`${hhmmss(lastGoodAt)} (${ago(lastGoodAt)})`:"noch keiner"],
     ["Fehlversuche in Folge", String(streak)],
+    ["Open-Meteo heute", (()=>{ const k=omStand(); return `${Math.round(k.summe)} von ${OM_BUDGET}, Karte ${Math.round(k.karte)}`+(Date.now()<k.ruheBis?`, Pause bis ${new Date(k.ruheBis).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}`:""); })()],
     ["Browser online", navigator.onLine===false?"nein":"ja"],
     ["Verbindung", [c.effectiveType,c.downlink!=null?c.downlink+" Mbit/s":null,c.rtt!=null?c.rtt+" ms":null].filter(Boolean).join(" · ")||"nicht gemeldet"],
     ["Seite geladen", document.lastModified],
@@ -2885,7 +2936,27 @@ function showOutlookDetail(){
   );
 }
 
+/*
+  Wie oft Prognose und Trend geholt werden.
+
+  Open-Meteo erlaubt 10 000 Abrufe am Tag. Am 27.09.2026 war das Limit um
+  19:09 erschoepft. Nachts kamen 41 Abrufe in der Stunde an, nach der Uhr
+  waeren es 12 gewesen. Wahrscheinlich der Neuladen bei jedem Sichtbarwerden der Seite,
+  der nicht nachsah, wann zuletzt geladen wurde. Jetzt geht jeder Anstoss
+  ausser dem Nachversuch ueber faellig(). Zwischen 1 und 5 Uhr schaut niemand
+  auf die Wand, dann reicht einmal in der Stunde.
+*/
+const NACHT_VON=1, NACHT_BIS=5;
+const istNacht=()=>{ const h=new Date().getHours(); return h>=NACHT_VON&&h<NACHT_BIS; };
+let letzterAbruf=0;
+function faellig(){
+  const abstand=istNacht()?60*60000:REFRESH_MS;
+  return Date.now()-letzterAbruf>=abstand-60000;
+}
+function ladeWennFaellig(){ if(faellig()) loadWeather(); }
+
 async function loadWeather(){
+  letzterAbruf=Date.now();
   try{
 
     const [d,trend]=await Promise.all([
@@ -3056,6 +3127,7 @@ const NACHVERSUCHE=[4000,20000,90000];
 let nachversuch=null, nachversuchNr=0;
 function planeNachversuch(){
   if(nachversuchNr>=NACHVERSUCHE.length) return;
+  const k=omStand(); if(Date.now()<k.ruheBis||k.summe>=OM_BUDGET-10) return;
   const warten=NACHVERSUCHE[nachversuchNr++]+Math.random()*3000;
   clearTimeout(nachversuch);
   nachversuch=setTimeout(loadWeather,warten);
@@ -3511,7 +3583,9 @@ async function loadCloudForecast(){
 function scheduleCloudReload(){
   const now=new Date();
   const wait=(60-now.getMinutes())*60000-now.getSeconds()*1000+90000;
-  setTimeout(()=>{ loadCloudForecast(); scheduleCloudReload(); },Math.max(60000,wait));
+  /* Nachts bleibt der letzte Film stehen, die Bilder tragen ihre Uhrzeit.
+     Das spart vier Ladungen zu je 190 Abrufen. */
+  setTimeout(()=>{ if(!istNacht()) loadCloudForecast(); scheduleCloudReload(); },Math.max(60000,wait));
 }
 
 function initCloudMap(){
@@ -3682,8 +3756,8 @@ setTimeout(checkForUpdate,30000);
 loadWeather();
 /* Zufallsanteil von bis zu einer Minute, damit der Abruf nicht dauerhaft auf
    derselben runden Sekunde liegt wie bei allen anderen. */
-setInterval(loadWeather,REFRESH_MS+Math.floor(Math.random()*60000));
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadWeather()});
+setInterval(ladeWennFaellig,REFRESH_MS+Math.floor(Math.random()*60000));
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)ladeWennFaellig()});
 </script>
 </body>
 </html>
