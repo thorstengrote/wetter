@@ -138,6 +138,8 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 .solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px}
 .solar:active{background:rgba(255,255,255,.06)}
 .solar[hidden]{display:none}
+.solarraster{display:grid;grid-template-columns:auto auto;column-gap:9px;row-gap:5px;align-items:center}
+.solarraster .sr-links{display:flex;justify-content:center}
 
 .sdetail{
   position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
@@ -2325,31 +2327,45 @@ const SOLAR=(()=>{
                 fill="currentColor">+&#8364;</text>`,
     "euro-":`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750"
                 fill="currentColor">&#8722;&#8364;</text>`,
-    strom:`<path d="M6.3 .7 2.3 5.9h2.6L4.0 9.3 7.9 4.0H5.4z" fill="currentColor"/>`
+    strom:`<path d="M6.3 .7 2.3 5.9h2.6L4.0 9.3 7.9 4.0H5.4z" fill="currentColor"/>`,
+    /* Ein Solarmodul: schraeg gestellte Flaeche mit Zellen und Staender */
+    pv:`<path d="M.9 7.2 2.4 1.9h6.6L10.5 7.2z" fill="currentColor"/>
+        <path d="M4.6 1.9 4.1 7.2M6.8 1.9 7.3 7.2M1.6 4.6h8.2" stroke="#101720" stroke-width=".55" fill="none"/>
+        <path d="M5.7 7.2v1.7M4 8.9h3.4" stroke="currentColor" stroke-width=".9" stroke-linecap="round" fill="none"/>`
   };
   const mini=(a,f,g=10)=>`<svg width="${g}" height="${g}" viewBox="0 0 10 10"
     style="display:block;color:${f};flex:0 0 auto">${MINI[a]}</svg>`;
 
   /* Aufrechte Batterie, ohne Zahl. Gruen ab 50 Prozent. */
-  function batterie(soc,laedt,b=29,h=68){
-    const kappe=Math.max(3.5,h*0.075), io=kappe+h*0.038, iu=h-h*0.038;
-    const ih=iu-io, f=ih*Math.max(0,Math.min(100,soc))/100;
+  /* Aufrechte Batterie, ohne Zahl. Gruen ab 50 Prozent.
+
+     Eine einzige Fuge g fuer alles: zwischen den Zellen, am Boden, an den
+     Seiten und oben. Vorher lagen zwischen den Zellen 1,6 Pixel dunkle
+     Linie, am Boden reichte die Fuellung aber bis an die Kontur, und die
+     Zellen sahen ungleich eingefasst aus. Jetzt ist jede Zelle ein eigenes
+     Kaestchen und fuellt sich von unten. */
+  function batterie(soc,laedt,b=24,h=44){
+    const kappe=Math.max(3,h*0.075), rand=1.6, g=1.6;
+    const x0=1+rand/2+g, x1=b-1-rand/2-g;
+    const y0=kappe+rand/2+g, y1=h-1-rand/2-g;
+    const n=5, zh=(y1-y0-(n-1)*g)/n, v=Math.max(0,Math.min(100,soc))/100*n;
     const farbe=soc>=50?"#3ddc97":soc>=25?"#ffd166":"#ff7b6b";
-    let li="";
-    for(let i=1;i<5;i++){
-      const y=iu-ih*i/5;
-      li+=`<line x1="${b*0.12}" y1="${y.toFixed(1)}" x2="${b*0.88}" y2="${y.toFixed(1)}"
-                 stroke="#111821" stroke-width="${Math.max(1.6,h*0.027)}"/>`;
+    let zellen="";
+    for(let i=0;i<n;i++){
+      const unten=y1-i*(zh+g), voll=Math.max(0,Math.min(1,v-i));
+      if(voll<=0) continue;
+      const hh=zh*voll;
+      zellen+=`<rect x="${x0.toFixed(2)}" y="${(unten-hh).toFixed(2)}" width="${(x1-x0).toFixed(2)}"
+                     height="${hh.toFixed(2)}" rx="1" fill="${farbe}"/>`;
     }
-    const blitz=laedt?`<path d="M${b/2+3} ${h/2-10}l-7 11h4.5l-2 8.5 7-11.2h-4.5z"
-                             fill="#0d131b" opacity=".85"/>`:"";
+    const k=h/68;
+    const blitz=laedt?`<path transform="translate(${b/2} ${h/2+kappe/2}) scale(${k.toFixed(3)})"
+        d="M3 -10l-7 11h4.5l-2 8.5 7-11.2h-4.5z" fill="#0d131b" opacity=".85"/>`:"";
     return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block">
-      <rect x="${b/2-b*0.19}" y="0" width="${b*0.38}" height="${kappe+1}" rx="1.8" fill="#5b6b7d"/>
-      <rect x="1" y="${kappe}" width="${b-2}" height="${h-kappe-1}" rx="${b*0.15}"
-            fill="#1b232e" stroke="#6b7a8c" stroke-width="1.6"/>
-      <rect x="${b*0.12}" y="${(iu-f).toFixed(1)}" width="${b*0.76}"
-            height="${f.toFixed(1)}" rx="1.8" fill="${farbe}"/>
-      ${li}${blitz}</svg>`;
+      <rect x="${(b/2-b*0.19).toFixed(2)}" y="0" width="${(b*0.38).toFixed(2)}" height="${kappe+1}" rx="1.4" fill="#5b6b7d"/>
+      <rect x="1" y="${kappe}" width="${b-2}" height="${h-kappe-1}" rx="${(b*0.15).toFixed(2)}"
+            fill="#1b232e" stroke="#6b7a8c" stroke-width="${rand}"/>
+      ${zellen}${blitz}</svg>`;
   }
 
   /* Eine Saeule je Stunde. Links vom Strich gemessen, rechts gerechnet.
@@ -2393,15 +2409,17 @@ const SOLAR=(()=>{
   }
 
   /* Wohin der Strom geht, oder woher er kommt. Der Pfeil zeigt die Richtung,
-     ein roter Rahmen erscheint nur, wenn wirklich Netzstrom fliesst. */
-  const IKON=25;
+     ein roter Rahmen erscheint nur, wenn wirklich Netzstrom fliesst.
+
+     Symbol und Balken kommen getrennt zurueck. Das Symbol steht unter der
+     Batterie, der Balken ist so breit wie der Stundenstreifen darueber. */
   function wohin(gesamt=SB,h=19){
     const g=gemittelt();
     const pv=Number(g.pv||0), haus=Number(g.haus||0);
     const netz=Number(g.netz||0), akku=Number(g.akku||0);
     const bez=Math.max(0,-netz), ein=Math.max(0,netz);
     const knapp=pv+0.02<haus, teuer=bez>0.02;
-    const b=gesamt-IKON;
+    const b=gesamt;
     let teile, endIkon, endFarbe;
     if(knapp){
       teile=[[Math.min(pv,haus),"#ffd166","strom"],
@@ -2412,7 +2430,7 @@ const SOLAR=(()=>{
       teile=[[Math.min(pv,haus),F_EIGEN,"haus"],
              [Math.max(0,akku),F_AKKU,"akku"],
              [ein,F_EIN,"euro+"]];
-      endIkon="strom"; endFarbe=F_SOC;
+      endIkon="pv"; endFarbe=F_SOC;
     }
     /* Die Laenge ist die Leistung, voll heisst VOLL_KW. Damit sagt der Balken
        nicht nur wohin, sondern auch wie viel. Die feinen Striche geben der
@@ -2440,16 +2458,18 @@ const SOLAR=(()=>{
     const rahmen=teuer&&nutz>4?`<rect x=".6" y=".6" width="${(nutz-1.2).toFixed(1)}"
                               height="${h-1.2}" rx="3.4"
                               fill="none" stroke="${F_BEZUG}" stroke-width="1.2" opacity=".9"/>`:"";
-    const pfeil=knapp?`<path d="M9 5H3M5 2.4 1.6 5 5 7.6"/>`:`<path d="M0 5h6M4 2.4 7.4 5 4 7.6"/>`;
-    return `<div style="display:flex;align-items:center;gap:4px">
-      ${mini(endIkon,endFarbe,11)}
+    /* Modul mit Pfeil nach rechts: der Strom geht hinaus. Haus mit Pfeil
+       nach links: das Haus bezieht. Rot, sobald Netzstrom fliesst. */
+    const pfeil=knapp?`<path d="M9 5H3M5 2.4 1.6 5 5 7.6"/>`:`<path d="M1 5h6M4.6 2.4 8 5 4.6 7.6"/>`;
+    const symbol=`<div style="display:flex;align-items:center;justify-content:center;gap:3px">
+      ${mini(endIkon,endFarbe,endIkon==="pv"?17:16)}
       <svg width="10" height="10" viewBox="0 0 10 10" style="display:block;flex:0 0 auto">
-        <g fill="none" stroke="${teuer?"#ff9a8c":"#8b97a6"}" stroke-width="1.3"
-           stroke-linecap="round" stroke-linejoin="round">${pfeil}</g></svg>
-      <svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
-           style="display:block;border-radius:4px;overflow:hidden;flex:0 0 auto">
-        <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${skala}${s}${rahmen}</svg>
-    </div>`;
+        <g fill="none" stroke="${teuer?"#ff9a8c":"#e8eef5"}" stroke-width="1.4" opacity=".9"
+           stroke-linecap="round" stroke-linejoin="round">${pfeil}</g></svg></div>`;
+    const balken=`<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+           style="display:block;border-radius:4px;overflow:hidden">
+        <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${skala}${s}${rahmen}</svg>`;
+    return {symbol,balken};
   }
 
   /* --- Der Block in der Kopfzeile ---------------------------------- */
@@ -2463,9 +2483,15 @@ const SOLAR=(()=>{
        wechselt abends auf den naechsten Tag. */
     const m=morgenModus();
     const ST=m?tagMorgen():tag();
-    el.innerHTML=
-      batterie(Number(jetzt.soc||0), Number(jetzt.akku||0)>0.05)+
-      `<div>${streifen(ST,44,m)}<div style="margin-top:5px">${wohin()}</div></div>`;
+    /* Zwei Spalten, zwei Zeilen. Oben Batterie und Stundenstreifen, gleich
+       hoch, damit die Unterkante der Batterie auf der Grundlinie der Balken
+       steht. Unten Symbol und Strahl, der Strahl so breit wie der Streifen. */
+    const w=wohin();
+    el.innerHTML=`<div class="solarraster">
+      <div class="sr-links">${batterie(Number(jetzt.soc||0), Number(jetzt.akku||0)>0.05)}</div>
+      <div>${streifen(ST,44,m)}</div>
+      <div class="sr-links">${w.symbol}</div>
+      <div>${w.balken}</div></div>`;
     if(document.getElementById("sdetail").classList.contains("on")) detailZeigen();
   }
 
