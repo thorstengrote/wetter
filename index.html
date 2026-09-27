@@ -102,6 +102,13 @@ header.ohne-solar{grid-template-columns:auto auto 1fr}
 .current .icon{display:flex;align-items:center}
 .current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
 .current .temp{font-size:34px;font-weight:750}
+.tempspalte{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+/* Was das Radar ueber Uedorf fuer die naechsten zwei Stunden sieht */
+.pille{display:inline-flex;align-items:center;gap:5px;background:rgba(8,14,24,.62);border-radius:7px;
+  padding:3px 8px;font-size:12px;font-weight:700;white-space:nowrap;color:#bfe0ff}
+.pille.gewitter{color:#ffe08a}
+.pille[hidden]{display:none}
+.pille .mi{width:13px;height:13px}
 .current .details{font-size:13px;line-height:1.5;color:#c9d2dc;white-space:nowrap}
 /* Uhr, Datum und Jetzt-Zeilen brechen nie um. Sonst genuegte "Sonne 100 %"
    statt "Sonne 57 %", und die Zeile wie auch das Datum links daneben
@@ -144,9 +151,10 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
   align-items:center;position:relative}
 .solarraster .sr-links{display:flex;justify-content:center;align-items:center}
 /* Schrift genau wie "morgen" im Stundenstreifen */
-.kn{font-size:8.5px;font-weight:700;line-height:1;letter-spacing:.3px;color:#8b97a6;
+.kn{font-size:8.5px;font-weight:700;line-height:1;letter-spacing:.3px;color:var(--leise,#8b97a6);
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .kn-quer{display:flex;flex-direction:column;align-items:center;gap:1.5px}
+.kn svg path,.kn-quer svg path{stroke:var(--leise,#8b97a6)}
 .kn-senk{position:absolute;left:0;top:0;pointer-events:none}
 .pfz{height:.72em;width:auto;vertical-align:baseline;margin-right:1.5px;overflow:visible}
 
@@ -488,7 +496,8 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 
   <div class="zelle current">
     <div class="icon" id="nowIcon">--</div>
-    <div class="temp" id="nowTemp">--&deg;</div>
+    <div class="tempspalte"><div class="temp" id="nowTemp">--&deg;</div>
+      <span class="pille" id="nowcast" hidden></span></div>
     <div class="details" id="nowDetails">lade Wetter&hellip;</div>
   </div>
 
@@ -1800,6 +1809,7 @@ const HIMMEL=(()=>{
     else if(w.gewitter) p=mischeP(p,PAL.gewitter,0.85);
     else if(mm>0.05) p=mischeP(p,PAL.regen,Math.min(1,mm/3));
 
+    letzteLeise=leiseFarbe(p[2]);
     let html=hg(`background:${verlauf(p)}`);
     const offen=!w.nebel&&mm<=0.05&&!w.gewitter;
     /* Sterne und Mond nur, wo der Himmel frei ist */
@@ -1837,6 +1847,23 @@ const HIMMEL=(()=>{
     return html;
   }
 
+  /* Leise Farbe fuer Nebenschrift auf dem Himmel, etwa Pfeile und Zahlen im
+     Solarblock und "morgen". Ein festes Grau hat nachts 3,7 zu 1 und mittags
+     1,3 zu 1, also mal zu laut und mal unsichtbar. Stattdessen der Farbton
+     des Himmels an der Stelle des Blocks, der 70-Prozent-Stufe, zum Weiss hin
+     aufgehellt bis genau 2,2 zu 1. So wirkt sie ueberall gleich leise. */
+  const LEISE=2.2;
+  const kn=c=>{c/=255; return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4);};
+  const lumH=h=>{const [r,g,b]=rgb(h).map(kn); return .2126*r+.7152*g+.0722*b;};
+  const kontr=(a,b)=>{const x=Math.max(lumH(a),lumH(b)),y=Math.min(lumH(a),lumH(b)); return (x+.05)/(y+.05);};
+  function leiseFarbe(grund){
+    const g=rgb(grund); let lo=0,hi=1;
+    for(let i=0;i<22;i++){ const m=(lo+hi)/2;
+      if(kontr("#"+g.map(v=>hx(v+(255-v)*m)).join(""),grund)<LEISE) lo=m; else hi=m; }
+    return "#"+g.map(v=>hx(v+(255-v)*hi)).join("");
+  }
+  let letzteLeise="#8b97a6";
+
   let letzte="";
   function setze(w){
     const kopf=document.getElementById("kopf");
@@ -1851,6 +1878,7 @@ const HIMMEL=(()=>{
       kopf.insertBefore(halter,kopf.firstChild);
     }
     halter.innerHTML=bild(w);
+    kopf.style.setProperty("--leise",letzteLeise);
     kopf.classList.add("himmel");
   }
   return {setze};
@@ -2414,7 +2442,7 @@ const SOLAR=(()=>{
        naechsten Tag steht statt des Strichs ein Wort, sonst haelt man die
        graue Kurve fuer den verpatzten heutigen Tag. */
     if(morgen) s+=`<text x="0" y="8" font-size="8.5" font-weight="700"
-                fill="#8b97a6" letter-spacing=".3">morgen</text>`;
+                style="fill:var(--leise,#8b97a6)" letter-spacing=".3">morgen</text>`;
     return `<svg width="${SB}" height="${hoehe}" viewBox="0 0 ${SB} ${hoehe}"
                  style="display:block">${s}</svg>`;
   }
@@ -3174,6 +3202,64 @@ async function radarAnreichern(frames){
   }
 }
 
+/*
+  Regen ab Uhrzeit, fuer die Plakette unter der Temperatur.
+
+  Das Radar ueber Uedorf alle fuenf Minuten, von jetzt bis knapp zwei
+  Stunden. Je Zeitpunkt ein Bild von 5 mal 5 Pixeln, das sind 3 km um den
+  Ort herum; zaehlt der staerkste Pixel. Dazu die Blitze im Umkreis von
+  30 km aus der gemessenen Blitzdichte. Steht nichts an, bleibt die
+  Plakette weg.
+*/
+const NOWCAST_KM=3, BLITZ_KM=30;
+async function kleinesBild(layer,zeit,km,px){
+  const dLat=km/111.32, dLon=km/(111.32*Math.cos(LAT*Math.PI/180));
+  const url="https://maps.dwd.de/geoserver/dwd/wms?service=WMS&version=1.3.0&request=GetMap"+
+    `&layers=dwd:${layer}&styles=&crs=EPSG:4326&bbox=${LAT-dLat},${LON-dLon},${LAT+dLat},${LON+dLon}`+
+    `&width=${px}&height=${px}&format=image/png&transparent=true&time=${iso5(zeit)}&format_options=antialias:none`;
+  const img=await new Promise((ok,nein)=>{ const i=new Image(); i.crossOrigin="anonymous";
+    const u=setTimeout(()=>nein(new Error("DWD antwortet nicht")),15000);
+    i.onload=()=>{clearTimeout(u);ok(i);}; i.onerror=()=>{clearTimeout(u);nein(new Error("DWD-Bild fehlt"));}; i.src=url; });
+  const cv=document.createElement("canvas"); cv.width=px; cv.height=px;
+  const cx=cv.getContext("2d"); cx.drawImage(img,0,0);
+  return cx.getImageData(0,0,px,px).data;
+}
+const RICHTUNG=["N","NO","O","SO","S","SW","W","NW"];
+async function nowcast(){
+  const el=document.getElementById("nowcast"); if(!el) return;
+  try{
+    const t0=new Date(); t0.setUTCSeconds(0,0); t0.setUTCMinutes(Math.floor(t0.getUTCMinutes()/5)*5-5);
+    const schritte=[]; for(let m=0;m<=115;m+=5) schritte.push(new Date(t0.getTime()+m*60000));
+    const werte=await Promise.all(schritte.map(z=>kleinesBild("Radar_rv_product_1x1km_ger",z,NOWCAST_KM,5)
+      .then(d=>{ let mx=0; for(let o=0;o<d.length;o+=4) if(d[o+3]>=128){ const v=dwdKlasse(d[o],d[o+1],d[o+2],RADAR_KLASSEN); if(v!=null&&v>mx) mx=v; } return mx; })
+      .catch(()=>null)));
+    /* Blitze: naechster Pixel im Umkreis */
+    let blitz=null;
+    try{ const n=61, d=await kleinesBild("Blitzdichte",t0,BLITZ_KM,n);
+      for(let y=0;y<n;y++) for(let x=0;x<n;x++){ const o=(y*n+x)*4; if(d[o+3]<128) continue;
+        if(dwdKlasse(d[o],d[o+1],d[o+2],BLITZ_KLASSEN)==null) continue;
+        const dx=(x-(n-1)/2)*2*BLITZ_KM/(n-1), dy=((n-1)/2-y)*2*BLITZ_KM/(n-1), km=Math.hypot(dx,dy);
+        if(km<=BLITZ_KM&&(!blitz||km<blitz.km)) blitz={km,dir:RICHTUNG[Math.round(((Math.atan2(dx,dy)*180/Math.PI)+360)%360/45)%8]}; }
+    }catch(e){}
+    const uhr=d=>d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+    const nass=v=>v!=null&&v>=0.1;
+    let text="", art="regen";
+    if(blitz){ art="gewitter"; text=blitz.km<3?"Gewitter":`Gewitter ${Math.round(blitz.km)} km ${blitz.dir}`; }
+    else if(nass(werte[0])){
+      const ende=werte.findIndex(v=>v!=null&&!nass(v));
+      text=ende>0?`bis ${uhr(schritte[ende])}`:"hält an";
+    }else{
+      const ab=werte.findIndex(nass);
+      if(ab>0){ const bis=werte.findIndex((v,i)=>i>ab&&v!=null&&!nass(v));
+        text=bis>0?`${uhr(schritte[ab])}–${uhr(schritte[bis])}`:`ab ${uhr(schritte[ab])}`; }
+    }
+    if(!text){ el.hidden=true; return; }
+    el.className="pille"+(art==="gewitter"?" gewitter":"");
+    el.innerHTML=(art==="gewitter"?mi("bolt"):mi("drop"))+text;
+    el.hidden=false;
+  }catch(e){ el.hidden=true; diagPush({src:"Nowcast",kind:"netz",msg:e.message,ms:0}); }
+}
+
 /* Gewitterstufe eines Punkts: nur wo ICON ein Gewitter rechnet, also Code
    95, 96 oder 99. CAPE allein zeigt nur, dass eines entstehen koennte, und
    lag Mai bis September 2026 an der Haelfte der Tage daneben. Die Staerke
@@ -3436,6 +3522,7 @@ function initCloudMap(){
     }).addTo(cloudMap).bindTooltip("Uedorf",{permanent:true,direction:"right",offset:[7,0]});
 
     cloudMap.attributionControl.addAttribution("Radar © DWD");
+    nowcast(); setInterval(nowcast,300000);
     loadCloudForecast();
     scheduleCloudReload();
     /* Das Radar erneuert sich alle fuenf Minuten, ICON nur stuendlich */
