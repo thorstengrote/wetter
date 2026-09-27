@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wetterkarte &ndash; Regler</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--rand:10px}
+*{box-sizing:border-box}
+html,body{margin:0;background:#0a0e14;color:#e8eef5;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{padding-block:22px;padding-inline:18px}
+h1{font-size:20px;margin:0 0 4px}
+p.lead{color:#8b97a6;margin:0 0 18px;max-width:900px;font-size:13px}
+.buehne{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+/* Groesse wie auf dem Tablet: 470 auf 360 CSS-Pixel */
+.radarbox{width:470px;height:360px}
+.radarbox{
+  background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
+  padding:var(--rand);min-height:0;overflow:hidden;position:relative;
+  display:flex;flex-direction:column
+}
+.radar-stage{
+  flex:1 1 auto;min-height:0;position:relative;border-radius:10px;
+  background:#101720;overflow:hidden;border:1px solid #334155
+}
+#cloudMap{width:100%;height:100%;background:#111820}
+.cloudfield{image-rendering:auto;filter:blur(1.5px)}
+.radar-time{
+  position:absolute;z-index:800;left:10px;bottom:9px;background:rgba(5,8,12,.88);
+  border:1px solid #536276;border-radius:7px;padding:4px 8px;
+  font-size:12px;font-weight:700;color:#fff
+}
+.radar-legend{
+  position:absolute;z-index:800;right:10px;bottom:9px;background:rgba(5,8,12,.82);
+  border-radius:6px;padding:4px 7px;font-size:9px;color:#d5dee8
+}
+.leaflet-control-attribution{font-size:8px!important;background:rgba(255,255,255,.70)!important}
+.mi{width:11px;height:11px;flex:0 0 auto}
+.inl{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.regler{width:340px;background:#121923;border:1px solid #273240;border-radius:12px;padding:14px 16px}
+.regler h2{font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:#8b97a6;margin:14px 0 8px}
+.regler h2:first-child{margin-top:0}
+.r{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;margin-bottom:10px}
+.r label{font-size:13px;color:#c5ced8}
+.r output{font-size:13px;font-weight:650;font-variant-numeric:tabular-nums;color:#fff}
+.r input[type=range]{grid-column:1/3;width:100%;accent-color:#6fb3ff}
+.chk{display:flex;gap:8px;align-items:center;font-size:13px;color:#c5ced8;margin:4px 0 10px}
+.knopfreihe{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+button{background:#1d2836;color:#e8eef5;border:1px solid #33404f;border-radius:8px;
+  padding:6px 11px;font:inherit;font-size:12.5px;cursor:pointer}
+button:hover{background:#26323f}
+.note{color:#8b97a6;font-size:12px;margin-top:12px;max-width:860px}
+.skala{display:flex;gap:3px;margin-top:6px}
+.skala div{flex:1;height:14px;border-radius:3px}
+/* Nur zum Vergleichen: dunklerer Kartengrund, auf dem helle Wolken tragen */
+.dunkel .leaflet-tile-pane{filter:brightness(.72) saturate(.75) contrast(1.05)}
+.skala-t{display:flex;justify-content:space-between;font-size:10.5px;color:#8b97a6}
+</style></head><body>
+<h1>Wetterkarte zum Ausprobieren</h1>
+<p class="lead">Dieselbe Karte, derselbe Ausschnitt und derselbe Zeichencode wie auf der Wand. Nur das
+Wetter ist erfunden und kommt aus den Reglern rechts. Mit „Abspielen" zieht es über sieben Stunden
+nach Osten, wie die Karte auf der Wand die Stunden durchlaeuft.</p>
+
+<div class="buehne">
+  <div class="radarbox"><div class="radar-stage">
+    <div id="cloudMap"></div>
+    <div class="radar-time" id="radarTime">Jetzt</div>
+    <div class="radar-legend" id="radarLegend">weiß bis grau = Wolken &middot; Blau = Regen &middot; Gelb bis Lila = Gewitter</div>
+  </div></div>
+
+  <div class="regler">
+    <h2>Wolken</h2>
+    <div class="r"><label for="wolken">Bewölkung</label><output id="o_wolken"></output>
+      <input type="range" id="wolken" min="0" max="100" value="60"></div>
+    <div class="r"><label for="hoch">davon hohe Wolken (Zirren)</label><output id="o_hoch"></output>
+      <input type="range" id="hoch" min="0" max="100" value="20"></div>
+
+    <h2>Regen</h2>
+    <div class="r"><label for="regen">Regen im Kern</label><output id="o_regen"></output>
+      <input type="range" id="regen" min="0" max="15" step="0.1" value="3"></div>
+    <div class="r"><label for="flaeche">Größe des Regengebiets</label><output id="o_flaeche"></output>
+      <input type="range" id="flaeche" min="1" max="6" step="0.5" value="3"></div>
+    <div class="skala" id="skalaRegen"></div>
+    <div class="skala-t"><span>0,1</span><span>0,5</span><span>1</span><span>2</span><span>4</span><span>8 mm/h</span></div>
+
+    <h2>Gewitter</h2>
+    <div class="r"><label for="gewitter">Regen in der Zelle</label><output id="o_gewitter"></output>
+      <input type="range" id="gewitter" min="0" max="25" step="0.5" value="0"></div>
+    <label class="chk"><input type="checkbox" id="hagel"> mit Hagel (Code 96/99)</label>
+    <div class="skala" id="skalaSturm"></div>
+    <div class="skala-t"><span>Gewitter</span><span>2 mm</span><span>5 mm</span><span>Hagel, ab 15 mm</span></div>
+
+    <h2>Kartengrund</h2>
+    <label class="chk"><input type="checkbox" id="dunkel"> Karte abdunkeln</label>
+
+    <h2>Zeit</h2>
+    <div class="r"><label for="stunde">Stunde</label><output id="o_stunde"></output>
+      <input type="range" id="stunde" min="0" max="6" step="1" value="0"></div>
+    <div class="knopfreihe">
+      <button id="spiel">Abspielen</button>
+      <button data-lage="klar">klar</button>
+      <button data-lage="zirren">Zirren</button>
+      <button data-lage="schauer">Schauer</button>
+      <button data-lage="landregen">Landregen</button>
+      <button data-lage="gewitter">Gewitter</button>
+      <button data-lage="unwetter">Unwetter mit Hagel</button>
+    </div>
+  </div>
+</div>
+<p class="note">Das Raster ist dasselbe wie auf der Wand: 19 mal 10 Punkte, also Zellen von etwa
+zwölf Kilometern. Ein einzelnes Gewitter ist darauf ein Fleck von ein bis zwei Zellen. Kleinere
+Zellen kann die Karte nicht zeigen, weil ICON auf der Wand auch nicht feiner abgefragt wird.</p>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const LAT=50.76, LON=7.00;
+const radarLegend=null;
+function mi(kind){
+  const a='viewBox="0 0 16 16" aria-hidden="true"';
+  if(kind==="drop") return `<svg class="mi" ${a}><path d="M8 1.5c2.7 3.4 4.1 5.7 4.1 7.5a4.1 4.1 0 0 1-8.2 0C3.9 7.2 5.3 4.9 8 1.5z" fill="currentColor"/></svg>`;
+  if(kind==="sun")  return `<svg class="mi" ${a}><circle cx="8" cy="8" r="3.1" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 .8v2.1M8 13.1v2.1M.8 8h2.1M13.1 8h2.1M2.9 2.9l1.5 1.5M11.6 11.6l1.5 1.5M13.1 2.9l-1.5 1.5M4.4 11.6l-1.5 1.5"/></g></svg>`;
+  if(kind==="sock") return `<svg class="mi sock" viewBox="0 0 20 14" aria-hidden="true"><path d="M2.3 1.2v11.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.7 2.4 L17.4 4.7 L14.7 10.2 L3.7 8.6 Z" fill="currentColor" opacity=".9"/></svg>`;
+  if(kind==="up")   return `<svg class="mi" ${a}><path d="M8 3.2 3.6 8.4h8.8z" fill="currentColor"/><path d="M2.6 12.4h10.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  if(kind==="down") return `<svg class="mi" ${a}><path d="M8 9.2 3.6 4h8.8z" fill="currentColor"/><path d="M2.6 12.4h10.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  if(kind==="bolt") return `<svg class="mi" ${a}><path d="M9.4 1 3.8 9h3.3l-1 6 6.1-8.6H8.7z" fill="currentColor"/></svg>`;
+  return "";
+}
+
+function wolkenWirkung(o){
+  const l=o.low, m=o.mid, h=o.high;
+  if(l==null&&m==null&&h==null) return Number(o.tot??o.cloud??0);
+  return 100*(1-(1-Number(l||0)/100)*(1-0.8*Number(m||0)/100)*(1-0.35*Number(h||0)/100));
+}
+const CLOUD_HOURS=7;
+/*
+  19 x 10 over the padded viewport gives roughly 12 km cells instead of the
+  26 km this started with. 25 x 13 was tried first and was a planning mistake:
+  325 points times 25 hourly fetches is 8125 of a 10000 request daily budget,
+  which leaves no room for page reloads, and one afternoon of testing exhausted
+  the quota. 190 points times 25 fetches is 4750, about half the budget.
+*/
+const GRID_X=19, GRID_Y=10;
+const LAT_SPAN_FB=1.30, LON_SPAN_FB=2.15;  /* only used if the map has no size yet */
+const GRID_PAD=0.12;   /* raster margin beyond the visible map */
+const EDGE_FADE=0.05;  /* alpha taper, ends well inside that off-screen margin */
+const SS=8;   /* raster stays 145 x 73 px, so the canvas cost is unchanged */
+let gridBox=null;
+
+/*
+  The raster has to cover more ground than the map shows.
+  Until v20 it was a fixed 2.15 x 1.30 degree box, while the map at zoom 7.9
+  shows about 3.57 x 1.08 degrees. The western data edge therefore fell inside
+  the picture at lon 5.925 and drew a dead straight vertical line across the
+  map near Aachen, which looked like a weather front. The box is now derived
+  from the map viewport and padded, and the alpha fades out inside that padding,
+  so a data edge can never reach the visible area.
+*/
+function computeGridBox(){
+  let s=LAT-LAT_SPAN_FB/2, n=LAT+LAT_SPAN_FB/2,
+      w=LON-LON_SPAN_FB/2, e=LON+LON_SPAN_FB/2;
+  try{
+    const b=cloudMap.getBounds();
+    const dLat=b.getNorth()-b.getSouth(), dLon=b.getEast()-b.getWest();
+    if(dLat>0.05&&dLon>0.05){
+      s=b.getSouth()-dLat*GRID_PAD; n=b.getNorth()+dLat*GRID_PAD;
+      w=b.getWest() -dLon*GRID_PAD; e=b.getEast() +dLon*GRID_PAD;
+    }
+  }catch(err){ /* keep the fallback box */ }
+  return {s,n,w,e};
+}
+
+/*
+  Farben der Karte, drei getrennte Bedeutungen, die sich nicht ueberschneiden:
+  Wolken weiss bis grau, Regen in Blau von hell bis dunkel, Gewitter von Gelb
+  ueber Rot bis Lila. Vorher lief der Regen durch den ganzen Regenbogen, und
+  starker Regen war genauso gelb und rot wie ein Gewitter.
+*/
+const mischRGB=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*Math.max(0,Math.min(1,t)));
+function stufeRGB(v,stufen){
+  if(v<=stufen[0][0]) return stufen[0][1];
+  for(let i=1;i<stufen.length;i++)
+    if(v<=stufen[i][0]) return mischRGB(stufen[i-1][1],stufen[i][1],
+      (v-stufen[i-1][0])/(stufen[i][0]-stufen[i-1][0]));
+  return stufen[stufen.length-1][1];
+}
+/* Die helle Seite ist ein lichtes Grau, kein Weiss. Auf den hellen Kacheln
+   von OpenStreetMap verschwindet reines Weiss, und duenne Wolken waren dann
+   gar nicht mehr zu sehen. */
+const WOLKE_HELL=[214,221,230], WOLKE_DUNKEL=[104,113,127];
+const REGEN_STUFEN=[[0.1,[176,214,255]],[0.5,[118,178,250]],[1,[70,140,236]],
+                    [2,[42,104,212]],[4,[30,74,178]],[8,[22,46,128]]];
+const STURM_STUFEN=[[1,[255,214,74]],[2,[255,150,46]],[3,[232,64,58]],[4,[150,60,205]]];
+function rainRGB(mm){
+  const v=Number(mm||0);
+  return v<0.1?null:stufeRGB(v,REGEN_STUFEN);
+}
+/* Gewitterstufe eines Punkts: nur wo ICON ein Gewitter rechnet, also Code
+   95, 96 oder 99. CAPE allein zeigt nur, dass eines entstehen koennte, und
+   lag Mai bis September 2026 an der Haelfte der Tage daneben. Die Staerke
+   kommt aus der Regenmenge, Hagel (96, 99) ist immer die hoechste Stufe. */
+function sturmStufe(code,mm){
+  if(![95,96,99].includes(code)) return 0;
+  if(code>=96) return 4;
+  /* Stetig statt in Stufen: 0 mm ist 1, 2 mm ist 2, 5 mm ist 3, ab 15 mm
+     ist 4. Mit harten Stufen zeichnete das grobe Raster eckige Kerne. */
+  const m=Math.max(0,Number(mm||0));
+  return m<2?1+m/2 : m<5?2+(m-2)/3 : Math.min(4,3+(m-5)/10);
+}
+/* Ein Blitz je Gewittergebiet, an seiner staerksten Stelle. ICON meldet ein
+   Gewitter oft auf vielen Nachbarpunkten zugleich, und ein Blitz auf jedem
+   ergab ein Raster aus zwanzig Blitzen. Zwei Blitze stehen mindestens drei
+   Rasterfelder auseinander, also gut 35 km. */
+function blitzOrte(sturm,pts){
+  const kand=[];
+  for(let o=0;o<sturm.length;o++) if(sturm[o]>=1) kand.push(o);
+  kand.sort((a,b)=>sturm[b]-sturm[a]);
+  const wahl=[];
+  for(const o of kand){
+    const x=o%GRID_X, y=Math.floor(o/GRID_X);
+    if(wahl.every(w=>Math.hypot(w.x-x,w.y-y)>=3)) wahl.push({x,y,o});
+  }
+  return wahl.filter(w=>pts[w.o]).map(w=>({lat:pts[w.o].lat,lon:pts[w.o].lon,stufe:sturm[w.o]}));
+}
+function cloudFrameLabel(iso,idx){
+  const t=new Date(iso).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+  if(radarLegend&&!radarLegend.dataset.done){
+    radarLegend.innerHTML=`weiß bis grau = Wolken · Blau = Regen · <span class="inl">${mi("bolt")}Gelb bis Lila = Gewitter</span>`;
+    radarLegend.dataset.done="1";
+  }
+  return idx===0?`Jetzt / ${t}`:`+${idx} h · ${t}`;
+}
+function makeGrid(box){
+  const pts=[];
+  const dLat=(box.n-box.s)/(GRID_Y-1), dLon=(box.e-box.w)/(GRID_X-1);
+  for(let y=0;y<GRID_Y;y++){
+    const lat=box.s+y*dLat;
+    for(let x=0;x<GRID_X;x++) pts.push({lat,lon:box.w+x*dLon,x,y});
+  }
+  return {pts,dLat,dLon};
+}
+function bilinear(f,W,H,fx,fy){
+  const x0=Math.max(0,Math.min(W-1,Math.floor(fx))), x1=Math.min(W-1,x0+1);
+  const y0=Math.max(0,Math.min(H-1,Math.floor(fy))), y1=Math.min(H-1,y0+1);
+  const tx=fx-x0, ty=fy-y0;
+  const a=f[y0*W+x0], b=f[y0*W+x1], c=f[y1*W+x0], e=f[y1*W+x1];
+  return (a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+e*tx)*ty;
+}
+/* raised-cosine taper, 1 in the interior, 0 at the very border */
+function taper(t){
+  if(t>=EDGE_FADE) return 1;
+  if(t<=0) return 0;
+  return 0.5-0.5*Math.cos(Math.PI*t/EDGE_FADE);
+}
+/* rasterise one hour into a data URL; image rows run north -> south */
+function renderFrame(cloud,precip,sturm){
+  const W=(GRID_X-1)*SS+1, H=(GRID_Y-1)*SS+1;
+  const cv=document.createElement("canvas");
+  cv.width=W; cv.height=H;
+  const ctx=cv.getContext("2d");
+  const img=ctx.createImageData(W,H);
+  for(let py=0;py<H;py++){
+    /* grid row 0 is the southern edge, image row 0 is the northern edge */
+    const gy=(GRID_Y-1)-py/SS;
+    const ey=taper(Math.min(py,H-1-py)/(H-1));
+    for(let px=0;px<W;px++){
+      const gx=px/SS;
+      const edge=Math.min(ey,taper(Math.min(px,W-1-px)/(W-1)));
+      const cc=Math.max(0,Math.min(100,bilinear(cloud,GRID_X,GRID_Y,gx,gy)));
+      const mm=Math.max(0,bilinear(precip,GRID_X,GRID_Y,gx,gy));
+      const st=sturm?Math.max(0,bilinear(sturm,GRID_X,GRID_Y,gx,gy)):0;
+      /* Wolken: duenn und weiss, dicht und grau. Die Deckkraft waechst mit. */
+      let [r,g,b]=mischRGB(WOLKE_HELL,WOLKE_DUNKEL,Math.pow(cc/100,1.3));
+      /* Dichte Wolken deutlich grauer und deckender als duenne, sonst sieht
+         man auf der Karte nicht, wo es wirklich zu ist. */
+      let a=cc<3?0:0.06+Math.pow(cc/100,1.1)*0.50;
+      const rc=rainRGB(mm);
+      if(rc){
+        const ra=Math.min(.82,.26+Math.sqrt(mm)*0.40);
+        r=r*(1-ra)+rc[0]*ra; g=g*(1-ra)+rc[1]*ra; b=b*(1-ra)+rc[2]*ra;
+        a=Math.max(a,ra);
+      }
+      /* Gewitter zuletzt, es liegt ueber allem. Unter einer halben Stufe ist
+         es nur der Rand der Glaettung und bleibt weg. */
+      /* Weicher Einstieg zwischen 0,3 und 1, sonst schneidet die Schwelle
+         einen Zacken in den Rand der Zelle. */
+      const ein=Math.max(0,Math.min(1,(st-0.3)/0.7)), weich=ein*ein*(3-2*ein);
+      if(weich>0){
+        const sc=stufeRGB(Math.max(1,st),STURM_STUFEN), sa=weich*Math.min(.9,.55+0.1*st);
+        r=r*(1-sa)+sc[0]*sa; g=g*(1-sa)+sc[1]*sa; b=b*(1-sa)+sc[2]*sa;
+        a=Math.max(a,sa);
+      }
+      const o=(py*W+px)*4;
+      img.data[o]=r; img.data[o+1]=g; img.data[o+2]=b;
+      img.data[o+3]=Math.round(a*edge*255);
+    }
+  }
+  ctx.putImageData(img,0,0);
+  return cv.toDataURL("image/png");
+}
+/* ---------------------------------------------------------------- Karte */
+let cloudMap=L.map("cloudMap",{zoomControl:false,attributionControl:true,dragging:false,
+  scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,tap:false}).setView([LAT,LON],7.9);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(cloudMap);
+L.circleMarker([LAT,LON],{radius:5,weight:2,color:"#ffffff",fillColor:"#ff3b30",fillOpacity:1})
+  .addTo(cloudMap).bindTooltip("Uedorf",{permanent:true,direction:"right",offset:[7,0]});
+let overlay=null, marker=[];
+
+/* ---------------------------------------------------------------- erfundenes Feld */
+/* Glattes Rauschen, damit die Wolken nicht gleichmaessig grau sind */
+function rausch(x,y){
+  const s=Math.sin(x*1.7+y*0.9)*0.5+Math.sin(x*0.6-y*1.3+1.7)*0.35+Math.sin(x*2.9+y*2.2+0.4)*0.15;
+  return s;
+}
+const wert=id=>Number(document.getElementById(id).value);
+function feld(){
+  const W=GRID_X, Hh=GRID_Y, N=W*Hh, t=wert("stunde");
+  const cloud=new Float32Array(N), precip=new Float32Array(N), sturm=new Float32Array(N);
+  const wolken=wert("wolken"), hoch=wert("hoch")/100, regen=wert("regen"), r=wert("flaeche");
+  const gew=wert("gewitter"), hagel=document.getElementById("hagel").checked;
+  /* Zugrichtung West nach Ost, gut eine Zelle je Stunde */
+  const rx=4+t*1.6, ry=5.2, sx=rx+1.8, sy=4.6;
+  const {pts}=makeGrid(gridBox);
+  for(let y=0;y<Hh;y++) for(let x=0;x<W;x++){
+    const o=y*W+x;
+    let c=Math.max(0,Math.min(100, wolken + 32*rausch(x*0.55-t*0.9,y*0.55)*(wolken>0&&wolken<100?1:0)));
+    const dR=Math.hypot(x-rx,(y-ry)*1.3), mm=regen*Math.exp(-(dR*dR)/(2*r*r));
+    if(mm>0.1) c=Math.max(c,70+30*Math.min(1,mm/2));          /* unter Regen ist es zu */
+    cloud[o]=wolkenWirkung({low:c*(1-hoch),mid:0,high:c*hoch});
+    let p=mm, code=mm>=0.1?63:0;
+    if(gew>0){
+      /* Eine Gewitterzelle ist klein, ein bis zwei Rasterfelder. */
+      const dS=Math.hypot(x-sx,(y-sy)*1.2), mmS=gew*Math.exp(-(dS*dS)/(2*0.8*0.8));
+      if(mmS>=0.5||dS<0.8){ p=Math.max(p,mmS); code=(hagel&&dS<0.7)?96:95; cloud[o]=Math.max(cloud[o],96); }
+    }
+    precip[o]=p; sturm[o]=sturmStufe(code,p);
+  }
+  return {cloud,precip,sturm,storms:blitzOrte(sturm,pts)};
+}
+
+/* ---------------------------------------------------------------- zeichnen */
+function zeichne(){
+  for(const id of ["wolken","hoch","regen","flaeche","gewitter","stunde"]){
+    const v=wert(id), o=document.getElementById("o_"+id);
+    o.textContent = id==="regen"||id==="gewitter" ? String(v).replace(".",",")+" mm/h"
+                  : id==="flaeche" ? ["","sehr klein","klein","","mittel","","groß","","","","","sehr groß"][Math.round(v*2)]||v
+                  : id==="stunde" ? (v===0?"jetzt":"+"+v+" h") : v+" %";
+  }
+  gridBox=computeGridBox();
+  const f=feld();
+  const url=renderFrame(f.cloud,f.precip,f.sturm);
+  const b=[[gridBox.s,gridBox.w],[gridBox.n,gridBox.e]];
+  if(!overlay) overlay=L.imageOverlay(url,b,{opacity:1,interactive:false,className:"cloudfield"}).addTo(cloudMap);
+  else { overlay.setUrl(url); overlay.setBounds(L.latLngBounds(b)); }
+  for(const m of marker) cloudMap.removeLayer(m); marker=[];
+  /* wie auf der Wand: ein Blitz je Gewitterpunkt */
+  for(const st of f.storms){
+    marker.push(L.marker([st.lat,st.lon],{interactive:false,icon:L.divIcon({className:"",
+      html:`<div style="width:20px;height:20px;color:#fff6d0;filter:drop-shadow(0 1px 2px #000)">${mi("bolt").replace('class="mi"','style="width:20px;height:20px;display:block"')}</div>`,
+      iconSize:[22,22],iconAnchor:[11,11]})}).addTo(cloudMap));
+  }
+  const h=new Date(); h.setMinutes(0); h.setHours(h.getHours()+wert("stunde"));
+  const t=h.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+  document.getElementById("radarTime").textContent=wert("stunde")===0?`Jetzt / ${t}`:`+${wert("stunde")} h · ${t}`;
+}
+document.querySelectorAll("input").forEach(i=>i.addEventListener("input",zeichne));
+document.getElementById("dunkel").addEventListener("change",e=>
+  document.querySelector(".radar-stage").classList.toggle("dunkel",e.target.checked));
+
+/* Farbstreifen unter den Reglern, aus denselben Tabellen wie die Karte */
+document.getElementById("skalaRegen").innerHTML=REGEN_STUFEN.map(([,c])=>`<div style="background:rgb(${c})"></div>`).join("");
+document.getElementById("skalaSturm").innerHTML=STURM_STUFEN.map(([,c])=>`<div style="background:rgb(${c})"></div>`).join("");
+
+/* Vorlagen */
+const LAGEN={
+  klar:      {wolken:5,  hoch:0,  regen:0,   flaeche:3, gewitter:0,  hagel:false},
+  zirren:    {wolken:95, hoch:100,regen:0,   flaeche:3, gewitter:0,  hagel:false},
+  schauer:   {wolken:55, hoch:10, regen:2.5, flaeche:1.5,gewitter:0, hagel:false},
+  landregen: {wolken:100,hoch:10, regen:3,   flaeche:6, gewitter:0,  hagel:false},
+  gewitter:  {wolken:70, hoch:20, regen:2,   flaeche:2.5,gewitter:6, hagel:false},
+  unwetter:  {wolken:85, hoch:10, regen:4,   flaeche:3, gewitter:22, hagel:true}
+};
+document.querySelectorAll("[data-lage]").forEach(b=>b.addEventListener("click",()=>{
+  const l=LAGEN[b.dataset.lage];
+  for(const [k,v] of Object.entries(l)){ const e=document.getElementById(k);
+    if(e.type==="checkbox") e.checked=v; else e.value=v; }
+  document.getElementById("stunde").value=0; zeichne();
+}));
+let spiel=null;
+document.getElementById("spiel").addEventListener("click",e=>{
+  if(spiel){ clearInterval(spiel); spiel=null; e.target.textContent="Abspielen"; return; }
+  e.target.textContent="Anhalten";
+  spiel=setInterval(()=>{ const s=document.getElementById("stunde");
+    s.value=(Number(s.value)+1)%7; zeichne(); },1500);
+});
+/* ?lage=gewitter setzt eine Vorlage schon beim Laden */
+cloudMap.whenReady(()=>setTimeout(()=>{
+  const l=new URLSearchParams(location.search).get("lage");
+  const b=l&&document.querySelector(`[data-lage="${l}"]`);
+  if(new URLSearchParams(location.search).get("dunkel")){ const d=document.getElementById("dunkel");
+    d.checked=true; d.dispatchEvent(new Event("change")); }
+  if(b) b.click(); else zeichne();
+},200));
+</script></body></html>

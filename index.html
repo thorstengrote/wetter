@@ -84,7 +84,7 @@ header{
 header.ohne-solar{grid-template-columns:auto auto 1fr}
 .place{font-size:21px;font-weight:700}
 .clock{font-size:38px;font-weight:750;line-height:1}
-.date{font-size:12px;color:var(--muted);margin-top:3px}
+.date{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap}
 .date .stand{color:#8b97a6}
 .date .stale{color:#ff8a8a;font-weight:650}
 #stand{cursor:pointer;-webkit-user-select:none;user-select:none}
@@ -102,7 +102,11 @@ header.ohne-solar{grid-template-columns:auto auto 1fr}
 .current .icon{display:flex;align-items:center}
 .current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
 .current .temp{font-size:34px;font-weight:750}
-.current .details{font-size:13px;line-height:1.5;color:#c9d2dc}
+.current .details{font-size:13px;line-height:1.5;color:#c9d2dc;white-space:nowrap}
+/* Uhr, Datum und Jetzt-Zeilen brechen nie um. Sonst genuegte "Sonne 100 %"
+   statt "Sonne 57 %", und die Zeile wie auch das Datum links daneben
+   sprangen in eine zweite Zeile. Den Rest bekommt der Tagestext, der darf
+   zweizeilig sein. */
 .today{flex-direction:column;align-items:flex-start;cursor:pointer;
   -webkit-user-select:none;user-select:none}
 .today:active{background:rgba(255,255,255,.06)}
@@ -122,12 +126,13 @@ svg.hg{width:100%;height:100%}
 /* Auf farbigem Grund brauchen die matten Zeilen mehr Helligkeit. Die Werte
    der Seite sind fuer einen fast schwarzen Kasten gewaehlt, auf einem
    Abendhimmel traegt #8b97a6 nicht mehr. */
-header.himmel .date{color:#dbe3eb}
-header.himmel .date .stand{color:#c2cbd6}
-header.himmel .details{color:#dbe3eb}
-header.himmel .sub,header.himmel .extra{color:#dbe3eb}
-header.himmel{border-color:rgba(255,255,255,.26)}
-header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.24)}
+/* Auf dem Himmel ist alle Schrift weiss, wie bei WetterOnline. Graue
+   Nebenzeilen wuerden auf dem hellen Blau untergehen. */
+header.himmel .date, header.himmel .date .stand, header.himmel .details,
+header.himmel .sub, header.himmel .extra, header.himmel .place,
+header.himmel .clock, header.himmel .temp, header.himmel .summary{color:#fff}
+header.himmel{border-color:rgba(255,255,255,.28)}
+header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 
 /* ---------- Solar ---------- */
 .solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px}
@@ -1640,366 +1645,201 @@ function renderDays(icon,trend,uvDay){
 /* ===================================================================
    Der Himmel hinter der Kopfzeile
 
-   Nicht zehn feste Bilder, sondern eine Rechnung aus den Werten dieser
-   Stunde: Sonnenhoehe, Bewoelkung, Niederschlag. Der Banner ist dabei der
-   Ausschnitt eines Himmels, oben das Zenit, die untere Kante der Horizont.
+   Nach dem Vorbild WetterOnline, am 27.09.2026 an vier Bildschirmfotos
+   gemessen: helles, kraeftiges Blau, vor und nach Sonnenaufgang ein warmer
+   Khaki-Dunst am Horizont, die Sonne als weisser weicher Fleck oben rechts,
+   weiche Wolken auch hinter der Schrift. Alle Schrift ist weiss, und nur
+   deshalb vertraegt der Himmel diese Helligkeit.
 
-   Lesbar bleibt die Schrift nicht durch einen Schleier, sondern weil jede
-   Farbe vor dem Zeichnen auf die Helligkeit heruntergezogen wird, ab der
-   der Kontrast unter 4,5 zu 1 faellt. Die Rechnung steht bei `deckeln`.
+   Lesbarkeit, gemessen hinter jeder Zeile am gerenderten Bild: die hellen
+   Himmel liegen bei 3,0 bis 4,0 zu 1, Regen, Gewitter und Nacht bei 5 bis
+   10. WetterOnline selbst liegt bei 3,3 bis 5,3, ueber Wolken bei 2,6. Die
+   unteren Stufen der hellen Paletten sind etwas dunkler als auf dem Handy,
+   weil unten links die kleinste Zeile sitzt, das Datum.
+
+   Gerechnet wird nur, wenn sich etwas geaendert hat, also hoechstens alle
+   zehn Minuten. Die Wolken entstehen in einer kleinen Leinwand von 427 auf
+   56 Punkten, das sind 24 000 Punkte und auf dem Tablet ein paar
+   Millisekunden.
    =================================================================== */
 const HIMMEL=(()=>{
-const kanal=x=>{x/=255; return x<=0.04045?x/12.92:Math.pow((x+0.055)/1.055,2.4);};
-const zurueck=v=>{const x=v<=0.0031308?v*12.92:1.055*Math.pow(v,1/2.4)-0.055;
-  return Math.round(Math.max(0,Math.min(1,x))*255);};
-const rgb=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
-const hx=v=>Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,"0");
-const lum=h=>{const [r,g,b]=rgb(h).map(kanal); return 0.2126*r+0.7152*g+0.0722*b;};
-const kontrast=(a,b)=>{const x=Math.max(lum(a),lum(b)),y=Math.min(lum(a),lum(b));
-  return (x+0.05)/(y+0.05);};
-const ueber=(o,a,u)=>{const A=rgb(o),B=rgb(u);
-  return "#"+A.map((v,i)=>hx(v*a+B[i]*(1-a))).join("");};
-
-/* Die Schriftfarben des Banners. Die matteste gibt die Grenze vor. */
-const SCHRIFT={weiss:"#ffffff", hell:"#dbe3eb", matt:"#c2cbd6"};
-const MINDEST=4.5;
-const decke=t=>(lum(t)+0.05)/MINDEST-0.05;
-/* Zwei Decken, und das ist kein Nachlassen, sondern die Frage, was an der
-   Stelle wirklich steht. Auf dem Verlauf sitzt jede Zeile, auch die matteste
-   unten links, er muss also die strenge Decke halten. Ein Lichtschein liegt
-   an einer Stelle und ist rund: darunter steht das Wettersymbol und hoechstens
-   helle Schrift. Eine einzige Decke fuer beides wuerde die Sonne wegdruecken,
-   und dann kann man den Himmel auch gleich weglassen. */
-/* Drei Prozent Luft unter der Decke. Ohne die landet eine Farbe beim Runden
-   auf ganze Bytes gelegentlich eine Stufe darueber, und dann steht da 4,48
-   statt 4,52, obwohl die Rechnung stimmte. */
-const LUFT=0.97;
-const DECKE=decke(SCHRIFT.matt)*LUFT;        /* Verlauf, etwa 0.089 */
-const DECKE_SCHEIN=decke(SCHRIFT.hell)*LUFT; /* aufgelegte Schichten, etwa 0.126 */
-
-/* Eine Farbe so weit heruntersetzen, dass sie unter der Decke bleibt. Die
-   Kanaele werden im linearen Raum gemeinsam skaliert, damit der Farbton
-   erhalten bleibt und nicht ins Graue kippt. */
-function deckeln(h, decke=DECKE){
-  const L=lum(h);
-  if(L<=decke) return h;
-  const f=decke/L, [r,g,b]=rgb(h).map(kanal);
-  return "#"+[r,g,b].map(v=>hx(zurueck(v*f))).join("");
-}
-/* Dasselbe fuer eine aufgelegte Schicht: die groesste Deckkraft suchen, bei
-   der das Ergebnis ueber der hellsten Himmelsfarbe noch unter der Decke
-   bleibt. Halbierendes Suchen, damit es genau trifft und nicht in Schritten
-   von zwei Hundertstel daneben landet. `wirkung` bildet ab, dass zwei Wolken
-   sich decken koennen und dann dichter sind als jede einzelne. */
-function deckelnSchicht(farbe, alpha, unter, decke=DECKE_SCHEIN, wirkung=a=>a){
-  if(lum(ueber(farbe,wirkung(alpha),unter))<=decke) return alpha;
-  let lo=0, hi=alpha;
-  for(let i=0;i<24;i++){
-    const m=(lo+hi)/2;
-    if(lum(ueber(farbe,wirkung(m),unter))<=decke) lo=m; else hi=m;
-  }
-  return lo;
-}
-const doppelt=a=>1-(1-a)*(1-a);
-
-const P=(pos,gr,f1,f2)=>`radial-gradient(circle ${gr} at ${pos},${f1},${f2})`;
-const rgba=(h,a)=>{const [r,g,b]=rgb(h); return `rgba(${r},${g},${b},${a.toFixed(3)})`;};
-
-/* Die Lichtquelle steht dort, wo sie wirklich steht. Der Banner ist der
-   Ausschnitt eines Himmels: oben das Zenit, die untere Kante der Horizont.
-   60 Grad Sonnenhoehe liegen weit oben, 0 Grad auf der Kante, darunter ist
-   sie weg. Damit wandert der Schein ueber den Tag von selbst. */
-function scheinY(elev){ return Math.max(-10,Math.min(112,100-(elev+8)/68*96)); }
-
-/* ---- gewuerfelt, aber immer gleich ---------------------------- */
-function wuerfel(saat){
-  let z=saat>>>0;
-  return ()=>{ z=(z+0x6D2B79F5)>>>0;
-    let t=Math.imul(z^(z>>>15), 1|z);
-    t=(t+Math.imul(t^(t>>>7), 61|t))^t;
-    return ((t^(t>>>14))>>>0)/4294967296; };
-}
-/* Das Bild rechnet in 1280 auf 100, also in der Groesse, in der es auf der
-   Wand steht. preserveAspectRatio="none" laesst es sich strecken, die kleine
-   Verzerrung bei anderer Hoehe faellt bei Tropfen und Flocken nicht auf. */
-const BB="0 0 1280 100";
-/* Alles, was aus einzelnen Punkten und Strichen besteht, wird nach unten
-   ausgeblendet. Dort sitzt die Schrift, und ein Stern mitten im Wort ist
-   ein Fleck, kein Stern. Der Uebergang ist weich, sonst sieht man die Kante. */
-const SANFT="linear-gradient(180deg,#000 0%,#000 38%,rgba(0,0,0,.38) 64%,transparent 86%)";
-const bild=inhalt=>`<svg class="hg" viewBox="${BB}" preserveAspectRatio="none"
-  style="-webkit-mask-image:${SANFT};mask-image:${SANFT}">${inhalt}</svg>`;
-
-/* Sterne: je mehr Wolken, desto weniger sind zu sehen. Bei halber Deckung
-   ist der halbe Himmel zu. */
-function sterne(deckung, saat, hoch=90){
-  const n=Math.round(150*Math.max(0,1-deckung/100));
-  if(!n) return "";
-  const w=wuerfel(saat); let s="";
-  for(let i=0;i<n;i++){
-    const x=w()*1280, y=w()*hoch, r=0.6+w()*0.9;
-    /* Klein und blass. Ein Stern soll man sehen, wenn man hinschaut, und
-       uebersehen, wenn man eine Zeile liest. */
-    s+=`<circle cx="${x.toFixed(0)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}"
-          fill="#dce6f7" opacity="${(0.16+w()*0.44).toFixed(2)}"/>`;
-  }
-  return bild(s);
-}
-
-/* Schoenwetterwolken: flache Unterkante, gebuckelte Oberseite. Aus ein paar
-   Kreisen und einem Sockel, alles in einer Gruppe, damit die Ueberlappungen
-   nicht dunkler werden als die Wolke selbst. */
-function haufenwolke(cx, basis, breite, hoehe, w){
-  const r=hoehe*0.52;
-  let t=`<rect x="${(cx-breite/2).toFixed(0)}" y="${(basis-r).toFixed(0)}"
-           width="${breite.toFixed(0)}" height="${r.toFixed(0)}" rx="${(r*0.35).toFixed(0)}"/>`;
-  const n=3+Math.floor(w()*2);
-  for(let i=0;i<n;i++){
-    const px=cx-breite/2+breite*(i+0.5)/n+(w()-0.5)*breite*0.12;
-    const pr=r*(0.72+w()*0.6)*(i===Math.floor(n/2)?1.25:1);
-    t+=`<circle cx="${px.toFixed(0)}" cy="${(basis-r-pr*0.45).toFixed(0)}" r="${pr.toFixed(0)}"/>`;
-  }
-  return t;
-}
-function wolken(deckung, alpha, saat){
-  if(deckung<12) return "";
-  const w=wuerfel(saat);
-  /* Bis etwa drei Viertel sind es einzelne Haufen, darueber schliesst sich
-     die Decke und einzelne Wolken zu zeichnen waere falsch. */
-  if(deckung<78){
-    const n=Math.max(1,Math.round(deckung/13));
-    let t="";
-    for(let i=0;i<n;i++){
-      const cx=60+ (1280-120)*((i+0.5)/n) + (w()-0.5)*120;
-      const h=26+w()*20, b=h*(2.4+w()*1.2);
-      t+=haufenwolke(cx, 62+w()*16, b, h, w);
-    }
-    return bild(`<g fill="#ffffff" opacity="${alpha.toFixed(3)}">${t}</g>`);
-  }
-  const dicht=Math.min(1,(deckung-70)/30);
-  return `<div class="hg" style="background:
-    ${P("18% 58%","44% 74%",rgba("#ffffff",alpha*(0.6+0.4*dicht)),"transparent")},
-    ${P("52% 50%","40% 66%",rgba("#ffffff",alpha*(0.5+0.45*dicht)),"transparent")},
-    ${P("84% 56%","42% 70%",rgba("#ffffff",alpha*(0.55+0.4*dicht)),"transparent")}"></div>`;
-}
-
-/* Regen: einzelne Striche, keine Schraffur. Anzahl und Laenge kommen aus den
-   Millimetern, die im Banner danebenstehen. Sie enden auf halber Hoehe, tiefer
-   sitzt die Schrift. */
-function regen(mm, alpha, saat){
-  if(mm<=0.05) return "";
-  const n=Math.round(Math.min(260, 26*Math.pow(mm,0.72)));
-  const lang=9+Math.min(20,mm*1.7);
-  const w=wuerfel(saat); let t="";
-  for(let i=0;i<n;i++){
-    const l=lang*(0.6+w()*0.8);
-    const x=w()*1300-20, y=w()*(62-l);
-    t+=`<line x1="${x.toFixed(0)}" y1="${y.toFixed(1)}"
-              x2="${(x-l*0.22).toFixed(0)}" y2="${(y+l).toFixed(1)}"
-              stroke-width="${(0.9+w()*0.7).toFixed(2)}"
-              stroke-opacity="${(0.45+w()*0.55).toFixed(2)}"/>`;
-  }
-  return bild(`<g stroke="#c4dcf4" stroke-linecap="round"
-    opacity="${alpha.toFixed(3)}">${t}</g>`);
-}
-
-/* Schnee: dieselbe Rechnung, nur langsamer und runder. */
-function flocken(mm, saat){
-  if(mm<=0.05) return "";
-  const n=Math.round(Math.min(220, 30*Math.pow(mm,0.7)));
-  const w=wuerfel(saat); let t="";
-  for(let i=0;i<n;i++){
-    const x=w()*1280, y=w()*58, r=0.9+w()*1.9;
-    t+=`<circle cx="${x.toFixed(0)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}"
-          opacity="${(0.4+w()*0.6).toFixed(2)}"/>`;
-  }
-  return bild(`<g fill="#ffffff">${t}</g>`);
-}
-
-function himmelBauen(L){
-  const stops=L.stops.map(([p,f])=>[p,deckeln(f)]);
-  const hellste=stops.reduce((a,b)=>lum(a[1])>lum(b[1])?a:b)[1];
-  /* Eine Schicht weiss, wo sie wie dicht ist. `bei(hoehe)` gibt den Anteil
-     ihrer Deckkraft auf dieser Hoehe. Flaechige Schichten liegen ueberall
-     gleich, ein Lichtschein nur um seine Mitte. Genau das macht den
-     Unterschied: den Schein gegen die hellste Farbe des ganzen Himmels zu
-     deckeln waere falsch, wenn die unten liegt und die Sonne oben steht. */
-  const schichten=[]; let html="";
-  const verlauf=`linear-gradient(180deg,${stops.map(([p,f])=>f+" "+p+"%").join(",")})`;
-  html+=`<div class="hg" style="background:${verlauf}"></div>`;
-
-  if(L.sterne) html+=sterne(L.deckung, 11, L.sterneHoch||90);
-
-  if(L.glut){
-    const y=scheinY(L.glut.elev!=null?L.glut.elev:L.elev);
-    const wt=L.glut.weite||32, R=wt*3.4;
-    const bei=pz=>Math.max(0,1-Math.abs(pz-y)/R);
-    /* Die groesste Deckkraft suchen, bei der die Schicht auf jeder Hoehe
-       unter der Decke bleibt, jede Hoehe mit ihrem eigenen Anteil. */
-    const passt=aa=>stops.every(([pz,f])=>
-      lum(ueber(L.glut.farbe, aa*bei(pz), f))<=DECKE_SCHEIN);
-    let a=L.glut.alpha;
-    if(!passt(a)){ let lo=0, hi=a;
-      for(let i=0;i<24;i++){ const m=(lo+hi)/2; if(passt(m)) lo=m; else hi=m; }
-      a=lo; }
-    schichten.push({name:"Schein", farbe:L.glut.farbe, alpha:a, bei});
-    html+=`<div class="hg" style="background:${P(L.glut.x+"% "+y.toFixed(0)+"%",
-      wt+"% "+R.toFixed(0)+"%", rgba(L.glut.farbe,a),"transparent")}"></div>`;
-  }
-  const haufen=L.haufen!=null?L.haufen:L.deckung;
-  if(haufen>=12){
-    const roh=haufen<78 ? .34 : .30;
-    const wirk=haufen<78?doppelt:(x=>x);
-    const a=deckelnSchicht("#ffffff",roh,hellste,DECKE_SCHEIN,wirk);
-    schichten.push({name:"Wolke", farbe:"#ffffff", alpha:wirk(a), bei:()=>1});
-    html+=wolken(haufen,a,5);
-  }
-  /* Zirren: ein milchiger Schleier hoch am Himmel, mit ein paar langen,
-     weichen Faeden. Er liegt oben und laeuft nach unten aus, denn so sieht
-     ein Zirrenhimmel aus, wenn die Sonne durchkommt. */
-  if(L.schleier>=25){
-    /* Wie beim Sonnenschein: der Schleier liegt oben und laeuft nach unten
-       aus, also wird er Hoehe fuer Hoehe gegen den Himmel an dieser Stelle
-       gedeckelt, nicht gegen die hellste Farbe unten am Horizont. */
-    const bei=pz=>Math.max(0,1-pz/70);
-    const passt=aa=>stops.every(([pz,f])=>lum(ueber("#ebf0f8",aa*bei(pz),f))<=DECKE_SCHEIN);
-    let a=0.12+0.30*L.schleier/100;
-    if(!passt(a)){ let lo=0,hi=a;
-      for(let i=0;i<24;i++){ const m=(lo+hi)/2; if(passt(m)) lo=m; else hi=m; }
-      a=lo; }
-    schichten.push({name:"Schleier", farbe:"#ebf0f8", alpha:a, bei});
-    /* Grundschleier und Faeden teilen sich die erlaubte Deckkraft je zur
-       Haelfte. Vorher lagen sie an den Fadenmitten zusammen beim 1,55-Fachen
-       dessen, was die Deckelung freigegeben hatte, und die Messung sah es
-       nicht, weil sie nur den Verlauf kannte. */
-    const f=(x,y,b,h,k)=>P(x+"% "+y+"%",b+"% "+h+"%",rgba("#ebf0f8",a*0.5*k),"transparent");
-    html+=`<div class="hg" style="background:
-      ${f(18,14,34,26,.9)},${f(52,8,40,22,1)},${f(83,18,32,24,.8)},
-      linear-gradient(180deg,${rgba("#ebf0f8",a*0.5)} 0%,${rgba("#ebf0f8",a*0.25)} 35%,transparent 70%);
-      filter:blur(2px)"></div>`;
-  }
-  if(L.nebel){
-    const a=deckelnSchicht("#e8eef5",L.nebel,hellste);
-    schichten.push({name:"Nebelbank", farbe:"#e8eef5", alpha:a, bei:()=>1});
-    html+=`<div class="hg" style="background:
-      linear-gradient(180deg,${rgba("#e8eef5",a*0.3)} 0%,${rgba("#e8eef5",a)} 18%,
-       ${rgba("#e8eef5",a*0.1)} 34%,${rgba("#e8eef5",a*0.95)} 50%,${rgba("#e8eef5",a*0.14)} 66%,
-       ${rgba("#e8eef5",a*0.7)} 80%,${rgba("#e8eef5",a*0.07)} 96%);filter:blur(3px)"></div>`;
-  }
-  if(L.mm>0.05 && !L.schnee){
-    const a=deckelnSchicht("#c4dcf4",.55,hellste);
-    schichten.push({name:"Regen", farbe:"#c4dcf4", alpha:a, bei:()=>1});
-    html+=regen(L.mm,a,23);
-  }
-  if(L.schnee){
-    /* Flocken bleiben aus der Messung heraus. Sie sind zwei Pixel gross und
-       liegen nie laenger als eine Strichbreite unter einem Buchstaben. */
-    html+=flocken(L.mm,19);
-  }
-
-  let vMin=99, vWo="", sMin=99, sWo="";
-  for(const [pz,f] of stops){
-    const k=kontrast(f,SCHRIFT.matt);
-    if(k<vMin){ vMin=k; vWo=pz+"%"; }
-    for(const sch of schichten){
-      const aa=sch.alpha*sch.bei(pz);
-      if(aa<0.01) continue;
-      const k2=kontrast(ueber(sch.farbe,aa,f),SCHRIFT.hell);
-      if(k2<sMin){ sMin=k2; sWo=sch.name+" auf "+pz+"%"; }
-    }
-  }
-  return {html, vMin, vWo, sMin:sMin<99?sMin:null, sWo};
-}
-
-
-/* ---- aus den Werten dieser Stunde eine Lage machen -------------
-
-   Vier Paletten, nach Sonnenhoehe gestaffelt, dazwischen wird gemischt.
-   Darueber legt sich die Bewoelkung: je dichter, desto mehr geht die Farbe
-   ins Truebe. Faellt etwas, wird es zusaetzlich dunkler und blauer. */
-const POS=[0,35,72,100];
-const PALETTE=[
-  [-10, ["#04070e","#080f1e","#0d182b","#111e35"]],   /* Nacht */
-  [  1, ["#081124","#1c1c3c","#6b3433","#a85327"]],   /* Daemmerung */
-  [ 12, ["#10223d","#1a3c5e","#2c5a72","#4d6b7c"]],   /* tief stehende Sonne */
-  [ 34, ["#0d2b50","#17466f","#2f6178","#617684"]]    /* hoch stehende Sonne */
-];
-const TRUEB=["#1f242d","#2c343e","#3a434e","#454e59"];
-const NASS =["#121822","#1c2733","#263544","#2c3d4e"];
-
-const mische=(a,b,t)=>{
-  const A=rgb(a),B=rgb(b);
-  return "#"+A.map((v,i)=>hx(v+(B[i]-v)*t)).join("");
-};
-function palette(elev){
-  if(elev<=PALETTE[0][0]) return PALETTE[0][1];
-  for(let i=1;i<PALETTE.length;i++){
-    if(elev<=PALETTE[i][0]){
-      const [e0,p0]=PALETTE[i-1], [e1,p1]=PALETTE[i];
-      const t=(elev-e0)/(e1-e0);
-      return p0.map((f,k)=>mische(f,p1[k],t));
-    }
-  }
-  return PALETTE[PALETTE.length-1][1];
-}
-
-function lageAus(w){
-  const deckung=Math.max(0,Math.min(100,Number(w.deckung||0)));
-  const mm=Math.max(0,Number(w.mm||0));
-  let farben=palette(w.elev);
-  /* Wolken nehmen dem Himmel die Farbe. Bei geschlossener Decke sieht man
-     gar keinen Himmel mehr, dann ist nur noch die Unterseite der Wolke da. */
-  farben=farben.map((f,i)=>mische(f,TRUEB[i],Math.pow(deckung/100,1.4)));
-  if(mm>0.05) farben=farben.map((f,i)=>mische(f,NASS[i],Math.min(.85,mm/6)));
-
-  const L={
-    stops:POS.map((p,i)=>[p,farben[i]]),
-    elev:w.elev, deckung, mm, schnee:!!w.schnee,
-    haufen: w.haufen!=null ? Math.max(0,Math.min(100,Number(w.haufen))) : deckung,
-    schleier: Math.max(0,Math.min(100,Number(w.schleier||0)))
+  const PAL={
+    vorAufgang: ["#4a6c90","#577a90","#718680","#7e8462"],
+    nachAufgang:["#447cb1","#5b8bb0","#6c8a94","#737e70"],
+    mittag:     ["#3b75ab","#427eb7","#5286b5","#5d88aa"],
+    zirren:     ["#4a7fb3","#5988b2","#6589a6","#6a869c"],
+    abend:      ["#3d6a9a","#627f9c","#7e7f7a","#8c785c"],
+    nacht:      ["#16284a","#1d3254","#253d61","#2d476b"],
+    bedeckt:    ["#5a6a7b","#667585","#707e8c","#798592"],
+    regen:      ["#465565","#4f5e6e","#586676","#606d7b"],
+    gewitter:   ["#2d3744","#35404e","#3f4a58","#485361"],
+    nebel:      ["#5a636d","#636c75","#6b737b","#71787f"],
+    schnee:     ["#5a6878","#627080","#67737f","#6c7784"]
   };
-  /* Der Schein nur, solange ueberhaupt Himmel zu sehen ist. */
-  if(deckung<88){
-    const hoch=Math.max(0,Math.min(1,(w.elev+4)/34));
-    L.glut={
-      x: w.x!=null ? w.x : 50,
-      farbe: mische("#ffa64a","#ffd85e",hoch),
-      alpha: 0.50+0.35*hoch,
-      weite: 32+34*hoch
-    };
+  const rgb=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
+  const hx=v=>Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,"0");
+  const mische=(a,b,t)=>{ const A=rgb(a),B=rgb(b), k=Math.max(0,Math.min(1,t));
+    return "#"+A.map((v,i)=>hx(v+(B[i]-v)*k)).join(""); };
+  const mischeP=(p,q,t)=>p.map((f,i)=>mische(f,q[i],t));
+
+  /* Tagesgang nach Sonnenhoehe, getrennt nach Morgen und Abend. Dazwischen
+     wird gemischt, damit es keine Spruenge gibt, wenn eine Schwelle faellt. */
+  const MORGEN=[[-12,PAL.nacht],[-3,PAL.vorAufgang],[4,PAL.nachAufgang],[18,PAL.mittag]];
+  const ABEND =[[-12,PAL.nacht],[-3,mischeP(PAL.abend,PAL.nacht,0.35)],[4,PAL.abend],[18,PAL.mittag]];
+  function tagesgang(elev,morgens){
+    const k=morgens?MORGEN:ABEND;
+    if(elev<=k[0][0]) return k[0][1];
+    for(let i=1;i<k.length;i++) if(elev<=k[i][0])
+      return mischeP(k[i-1][1],k[i][1],(elev-k[i-1][0])/(k[i][0]-k[i-1][0]));
+    return k[k.length-1][1];
   }
-  if(w.elev<-2 && deckung<60){ L.sterne=true; L.sterneHoch=w.elev<-8?90:38; }
-  if(w.nebel) L.nebel=.28;
-  return L;
-}
 
-/* Wo am Himmel die Sonne seitlich steht: morgens links, abends rechts.
-   Nachts bleibt der Mond auf einer festen Seite, sein Lauf waere auf einem
-   Banner ohnehin nicht abzulesen. */
-function seite(jetzt, auf, unter){
-  if(!auf||!unter||jetzt<auf||jetzt>unter) return 82;
-  return 8+84*((jetzt-auf)/(unter-auf));
-}
+  const verlauf=p=>`linear-gradient(180deg,${p[0]} 0%,${p[1]} 35%,${p[2]} 70%,${p[3]} 100%)`;
+  const hg=css=>`<div class="hg" style="${css}"></div>`;
+  const kreis=(x,y,r,innen,aussen,mitte="60%")=>
+    `radial-gradient(circle ${r}px at ${x}% ${y}%,${innen},${aussen} ${mitte},transparent 100%)`;
 
-let letzte="";
-function setze(w){
-  const kopf=document.getElementById("kopf");
-  if(!kopf) return;
-  const schluessel=JSON.stringify(w);
-  if(schluessel===letzte) return;     /* nichts hat sich geaendert */
-  letzte=schluessel;
-  const bau=himmelBauen(lageAus(w));
-  let halter=kopf.querySelector(".himmelhalter");
-  if(!halter){
-    halter=document.createElement("div");
-    halter.className="himmelhalter";
-    kopf.insertBefore(halter,kopf.firstChild);
+  /* Sonne und Mond stehen oben rechts, wie bei WetterOnline, und nicht dort,
+     wo sie wirklich stehen. Im Tagesbereich lag der Fleck auf der Zeile mit
+     den Sonnenstunden. Oben rechts stehen nur die kurzen Abendbalken. */
+  const SX=95.5, SY=11;
+  function sonne(x,y,stark){
+    const f=a=>`rgba(255,255,255,${(a*stark).toFixed(3)})`;
+    const flecke=[[0.22,5,.34],[0.36,3,.28],[0.50,6,.20]]
+      .map(([t,r,a])=>kreis(x-t*7,y+t*70,r,f(a),f(a*0.4),"50%")).join(",");
+    return hg(`background:${kreis(x,y,20,f(.97),f(.80),"45%")},
+      ${kreis(x,y,58,f(.55),f(.20),"40%")},${kreis(x,y,150,f(.28),f(.08),"45%")},${flecke}`);
   }
-  halter.innerHTML=bau.html;
-  kopf.classList.add("himmel");
-}
+  function mond(x,y,stark){
+    const m=(dx,dy,r,a)=>kreis(x+dx,y+dy,r,`rgba(92,112,138,${a*stark})`,`rgba(92,112,138,${a*stark*0.5})`,"55%");
+    return hg(`background:${m(-0.8,-10,7,.35)},${m(0.9,8,9,.28)},${m(-1.4,14,5,.25)},
+      radial-gradient(circle 24px at ${x}% ${y}%,rgba(176,192,212,${.62*stark}),rgba(150,170,196,${.55*stark}) 92%,transparent 100%),
+      ${kreis(x,y,60,`rgba(190,205,225,${.14*stark})`,`rgba(190,205,225,${.04*stark})`,"45%")}`);
+  }
+  function wuerfel(saat){ let z=saat>>>0;
+    return ()=>{ z=(z+0x6D2B79F5)>>>0; let t=Math.imul(z^(z>>>15),1|z);
+      t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
+  function sterne(n,saat,hoch,hell){
+    const w=wuerfel(saat); let s="";
+    for(let i=0;i<n;i++) s+=`<circle cx="${(w()*100).toFixed(1)}%" cy="${(w()*hoch).toFixed(1)}%"
+      r="${(0.5+w()*0.9).toFixed(2)}" fill="#fff" opacity="${(0.15+w()*hell).toFixed(2)}"/>`;
+    return `<svg class="hg">${s}</svg>`;
+  }
+  function rausch(saat){
+    const h=(x,y)=>{ let v=(x*374761393+y*668265263+saat*1442695041)|0;
+      v=Math.imul(v^(v>>>13),1274126177); return ((v^(v>>>16))>>>0)/4294967296; };
+    const g=t=>t*t*(3-2*t);
+    return (x,y)=>{ const xi=Math.floor(x),yi=Math.floor(y),u=g(x-xi),v=g(y-yi);
+      const a=h(xi,yi),b=h(xi+1,yi),c=h(xi,yi+1),d=h(xi+1,yi+1);
+      return (a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v; };
+  }
+  function fbm(n,x,y,okt=5){ let s=0,a=.5,f=1,t=0;
+    for(let i=0;i<okt;i++){ s+=a*n(x*f,y*f); t+=a; a*=.5; f*=2.03; } return s/t; }
+  /* art: "haufen" Quellwolken, "decke" geschlossen, "faden" Zirren oder Nebel */
+  function wolken(art,deckung,saat,{hell=[255,255,255],dunkel=[196,206,218],max=.48}={}){
+    const W=427,H=56, cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+    const ctx=cv.getContext("2d"), img=ctx.createImageData(W,H), n=rausch(saat), n2=rausch(saat+7);
+    const sx=art==="faden"?150:art==="decke"?70:58, sy=art==="faden"?9:art==="decke"?26:24;
+    const schwelle=art==="decke"?0.30:0.70-0.44*deckung/100;
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+      let d=fbm(n,x/sx,y/sy+(art==="faden"?x/400:0));
+      if(art==="faden") d=d*0.75+0.25*fbm(n2,x/40,y/5,3);
+      const t=Math.max(0,Math.min(1,(d-schwelle)/0.16)), dichte=t*t*(3-2*t);
+      /* dicke Stellen grauer, wie die Unterseite einer Quellwolke */
+      const k=Math.min(1,dichte*dichte*(art==="decke"?1:0.8)), o=(y*W+x)*4;
+      for(let c=0;c<3;c++) img.data[o+c]=hell[c]+(dunkel[c]-hell[c])*k;
+      img.data[o+3]=255*max*dichte;
+    }
+    ctx.putImageData(img,0,0);
+    return hg(`background:url(${cv.toDataURL()}) 0 0/100% 100%;filter:blur(1.2px)`);
+  }
+  function striche(n,saat){
+    const w=wuerfel(saat); let s="";
+    for(let i=0;i<n;i++){ const x=w()*1300-10, y=w()*70, l=12+w()*18;
+      s+=`<line x1="${x.toFixed(0)}" y1="${y.toFixed(1)}" x2="${(x-l*0.2).toFixed(0)}" y2="${(y+l).toFixed(1)}"
+        stroke="#fff" stroke-width="${(0.6+w()*0.5).toFixed(2)}" stroke-opacity="${(0.08+w()*0.16).toFixed(2)}"/>`; }
+    return `<svg class="hg" viewBox="0 0 1280 100" preserveAspectRatio="none">${s}</svg>`;
+  }
+  function flocken(n,saat){
+    const w=wuerfel(saat); let s="";
+    for(let i=0;i<n;i++) s+=`<circle cx="${(w()*100).toFixed(1)}%" cy="${(w()*100).toFixed(1)}%"
+      r="${(0.8+w()*1.2).toFixed(2)}" fill="#fff" opacity="${(0.25+w()*0.45).toFixed(2)}"/>`;
+    return `<svg class="hg">${s}</svg>`;
+  }
 
-return {setze, seite};
+  /* ---- aus den Werten dieser Stunde ein Bild ------------------- */
+  function bild(w){
+    const elev=Number(w.elev||0), mm=Math.max(0,Number(w.mm||0));
+    const haufen=Math.max(0,Math.min(100,Number(w.haufen??w.deckung??0)));
+    const schleier=Math.max(0,Math.min(100,Number(w.schleier||0)));
+    const std=new Date().getHours(), morgens=std<13;
+    /* Das Muster der Wolken wechselt jede Stunde, damit nicht jeden Tag
+       dieselben Wolken an derselben Stelle stehen. */
+    const saat=new Date().getDate()*31+std;
+    const tag=elev>-1, nacht=elev<-6;
+
+    let p=tagesgang(elev,morgens);
+    if(tag&&schleier>=25) p=mischeP(p,PAL.zirren,0.6*schleier/100);
+    p=mischeP(p,nacht?mischeP(PAL.bedeckt,PAL.nacht,0.6):PAL.bedeckt,Math.pow(haufen/100,1.4));
+    if(w.nebel) p=PAL.nebel;
+    if(w.schnee) p=mischeP(p,PAL.schnee,0.9);
+    else if(w.gewitter) p=mischeP(p,PAL.gewitter,0.85);
+    else if(mm>0.05) p=mischeP(p,PAL.regen,Math.min(1,mm/3));
+
+    let html=hg(`background:${verlauf(p)}`);
+    const offen=!w.nebel&&mm<=0.05&&!w.gewitter;
+    /* Sterne und Mond nur, wo der Himmel frei ist */
+    if(offen&&elev<-2&&haufen<60){
+      if(elev<-6) html+=sterne(Math.round(110*(1-haufen/60)),17,90,.55);
+      else html+=sterne(Math.round(34*(1-haufen/60)),5,55,.35);
+    }
+    /* Der Mond bleibt, bis die Sonne da ist, wie auf dem Foto von 07:23 */
+    if(offen&&!tag&&haufen<70) html+=mond(SX,SY,1-haufen/100);
+    /* Die Sonne steht abends und morgens etwas tiefer, verschwindet aber nie
+       hinter den Horizont des Banners. */
+    if(offen&&tag&&haufen<85){
+      const y=SY+Math.max(0,Math.min(30,(12-elev)*2));
+      html+=sonne(SX,y,Math.pow(1-haufen/100,0.8)*(schleier>=25?0.9:1));
+      if(!morgens&&elev<10) html+=hg(`background:${kreis(SX,y+10,260,"rgba(255,214,150,.26)","rgba(255,200,130,.07)","45%")}`);
+    }
+    if(w.gewitter) html+=hg(`background:${kreis(62,20,230,"rgba(236,226,255,.40)","rgba(200,190,240,.12)","40%")}`);
+
+    /* Wolken: Zirren als Faeden, Quellwolken als Haufen, ab 78 Prozent eine
+       geschlossene Decke. Nachts sind Wolken dunkel und nicht weiss. */
+    if(w.nebel){
+      html+=wolken("faden",100,saat,{hell:[196,202,208],dunkel:[166,174,182],max:.28});
+    }else if(haufen>=78||mm>0.05||w.gewitter||w.schnee){
+      const farbe = w.gewitter?{hell:[120,130,146],dunkel:[70,80,96],max:.6}
+                  : mm>0.05   ?{hell:[150,160,172],dunkel:[96,108,122],max:.55}
+                  : nacht     ?{hell:[64,78,100],dunkel:[44,56,76],max:.55}
+                  :            {hell:[176,186,198],dunkel:[120,132,146],max:.55};
+      html+=wolken("decke",100,saat,farbe);
+    }else if(haufen>=12){
+      html+=wolken("haufen",haufen,saat,nacht?{hell:[74,90,114],dunkel:[52,64,86],max:.5}:{max:.48});
+    }
+    if(tag&&schleier>=25&&haufen<78&&!w.nebel) html+=wolken("faden",schleier,saat+3,{max:.18});
+    if(mm>0.05&&!w.schnee) html+=striche(Math.round(Math.min(150,30*Math.pow(mm,0.7))),saat);
+    if(w.schnee) html+=flocken(Math.round(Math.min(70,20+14*mm)),saat);
+    return html;
+  }
+
+  let letzte="";
+  function setze(w){
+    const kopf=document.getElementById("kopf");
+    if(!kopf) return;
+    const schluessel=JSON.stringify({...w,std:new Date().getHours()});
+    if(schluessel===letzte) return;     /* nichts hat sich geaendert */
+    letzte=schluessel;
+    let halter=kopf.querySelector(".himmelhalter");
+    if(!halter){
+      halter=document.createElement("div");
+      halter.className="himmelhalter";
+      kopf.insertBefore(halter,kopf.firstChild);
+    }
+    halter.innerHTML=bild(w);
+    kopf.classList.add("himmel");
+  }
+  return {setze};
 })();
 
 /* ===================================================================
@@ -3032,7 +2872,6 @@ async function loadWeather(){
        Die Zeile rechts fasst den Tag zusammen, der Hintergrund zeigt, was
        gerade draussen ist. */
     {
-      const sTag=sunMap[isoDay(new Date())]||{};
       HIMMEL.setze({
         elev:    nowBlk.elev,
         deckung: wolkenWirkung(nowBlk),
@@ -3044,7 +2883,7 @@ async function loadWeather(){
         mm:      (nowBlk.precip||0),
         schnee:  (nowBlk.snow||0)>0.05,
         nebel:   nowDec.icon==="fog",
-        x:       Math.round(HIMMEL.seite(Date.now(),sTag.rise,sTag.set))
+        gewitter:nowDec.icon==="storm"
       });
     }
     nowIcon.innerHTML=weatherIcon(nowDec.spec||nowDec.icon);
@@ -3190,7 +3029,10 @@ function stufeRGB(v,stufen){
       (v-stufen[i-1][0])/(stufen[i][0]-stufen[i-1][0]));
   return stufen[stufen.length-1][1];
 }
-const WOLKE_HELL=[246,248,251], WOLKE_DUNKEL=[118,127,140];
+/* Die helle Seite ist ein lichtes Grau, kein Weiss. Auf den hellen Kacheln
+   von OpenStreetMap verschwindet reines Weiss, und duenne Wolken waren dann
+   gar nicht mehr zu sehen. */
+const WOLKE_HELL=[214,221,230], WOLKE_DUNKEL=[104,113,127];
 const REGEN_STUFEN=[[0.1,[176,214,255]],[0.5,[118,178,250]],[1,[70,140,236]],
                     [2,[42,104,212]],[4,[30,74,178]],[8,[22,46,128]]];
 const STURM_STUFEN=[[1,[255,214,74]],[2,[255,150,46]],[3,[232,64,58]],[4,[150,60,205]]];
@@ -3209,6 +3051,21 @@ function sturmStufe(code,mm){
      ist 4. Mit harten Stufen zeichnete das grobe Raster eckige Kerne. */
   const m=Math.max(0,Number(mm||0));
   return m<2?1+m/2 : m<5?2+(m-2)/3 : Math.min(4,3+(m-5)/10);
+}
+/* Ein Blitz je Gewittergebiet, an seiner staerksten Stelle. ICON meldet ein
+   Gewitter oft auf vielen Nachbarpunkten zugleich, und ein Blitz auf jedem
+   ergab ein Raster aus zwanzig Blitzen. Zwei Blitze stehen mindestens drei
+   Rasterfelder auseinander, also gut 35 km. */
+function blitzOrte(sturm,pts){
+  const kand=[];
+  for(let o=0;o<sturm.length;o++) if(sturm[o]>=1) kand.push(o);
+  kand.sort((a,b)=>sturm[b]-sturm[a]);
+  const wahl=[];
+  for(const o of kand){
+    const x=o%GRID_X, y=Math.floor(o/GRID_X);
+    if(wahl.every(w=>Math.hypot(w.x-x,w.y-y)>=3)) wahl.push({x,y,o});
+  }
+  return wahl.filter(w=>pts[w.o]).map(w=>({lat:pts[w.o].lat,lon:pts[w.o].lon,stufe:sturm[w.o]}));
 }
 function cloudFrameLabel(iso,idx){
   const t=new Date(iso).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
@@ -3261,7 +3118,7 @@ function renderFrame(cloud,precip,sturm){
       let [r,g,b]=mischRGB(WOLKE_HELL,WOLKE_DUNKEL,Math.pow(cc/100,1.3));
       /* Dichte Wolken deutlich grauer und deckender als duenne, sonst sieht
          man auf der Karte nicht, wo es wirklich zu ist. */
-      let a=0.02+Math.pow(cc/100,1.25)*0.52;
+      let a=cc<3?0:0.06+Math.pow(cc/100,1.1)*0.50;
       const rc=rainRGB(mm);
       if(rc){
         const ra=Math.min(.82,.26+Math.sqrt(mm)*0.40);
@@ -3378,7 +3235,6 @@ async function loadCloudForecast(){
       const cloud=new Float32Array(GRID_X*GRID_Y);
       const precip=new Float32Array(GRID_X*GRID_Y);
       const sturm=new Float32Array(GRID_X*GRID_Y);
-      const storms=[];
       for(let k=0;k<Math.min(j.length,pts.length);k++){
         const p=pts[k], o=p.y*GRID_X+p.x, hh=j[k].hourly||{};
         /* Wolken als Augenblickswert zur vollen Stunde, gewichtet nach
@@ -3389,8 +3245,8 @@ async function loadCloudForecast(){
         const mm=Number(hh.precipitation?.[h+1]??0), code=Number(hh.weather_code?.[h+1]??0);
         precip[o]=mm;
         sturm[o]=sturmStufe(code,mm);
-        if(sturm[o]>=1) storms.push({lat:p.lat,lon:p.lon,stufe:sturm[o]});
       }
+      const storms=blitzOrte(sturm,pts);
       frames.push({time:j[0].hourly.time[h],url:renderFrame(cloud,precip,sturm),storms,box:gridBox});
     }
     if(!frames.length) throw new Error("keine Wolken-Frames");

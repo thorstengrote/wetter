@@ -1,0 +1,693 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solarblock im Banner &ndash; Entwurf</title>
+<style>
+:root{
+  --bg:#090c11;
+  --panel:#121821;
+  --panel2:#1a2230;
+  --panel3:#202b3a;
+  --fg:#f7f9fb;
+  --muted:#aeb8c5;
+  --line:#3a4657;
+  --blue:#6ec8ff;
+  --yellow:#ffd45c;
+  --orange:#ffb27f;
+}
+*{box-sizing:border-box}
+html,body{
+  margin:0;width:100%;height:100%;
+  background:var(--bg);color:var(--fg);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  overflow:hidden
+}
+body{padding:12px 16px 10px}
+/*
+  Ein Raster fuer alles.
+
+  --kachel ist die Breite einer Kachel, zwoelf davon plus elf Spalten fuellen
+  den Kasten genau aus. Die alte Formel rechnete einen Pixel je Kachel zu
+  wenig, dadurch blieben rechts zwoelf Pixel Rest, waehrend links die erste
+  Kachel buendig sass.
+
+  --rand gilt fuer alle Kaesten gleich, damit das Karteninnere auf derselben
+  Linie liegt wie die Tageskacheln daneben. Vorher waren es 4 gegen 10.
+
+  --wsize ist eine Symbolgroesse fuer Stunden- wie Tageskacheln. Vorher war
+  das Symbol in der Stundenkachel 38 Pixel gross und auf der Tageskachel 48,
+  dieselbe Wetterlage wirkte dadurch je nach Kachel unterschiedlich wichtig.
+*/
+:root{
+  --rand:6px;               /* Innenrand jedes Kastens */
+  --spalt:4px;              /* Abstand zwischen Kacheln */
+  --kastenspalt:6px;        /* Abstand zwischen Karte und Tagesleiste */
+  --legende:11px;           /* Breite der senkrechten Tageszeit-Legende */
+  --legspalt:4px;
+  --kachel:calc((100vw - 32px - 2px - 2*var(--rand) - 11*var(--spalt))/12);
+  --wsize:clamp(44px,8vh,104px);
+}
+#app{
+  height:100%;
+  display:grid;
+  grid-template-rows:auto 36fr 64fr;
+  gap:9px
+}
+header{
+  background:linear-gradient(180deg,#171f2a,#111821);
+  border:1px solid #4a586b;
+  border-radius:15px;
+  padding:10px 14px;
+  display:grid;
+  grid-template-columns:auto auto 1fr auto;
+  gap:0;
+  align-items:stretch;
+  box-shadow:0 0 0 1px rgba(255,255,255,.025) inset
+}
+/* Jeder Bereich der Kopfzeile bekommt dieselbe Einrueckung und eine
+   Trennlinie ueber die volle Hoehe. Gleicher Abstand links und rechts der
+   Linie, sonst kippt das Bild. */
+.zelle{display:flex;align-items:center;padding:2px 17px}
+.zelle:first-child{padding-left:2px}
+.zelle:last-child{padding-right:2px}
+.zelle + .zelle{border-left:1px solid #3a4756}
+header.ohne-solar{grid-template-columns:auto auto 1fr}
+.place{font-size:21px;font-weight:700}
+.clock{font-size:38px;font-weight:750;line-height:1}
+.date{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap}
+.date .stand{color:#8b97a6}
+.date .stale{color:#ff8a8a;font-weight:650}
+#stand{cursor:pointer;-webkit-user-select:none;user-select:none}
+.diag .evlog{
+  margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;
+  line-height:1.5;max-height:46vh;overflow:auto
+}
+.diag .evlog div{white-space:nowrap}
+.diag .evlog .e-ok{color:#8fcf9a}
+.diag .evlog .e-netz{color:#ff9e9e}
+.diag .evlog .e-http{color:#ffc46b}
+.diag .evlog .e-api{color:#ffc46b}
+.diag .evlog .e-json{color:#ffc46b}
+.current{display:flex;align-items:center;gap:12px}
+.current .icon{display:flex;align-items:center}
+.current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
+.current .temp{font-size:34px;font-weight:750}
+.current .details{font-size:13px;line-height:1.5;color:#c9d2dc;white-space:nowrap}
+/* Uhr, Datum und Jetzt-Zeilen brechen nie um. Sonst genuegte "Sonne 100 %"
+   statt "Sonne 57 %", und die Zeile wie auch das Datum links daneben
+   sprangen in eine zweite Zeile. Den Rest bekommt der Tagestext, der darf
+   zweizeilig sein. */
+.today{flex-direction:column;align-items:flex-start;cursor:pointer;
+  -webkit-user-select:none;user-select:none}
+.today:active{background:rgba(255,255,255,.06)}
+.today .summary{font-size:17px;font-weight:700}
+.today .sub{font-size:12px;color:#c5ced8;margin-top:3px}
+.today .extra{font-size:12px;color:#c5ced8;margin-top:4px}
+
+/* ---------- Himmel hinter der Kopfzeile ---------- */
+header{position:relative;overflow:hidden;isolation:isolate}
+header > .zelle{position:relative;z-index:2}
+.himmelhalter{position:absolute;inset:0;z-index:0;pointer-events:none}
+.hg{position:absolute;inset:0;pointer-events:none}
+/* Ein SVG ist ein ersetztes Element. Absolut gesetzt mit inset:0 dehnt es
+   sich nicht, es behaelt seine eigene Groesse, und die ist ohne viewBox
+   300 auf 150. Ohne diese Zeile faellt der Schnee nur im linken Viertel. */
+svg.hg{width:100%;height:100%}
+/* Auf farbigem Grund brauchen die matten Zeilen mehr Helligkeit. Die Werte
+   der Seite sind fuer einen fast schwarzen Kasten gewaehlt, auf einem
+   Abendhimmel traegt #8b97a6 nicht mehr. */
+/* Auf dem Himmel ist alle Schrift weiss, wie bei WetterOnline. Graue
+   Nebenzeilen wuerden auf dem hellen Blau untergehen. */
+header.himmel .date, header.himmel .date .stand, header.himmel .details,
+header.himmel .sub, header.himmel .extra, header.himmel .place,
+header.himmel .clock, header.himmel .temp, header.himmel .summary{color:#fff}
+header.himmel{border-color:rgba(255,255,255,.28)}
+header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
+
+/* ---------- Solar ---------- */
+.solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px}
+.solar:active{background:rgba(255,255,255,.06)}
+.solar[hidden]{display:none}
+
+.sdetail{
+  position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
+  transform:translateY(-50%);max-height:93%;overflow:auto;
+  background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:14px;
+  padding:15px 22px 13px;display:none;cursor:pointer;
+  font-size:15px;line-height:1.6;color:#e6ecf3
+}
+.sdetail.on{display:block}
+.sdetail .schliessen{float:right;font-size:11px;color:#7d8896}
+.sdetail h4{margin:0 0 2px;font-size:21px;font-weight:750;color:#fff}
+.sdetail .unter{color:#8b97a6;font-size:12.5px;margin-bottom:12px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.kpi{background:#131c26;border:1px solid #29343f;border-radius:10px;padding:8px 11px}
+.kpi .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b97a6}
+.kpi .z{font-size:25px;font-weight:750;line-height:1.15;font-variant-numeric:tabular-nums}
+.kpi .n{font-size:11.5px;color:#8b97a6;font-variant-numeric:tabular-nums}
+/* Die Kaesten einer Zeile sind gleich hoch, sonst stehen Loecher zwischen
+   ihnen. Der Inhalt verteilt sich in der Hoehe, statt oben zu kleben. */
+.sgrid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);
+       gap:12px;align-items:stretch}
+.sgrid > .sblock{margin:0;display:flex;flex-direction:column}
+.sblock{background:#111925;border:1px solid #263141;border-radius:10px;padding:10px 12px}
+.sblock .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+           color:#8b97a6;margin-bottom:7px}
+/* Sieben Eintraege seit "aus dem Akku". Bei 11,5 Pixel und 12 Pixel Abstand
+   brach die Legende um, und die Detailseite wurde hoeher als der Schirm. */
+.leg{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:10.5px;color:#c5ced8;margin-top:auto;padding-top:6px}
+.leg i{display:inline-block;width:10px;height:10px;border-radius:2.5px;margin-right:5px;
+       vertical-align:-1px}
+.paare{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 14px;
+       font-size:13px;flex:1;align-content:space-between}
+.paare .k{color:#9dabbb;white-space:nowrap}
+.paare .v{font-weight:650;font-variant-numeric:tabular-nums;text-align:right}
+.sdetail .quelle{margin-top:11px;font-size:11px;color:#7d8896}
+
+/* ---------- Velux ----------
+   Der Einstieg sitzt in der linken oberen Ecke der Wolkenkarte. Im Banner
+   waere kein Platz mehr, dort steht schon Uhr, Wetter, Vorschau und Solar.
+   Die Ecke der Karte ist frei: Zeitstempel und Legende sitzen unten. */
+.velux-knopf{
+  position:absolute;z-index:802;left:10px;top:10px;
+  width:46px;height:50px;padding:4px;
+  background:rgba(5,8,12,.86);border:1px solid #536276;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;-webkit-user-select:none;user-select:none
+}
+.velux-knopf:active{background:rgba(40,52,66,.95)}
+.velux-knopf svg{display:block;width:100%;height:100%}
+
+.vdetail{position:fixed;z-index:1001;inset:0;display:none;
+  background:rgba(4,7,11,.72);cursor:pointer}
+.vdetail.on{display:block}
+.vflaeche{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:470px;max-height:92%;overflow:auto;cursor:default;
+  background:rgba(7,11,17,.985);border:1px solid #5b6b81;border-radius:16px;
+  padding:14px 18px}
+.vzeile{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;
+  padding:9px 2px 9px 8px}
+.vzeile + .vzeile{border-top:1px solid #1d2734}
+.vzeile .n{font-size:16px;font-weight:650;white-space:nowrap;color:#e8eef5}
+.vzeile.gruppe .n{font-size:19px;font-weight:750}
+.vtrenner{height:1px;background:#33404f;margin:8px 2px}
+.vtasten{display:flex;gap:9px}
+/* Alle Tasten gleich gross, damit die drei Spalten ueber alle Zeilen
+   fluchten. Nur die Beschriftung der beiden Gruppen ist groesser. */
+.vtaste{width:72px;height:58px;background:#1a2430;border:1px solid #33404f;
+  border-radius:11px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;-webkit-user-select:none;user-select:none}
+.vtaste:active{background:#26323f}
+/* Die Stellung, in der die Gruppe gerade steht, ist leicht hervorgehoben.
+   Kein zusaetzliches Zeichen, nur ein hellerer Rahmen. */
+.vtaste[data-ist=ja]{border-color:#7d8da0;background:#202c3a}
+.vtaste[data-zustand=faehrt]{border-color:#ffd166;background:#262a1d}
+.vtaste[data-zustand=fertig]{border-color:#3ddc97;background:#16281f}
+.vzeichen{width:34px;height:37px}
+.vkopf{display:flex;justify-content:flex-end;font-size:11px;color:#7d8896;
+  margin-bottom:2px}
+.vfehler{font-size:12px;color:#ff9a8c;min-height:16px;margin-top:8px;padding:0 2px}
+
+/* One label system for every secondary value on the page.
+   Same size, same weight, same icon box, never wraps, never absent.
+   Grey means unremarkable, colour means worth a look. */
+.lbl{
+  font-size:10px;line-height:14px;font-weight:600;
+  white-space:nowrap;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;gap:3px;
+  font-variant-numeric:tabular-nums;
+  color:#8b97a6
+}
+.lbl.rain{color:var(--blue)}
+.lbl.sun{color:var(--yellow)}
+.lbl.wind{color:#ffb86b}
+.mi{width:11px;height:11px;flex:0 0 auto}
+.mi.sock{width:14px;height:10px}
+.inl{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.inl .mi{width:12px;height:12px}
+.inl .mi.sock{width:15px;height:11px}
+
+.box{
+  background:#0f151d;
+  border:1px solid #3e4a5b;
+  border-radius:15px;
+  padding:var(--rand);
+  min-height:0;
+  overflow:hidden;
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  box-shadow:0 0 0 1px rgba(255,255,255,.02) inset
+}
+.title{
+  flex:0 0 auto;
+  font-size:12px;
+  color:#c5cfdb;
+  margin:0 0 6px 2px;
+  letter-spacing:.25px
+}
+.hourly-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  touch-action:pan-x;
+}
+.hourly-scroll::-webkit-scrollbar{display:none}
+.hours{
+  height:100%;
+  display:flex;
+  gap:var(--spalt);
+  width:max-content;
+}
+.hour{
+  width:var(--kachel);
+  flex:0 0 var(--kachel);
+  background:linear-gradient(180deg,var(--panel3),var(--panel2));
+  border:1px solid #46546a;
+  border-radius:8px;
+  padding:6px 1px 4px;
+  text-align:center;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr) auto auto;
+  align-items:center;
+  min-width:0
+}
+.hour.night{background:linear-gradient(180deg,#161d29,#111722);border-color:#364254}
+.hour .t{font-size:11px;color:#d5dce4;font-weight:600;font-variant-numeric:tabular-nums}
+.hour .icon{line-height:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.hour .icon .wicon{width:var(--wsize);height:var(--wsize);max-width:100%;max-height:100%;display:block}
+.hour .deg{font-size:16px;font-weight:750;line-height:20px;font-variant-numeric:tabular-nums}
+
+/* Tap any tile to see every value the model delivers for it. */
+/* the card takes the height of its content and centres itself, instead of
+   stretching to a fixed share of the screen and leaving half of it black */
+.diag{
+  position:fixed;z-index:1000;left:4.5%;right:4.5%;top:50%;
+  transform:translateY(-50%);max-height:93%;overflow:auto;
+  background:rgba(7,11,17,.975);border:1px solid #5b6b81;border-radius:14px;
+  padding:15px 24px 13px;display:none;
+  font-size:15px;line-height:1.7;color:#e6ecf3
+}
+.diag.on{display:block}
+.diag h4{margin:0;font-size:21px;font-weight:750;color:#fff}
+.diag .why{margin:2px 0 11px;color:var(--yellow);font-weight:650;font-size:14px}
+.diag .rows{
+  display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
+  gap:2px 22px;align-content:start
+}
+.diag .k{color:#9dabbb;white-space:nowrap}
+.diag .v{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.diag .src{margin-top:10px;font-size:11px;color:#7d8896}
+.diag .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 34px;margin-top:6px}
+/* a line of 60 to 70 characters reads comfortably; the full column would run
+   past 100 and force the eye to hunt for the next line */
+.diag .story{font-size:17px;line-height:1.65;color:#dfe6ef;max-width:64ch}
+.diag .rows.two{grid-template-columns:auto minmax(0,1fr)}
+.diag .close{position:absolute;right:16px;top:12px;color:#9dabbb;font-size:11px}
+
+/*
+  Stunden- und Tagesleiste stehen auf demselben Zwoelferraster: die Karte
+  belegt fuenf Spalten, die sieben Tage je eine. Dadurch steht jede
+  Tageskachel genau unter einer Stundenkachel. Die elf Pixel Zuschlag gleichen
+  den Rand der Kaesten aus, der breiter ist als der Kachelabstand.
+*/
+/*
+  Die sieben Tageskacheln stehen auf den letzten sieben der zwoelf Spalten,
+  die Karte belegt die ersten fuenf. Von der Kartenbreite gehen die Legende
+  und die Raender ab, damit die erste Tageskachel genau unter der sechsten
+  Stundenkachel beginnt.
+*/
+.bottom-grid{
+  display:grid;
+  grid-template-columns:
+    calc(5*(var(--kachel) + var(--spalt)) - var(--legende) - var(--legspalt)
+         - var(--kastenspalt))
+    minmax(0,1fr);
+  gap:var(--kastenspalt);min-height:0
+}
+/* Legende und Kachelband nebeneinander im selben Kasten. Die Legende liegt
+   ausserhalb des Scrollbereichs und bleibt deshalb beim Wischen stehen. */
+.tagereihe{display:flex;gap:var(--legspalt);flex:1 1 auto;min-height:0;min-width:0}
+/* Ohne Titelzeile ist der Kasten nur noch ein Rahmen um die Karte, der Rand
+   darf deshalb schmal sein. Was hier wegfaellt, bekommt die Karte. */
+.radarbox{
+  background:#0f151d;border:1px solid #3e4a5b;border-radius:15px;
+  padding:var(--rand);min-height:0;overflow:hidden;position:relative;
+  display:flex;flex-direction:column
+}
+.radar-stage{
+  flex:1 1 auto;min-height:0;position:relative;border-radius:10px;
+  background:#101720;overflow:hidden;border:1px solid #334155
+}
+#cloudMap{width:100%;height:100%;background:#111820}
+/* smooth-scaled interpolated field instead of visible grid squares */
+.cloudfield{image-rendering:auto;filter:blur(1.5px)}
+.radar-time{
+  position:absolute;z-index:800;left:10px;bottom:9px;background:rgba(5,8,12,.88);
+  border:1px solid #536276;border-radius:7px;padding:4px 8px;
+  font-size:12px;font-weight:700;color:#fff
+}
+.radar-legend{
+  position:absolute;z-index:800;right:10px;bottom:9px;background:rgba(5,8,12,.82);
+  border-radius:6px;padding:4px 7px;font-size:9px;color:#d5dee8
+}
+.radar-msg{
+  position:absolute;z-index:801;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(5,8,12,.92);border:1px solid #536276;border-radius:8px;
+  padding:7px 10px;font-size:11px;color:#fff;display:none;text-align:center;max-width:80%
+}
+.leaflet-control-attribution{font-size:8px!important;background:rgba(255,255,255,.70)!important}
+.days-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  touch-action:pan-x;
+}
+.days-scroll::-webkit-scrollbar{display:none}
+.days{
+  height:100%;
+  display:flex;
+  gap:var(--spalt);
+  width:max-content;
+}
+.day{
+  width:var(--kachel);
+  flex:0 0 var(--kachel);
+  background:linear-gradient(180deg,#222d3d,#1a2230);
+  border:1px solid #4b5a70;
+  border-radius:11px;
+  padding:7px 3px;
+  text-align:center;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr) auto auto;
+  align-items:center;
+  min-width:0
+}
+.day.trend{opacity:.72;border-style:dashed}
+.day .name{font-size:13px;font-weight:750;color:#f5f7f9}
+.day .icon{min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.day .icon{position:relative}
+.day .icon .wicon{width:var(--wsize);height:var(--wsize);max-width:100%;max-height:100%;display:block}
+.day .temps{font-size:15px;font-weight:750;line-height:19px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.day .lbl{gap:2.5px;letter-spacing:-.15px}
+
+/* Drei Tagesabschnitte untereinander: Vormittag, Nachmittag, Abend. */
+.teile{display:flex;flex-direction:column;gap:7px;align-items:center;justify-content:center}
+.teile .wicon{width:var(--wsize);height:var(--wsize);display:block}
+.day .temps .slash{color:#7a8798}
+
+/*
+  Alle Wertzeilen einer Kachel in einem Raster. Einzeln zentrierte Zeilen
+  standen treppenartig versetzt, weil die Werte verschieden breit sind.
+*/
+.werte{display:grid;grid-template-columns:auto auto;column-gap:3.5px;align-items:center;
+       justify-content:center;font-size:11px;color:#9fb0c4;white-space:nowrap;
+       letter-spacing:-.15px;line-height:1.45}
+.werte .i{display:flex;align-items:center;justify-content:center;line-height:0}
+.werte .v{text-align:left;font-variant-numeric:tabular-nums}
+.werte .rain{color:var(--blue)} .werte .sun{color:var(--yellow)} .werte .wind{color:var(--orange)}
+.werte .mi{width:11px;height:11px;display:block}
+.werte .mi.sock{width:14px;height:10px}
+
+/* Legendenspalte: senkrechte Woerter, ausserhalb des Scrollbereichs. */
+.day.legende{background:none;border:none;box-shadow:none;
+             flex:0 0 var(--legende);width:var(--legende);
+             padding:0;opacity:.95}
+/* Die Platzhalter halten nur die Zeilenhoehen, damit die Woerter neben den
+   Symbolen sitzen. Ohne width:0 zwingt ihr Inhalt, etwa "0°/0°", die ganze
+   Spalte auf ihre Breite, und die Schrift rutscht weit vom Rahmen weg. */
+.day.legende .name,.day.legende .temps,.day.legende .werte{
+  visibility:hidden;width:0;overflow:hidden}
+.day.legende .teile{width:100%}
+/*
+  Senkrechte Schrift. Bei vertical-rl laeuft die Hauptachse des Flexkastens von
+  oben nach unten; align-items:flex-start haette die Woerter nach rechts aus
+  der Spalte geschoben, wo .icon sie abschneidet. Die Luft zum Rahmen wird
+  deshalb ueber die Spaltenbreite geregelt: --legende ist genau so breit wie
+  die Zeile hoch ist, dann bleibt beim Zentrieren nichts uebrig.
+*/
+.day.legende .zeile{height:var(--wsize);display:flex;align-items:center;
+                    justify-content:center;line-height:1;
+                    font-size:9px;font-weight:700;color:#93a0b0;letter-spacing:.3px;
+                    white-space:nowrap;writing-mode:vertical-rl}
+
+/* shown until the page runs without browser chrome; any tap takes it there,
+   and this is a real target so a deliberate tap cannot miss */
+#hint{
+  position:fixed;z-index:1200;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(12,18,26,.97);border:1px solid #6d7f96;border-radius:14px;
+  padding:18px 30px;font-size:18px;font-weight:700;color:#e6ecf3;
+  text-align:center;line-height:1.45;
+  box-shadow:0 10px 40px rgba(0,0,0,.55);
+  cursor:pointer;-webkit-user-select:none;user-select:none
+}
+#hint small{display:block;margin-top:5px;font-size:12.5px;font-weight:500;color:#9dabbb}
+#hint[hidden]{display:none}
+
+html,body{height:auto;overflow:visible}
+body{background:#080b10;color:#e8eef5;margin:0;padding-block:22px;padding-inline:18px;
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+h1{font-size:20px;margin:0 0 4px} h2{font-size:15px;margin:26px 0 4px;color:#c5ced8}
+p.lead,p.note{color:#8b97a6;margin:0 0 12px;max-width:900px;font-size:13px}
+.reihe{display:flex;gap:18px;flex-wrap:wrap}
+.fall{text-align:left}
+.fall .t{font-size:11.5px;color:#8b97a6;margin-top:6px}
+/* Himmel wie mittags auf der Wand, damit man den Block auf seinem Grund sieht */
+.grund{background:linear-gradient(180deg,#3b75ab 0%,#427eb7 35%,#5286b5 70%,#5d88aa 100%);
+  border-radius:12px;padding:14px 18px;display:inline-block}
+.gross{transform:scale(2);transform-origin:0 0;margin-bottom:90px}
+.block{display:grid;column-gap:10px;row-gap:5px;align-items:center}
+</style></head><body>
+<h1>Solarblock im Banner</h1>
+<p class="lead">Echte Batterie, echter Stundenstreifen, echter Strahl aus der Seite. Links jeweils in
+Originalgröße, rechts doppelt. Die Batterie ist so gestaucht, dass ihre Unterkante auf der Grundlinie
+der Balken steht, darunter sitzt das Symbol, und der Strahl ist so breit wie der Streifen.</p>
+<div id="a"></div>
+<script>
+const F_EIGEN="#63b3ff", F_AKKU="#4fd6c9", F_EIN="#3ddc97", F_BEZUG="#ff7b6b", F_HAUS="#e8eef5", F_SOC="#ffd166";
+const VOLL_KW=10.0;
+const z1=v=>Number(v||0).toFixed(1).replace(".",",");
+let jetzt={}; const gemittelt=()=>jetzt;
+  /* --- Sinnbilder -------------------------------------------------- */
+  const MINI={
+    haus:`<path d="M1 9.2V4.4L5 1.1l4 3.3v4.8z" fill="currentColor"/>`,
+    akku:`<rect x="2.4" y="2.3" width="5.2" height="6.9" rx="1.1" fill="currentColor"/>
+          <rect x="3.9" y="1" width="2.2" height="1.5" rx=".5" fill="currentColor"/>`,
+    /* Der Euro traegt ein Vorzeichen: Minus kostet, Plus bringt ein. */
+    euro:`<text x="5" y="8.1" text-anchor="middle" font-size="10.2" font-weight="750"
+                fill="currentColor">&#8364;</text>`,
+    "euro+":`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750"
+                fill="currentColor">+&#8364;</text>`,
+    "euro-":`<text x="5" y="8.2" text-anchor="middle" font-size="9.3" font-weight="750"
+                fill="currentColor">&#8722;&#8364;</text>`,
+    strom:`<path d="M6.3 .7 2.3 5.9h2.6L4.0 9.3 7.9 4.0H5.4z" fill="currentColor"/>`
+  };
+  const mini=(a,f,g=10)=>`<svg width="${g}" height="${g}" viewBox="0 0 10 10"
+    style="display:block;color:${f};flex:0 0 auto">${MINI[a]}</svg>`;
+
+  /* Aufrechte Batterie, ohne Zahl. Gruen ab 50 Prozent. */
+  function batterie(soc,laedt,b=29,h=68){
+    const kappe=Math.max(3.5,h*0.075), io=kappe+h*0.038, iu=h-h*0.038;
+    const ih=iu-io, f=ih*Math.max(0,Math.min(100,soc))/100;
+    const farbe=soc>=50?"#3ddc97":soc>=25?"#ffd166":"#ff7b6b";
+    let li="";
+    for(let i=1;i<5;i++){
+      const y=iu-ih*i/5;
+      li+=`<line x1="${b*0.12}" y1="${y.toFixed(1)}" x2="${b*0.88}" y2="${y.toFixed(1)}"
+                 stroke="#111821" stroke-width="${Math.max(1.6,h*0.027)}"/>`;
+    }
+    const blitz=laedt?`<path d="M${b/2+3} ${h/2-10}l-7 11h4.5l-2 8.5 7-11.2h-4.5z"
+                             fill="#0d131b" opacity=".85"/>`:"";
+    return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block">
+      <rect x="${b/2-b*0.19}" y="0" width="${b*0.38}" height="${kappe+1}" rx="1.8" fill="#5b6b7d"/>
+      <rect x="1" y="${kappe}" width="${b-2}" height="${h-kappe-1}" rx="${b*0.15}"
+            fill="#1b232e" stroke="#6b7a8c" stroke-width="1.6"/>
+      <rect x="${b*0.12}" y="${(iu-f).toFixed(1)}" width="${b*0.76}"
+            height="${f.toFixed(1)}" rx="1.8" fill="${farbe}"/>
+      ${li}${blitz}</svg>`;
+  }
+
+  /* Eine Saeule je Stunde. Links vom Strich gemessen, rechts gerechnet.
+     Gruen heisst, dass dort mehr erzeugt wird als das Haus braucht. */
+  const SVON=5,SBIS=21,SBH=8,SAB=3;
+  const SB=(SBIS-SVON)*(SBH+SAB)+SBH;
+  function streifen(ST,hoehe=44,morgen=false){
+    let s="";
+    for(let t=SVON;t<=SBIS;t++){
+      const e=ST[t], v=e.pv, hh=Math.max(1.5,(v/10)*(hoehe-6));
+      const x=(t-SVON)*(SBH+SAB);
+      /* Farbe sagt etwas ueber Gemessenes, sonst nichts. Gruen heisst: diese
+         Stunde ist gelaufen und hat mehr erzeugt, als das Haus gebraucht hat.
+         Eine Vorhersage hat noch gar nichts geladen und bleibt deshalb grau,
+         egal wie viel sie verspricht. */
+      const u=v-e.haus;
+      const f=!e.gemessen ? "#5b6b7d" : u>1.0 ? "#3ddc97" : u>0 ? "#9ad9b5" : "#5b6b7d";
+      s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${SBH}" height="${hh.toFixed(1)}"
+               rx="2" fill="${f}" opacity="${e.gemessen?1:.30}"/>`;
+      /* Erst das Gewachsene, dann der Umriss der Vorhersage darueber. So
+         bleibt sichtbar, wo die Stunde versprochen hatte, auch wenn der
+         gruene Balken schon darueber hinausgewachsen ist. */
+      if(e.teil>0.02){
+        const th=Math.max(1.5,(e.teil/10)*(hoehe-6));
+        const tf=e.teilU>1.0?"#3ddc97":e.teilU>0?"#9ad9b5":"#8b97a6";
+        s+=`<rect x="${x}" y="${(hoehe-th).toFixed(1)}" width="${SBH}"
+                 height="${th.toFixed(1)}" rx="2" fill="${tf}"/>`;
+      }
+      if(!e.gemessen) s+=`<rect x="${x}" y="${(hoehe-hh).toFixed(1)}" width="${SBH}"
+               height="${hh.toFixed(1)}" rx="2" fill="none" stroke="#c5ced8"
+               stroke-width="1" stroke-opacity="${e.teil>0.02?".8":".45"}"/>`;
+    }
+    /* Kein Jetzt-Strich mehr. Wo die gemessenen Saeulen aufhoeren und die
+       grauen anfangen, ist die Gegenwart, das zeigt der Streifen schon. Beim
+       naechsten Tag steht statt des Strichs ein Wort, sonst haelt man die
+       graue Kurve fuer den verpatzten heutigen Tag. */
+    if(morgen) s+=`<text x="0" y="8" font-size="8.5" font-weight="700"
+                fill="#8b97a6" letter-spacing=".3">morgen</text>`;
+    return `<svg width="${SB}" height="${hoehe}" viewBox="0 0 ${SB} ${hoehe}"
+                 style="display:block">${s}</svg>`;
+  }
+
+  /* Wohin der Strom geht, oder woher er kommt. Der Pfeil zeigt die Richtung,
+     ein roter Rahmen erscheint nur, wenn wirklich Netzstrom fliesst. */
+  const IKON=25;
+  function wohin(gesamt=SB,h=19){
+    const g=gemittelt();
+    const pv=Number(g.pv||0), haus=Number(g.haus||0);
+    const netz=Number(g.netz||0), akku=Number(g.akku||0);
+    const bez=Math.max(0,-netz), ein=Math.max(0,netz);
+    const knapp=pv+0.02<haus, teuer=bez>0.02;
+    const b=gesamt-IKON;
+    let teile, endIkon, endFarbe;
+    if(knapp){
+      teile=[[Math.min(pv,haus),"#ffd166","strom"],
+             [Math.max(0,-akku),F_AKKU,"akku"],
+             [bez,F_BEZUG,"euro-"]];
+      endIkon="haus"; endFarbe=F_EIGEN;
+    }else{
+      teile=[[Math.min(pv,haus),F_EIGEN,"haus"],
+             [Math.max(0,akku),F_AKKU,"akku"],
+             [ein,F_EIN,"euro+"]];
+      endIkon="strom"; endFarbe=F_SOC;
+    }
+    /* Die Laenge ist die Leistung, voll heisst VOLL_KW. Damit sagt der Balken
+       nicht nur wohin, sondern auch wie viel. Die feinen Striche geben der
+       Laenge einen Bezug, sonst hiesse ein kurzer Balken nur "wenig". */
+    const summe=teile.reduce((a,[v])=>a+v,0);
+    const nutz=summe>0.02 ? Math.max(3,Math.min(1,summe/VOLL_KW)*b) : 0;
+
+    let skala="";
+    for(let kwv=2;kwv<VOLL_KW;kwv+=2)
+      skala+=`<line x1="${(b*kwv/VOLL_KW).toFixed(1)}" y1="0"
+                    x2="${(b*kwv/VOLL_KW).toFixed(1)}" y2="${h}"
+                    stroke="#3a4756" stroke-width="1"/>`;
+
+    const gr=Math.min(13,h-4), sk=gr/10;
+    let x=0,s="";
+    for(const [v,f,a] of teile){
+      const w=summe>0 ? v/summe*nutz : 0;
+      if(w<0.6) continue;
+      s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${h}" fill="${f}"/>`;
+      if(w>=gr+4) s+=`<g transform="translate(${(x+w/2-gr/2).toFixed(1)} ${(h/2-gr/2).toFixed(1)})
+                          scale(${sk.toFixed(2)})" color="#101720" opacity=".92">${MINI[a]}</g>`;
+      x+=w;
+    }
+    /* Der Rahmen umfasst nur den Balken, nicht die leere Bahn dahinter */
+    const rahmen=teuer&&nutz>4?`<rect x=".6" y=".6" width="${(nutz-1.2).toFixed(1)}"
+                              height="${h-1.2}" rx="3.4"
+                              fill="none" stroke="${F_BEZUG}" stroke-width="1.2" opacity=".9"/>`:"";
+    const pfeil=knapp?`<path d="M9 5H3M5 2.4 1.6 5 5 7.6"/>`:`<path d="M0 5h6M4 2.4 7.4 5 4 7.6"/>`;
+    return `<div style="display:flex;align-items:center;gap:4px">
+      ${mini(endIkon,endFarbe,11)}
+      <svg width="10" height="10" viewBox="0 0 10 10" style="display:block;flex:0 0 auto">
+        <g fill="none" stroke="${teuer?"#ff9a8c":"#8b97a6"}" stroke-width="1.3"
+           stroke-linecap="round" stroke-linejoin="round">${pfeil}</g></svg>
+      <svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}"
+           style="display:block;border-radius:4px;overflow:hidden;flex:0 0 auto">
+        <rect x="0" y="0" width="${b}" height="${h}" fill="#222c38"/>${skala}${s}${rahmen}</svg>
+    </div>`;
+  }
+
+
+/* Ein PV-Modul: schraeg gestellte Flaeche mit Zellen und kleinem Staender */
+MINI.pv=`<path d="M.9 7.2 2.4 1.9h6.6L10.5 7.2z" fill="currentColor"/>
+  <path d="M4.6 1.9 4.1 7.2M6.8 1.9 7.3 7.2M1.6 4.6h8.2" stroke="#101720" stroke-width=".55" fill="none"/>
+  <path d="M5.7 7.2v1.7M4 8.9h3.4" stroke="currentColor" stroke-width=".9" stroke-linecap="round" fill="none"/>`;
+
+/* Der Strahl allein, ohne Symbol und Pfeil davor, in beliebiger Breite.
+   Dieselbe Rechnung wie wohin(), nur die Teile davor sind weg. */
+function strahl(b,h,pfeil){
+  const pv=+jetzt.pv||0, haus=+jetzt.haus||0, netz=+jetzt.netz||0, akku=+jetzt.akku||0;
+  const bez=Math.max(0,-netz), ein=Math.max(0,netz), knapp=pv+0.02<haus, teuer=bez>0.02;
+  const teile=knapp?[[Math.min(pv,haus),"#ffd166","strom"],[Math.max(0,-akku),F_AKKU,"akku"],[bez,F_BEZUG,"euro-"]]
+                   :[[Math.min(pv,haus),F_EIGEN,"haus"],[Math.max(0,akku),F_AKKU,"akku"],[ein,F_EIN,"euro+"]];
+  const summe=teile.reduce((a,[v])=>a+v,0), nutz=summe>0.02?Math.max(3,Math.min(1,summe/VOLL_KW)*b):0;
+  let skala=""; for(let k=2;k<VOLL_KW;k+=2) skala+=`<line x1="${(b*k/VOLL_KW).toFixed(1)}" y1="0" x2="${(b*k/VOLL_KW).toFixed(1)}" y2="${h}" stroke="#3a4756"/>`;
+  const gr=Math.min(13,h-4), sk=gr/10; let x=0,s="";
+  for(const [v,f,a] of teile){ const w=summe>0?v/summe*nutz:0; if(w<0.6) continue;
+    s+=`<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${h}" fill="${f}"/>`;
+    if(w>=gr+4) s+=`<g transform="translate(${(x+w/2-gr/2).toFixed(1)} ${(h/2-gr/2).toFixed(1)}) scale(${sk.toFixed(2)})" color="#101720" opacity=".92">${MINI[a]}</g>`;
+    x+=w; }
+  const rahmen=teuer&&nutz>4?`<rect x=".6" y=".6" width="${(nutz-1.2).toFixed(1)}" height="${h-1.2}" rx="3.4" fill="none" stroke="${F_BEZUG}" stroke-width="1.2"/>`:"";
+  /* Richtung im Balken selbst: ein kleiner Winkel am Anfang */
+  const p=!pfeil?"":knapp
+    ?`<path d="M${b-4} ${h/2-4}l-4 4 4 4" stroke="#e8eef5" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity=".7"/>`
+    :"";
+  return `<svg width="${b}" height="${h}" viewBox="0 0 ${b} ${h}" style="display:block;border-radius:4px;overflow:hidden">
+    <rect width="${b}" height="${h}" fill="#222c38"/>${skala}${s}${rahmen}${p}</svg>`;
+}
+
+/* Tag zum Zeichnen: bis zur gewaehlten Stunde gemessen, danach Vorhersage */
+function tagBis(std){
+  const ST=[];
+  for(let h=0;h<24;h++){ const pv=Math.max(0,Math.sin((h-6.3)/12.2*Math.PI))*7.6;
+    ST.push({h,pv,haus:[.3,.28,.27,.27,.28,.36,.72,1.45,1.15,.82,.74,.8,1.1,.92,.78,.76,.84,1.25,2.1,2.3,1.55,1.02,.58,.38][h],gemessen:h<std}); }
+  return ST;
+}
+const LAGEN=[
+  ["mittags Überschuss",  13, {pv:6.4,haus:1.0,akku:1.5,netz:3.9,soc:87}],
+  ["abends aus dem Akku", 20, {pv:0,  haus:1.0,akku:-1.0,netz:0,soc:43}],
+  ["nachts mit Netzbezug", 23,{pv:0,  haus:1.8,akku:-1.0,netz:-0.8,soc:9}]
+];
+const symbolFuer=(art)=>{
+  const pv=+jetzt.pv||0, haus=+jetzt.haus||0, knapp=pv+0.02<haus;
+  if(art==="blitz") return knapp?mini("haus",F_EIGEN,16):mini("strom",F_SOC,16);
+  if(art==="pv")    return knapp?mini("haus",F_EIGEN,16):mini("pv",F_SOC,17);
+  return mini("pv",F_SOC,17);
+};
+
+const VARIANTEN=[
+  {name:"Heute", was:"Zum Vergleich: Batterie so hoch wie Streifen und Strahl zusammen, Symbol und Pfeil vor dem Strahl.",
+   bau:(ST,std)=>`<div style="display:flex;gap:12px;align-items:center">${batterie(+jetzt.soc,(+jetzt.akku)>0.05)}
+     <div>${streifen(ST,44)}<div style="margin-top:5px">${wohin()}</div></div></div>`},
+  {name:"A · Blitz unter der Batterie", was:"Batterie auf Streifenhöhe gestaucht. Darunter das Symbol von heute: Blitz, wenn Strom abfließt, Haus, wenn das Haus bezieht. Strahl so breit wie der Streifen.",
+   bau:(ST)=>`<div class="block" style="grid-template-columns:auto ${SB}px">
+     <div>${batterie(+jetzt.soc,(+jetzt.akku)>0.05,24,44)}</div><div>${streifen(ST,44)}</div>
+     <div style="display:flex;justify-content:center">${symbolFuer("blitz")}</div><div>${strahl(SB,19,false)}</div></div>`},
+  {name:"B · PV-Modul unter der Batterie", was:"Wie A, aber ein Solarmodul statt des Blitzes. Bezieht das Haus, steht dort das Haus.",
+   bau:(ST)=>`<div class="block" style="grid-template-columns:auto ${SB}px">
+     <div>${batterie(+jetzt.soc,(+jetzt.akku)>0.05,24,44)}</div><div>${streifen(ST,44)}</div>
+     <div style="display:flex;justify-content:center">${symbolFuer("pv")}</div><div>${strahl(SB,19,false)}</div></div>`},
+  {name:"C · PV-Modul immer, Richtung im Strahl", was:"Unter der Batterie steht immer das Modul. Bezieht das Haus, zeigt ein kleiner Winkel im Strahl die Richtung, und der rote Rahmen bleibt.",
+   bau:(ST)=>`<div class="block" style="grid-template-columns:auto ${SB}px">
+     <div>${batterie(+jetzt.soc,(+jetzt.akku)>0.05,24,44)}</div><div>${streifen(ST,44)}</div>
+     <div style="display:flex;justify-content:center">${symbolFuer("immer")}</div><div>${strahl(SB,19,true)}</div></div>`},
+  {name:"D · breitere Batterie", was:"Wie B, die Batterie behält beim Stauchen ihren Inhalt und wird dafür breiter.",
+   bau:(ST)=>`<div class="block" style="grid-template-columns:auto ${SB}px">
+     <div>${batterie(+jetzt.soc,(+jetzt.akku)>0.05,32,44)}</div><div>${streifen(ST,44)}</div>
+     <div style="display:flex;justify-content:center">${symbolFuer("pv")}</div><div>${strahl(SB,19,false)}</div></div>`}
+];
+let h="";
+for(const v of VARIANTEN){
+  h+=`<h2>${v.name}</h2><p class="note">${v.was}</p><div class="reihe">`;
+  for(const [n,std,j] of LAGEN){ jetzt=j; const ST=tagBis(std);
+    h+=`<div class="fall"><div class="grund">${v.bau(ST,std)}</div><div class="t">${n}</div></div>`; }
+  jetzt=LAGEN[0][2];
+  h+=`<div class="fall"><div class="grund gross">${v.bau(tagBis(13),13)}</div></div></div>`;
+}
+document.getElementById("a").innerHTML=h;
+</script></body></html>
