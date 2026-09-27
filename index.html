@@ -69,7 +69,10 @@ header{
   border-radius:15px;
   padding:10px 14px;
   display:grid;
-  grid-template-columns:auto auto 1fr auto;
+  /* Die Tageszelle gibt nach, nicht der Solarblock. Mit 1fr allein darf sie
+     nicht schmaler werden als ihre laengste Zeile, und auf dem Tablet schob
+     das den Solarblock rechts aus dem Banner. */
+  grid-template-columns:auto auto minmax(0,1fr) auto;
   gap:0;
   align-items:stretch;
   box-shadow:0 0 0 1px rgba(255,255,255,.025) inset
@@ -77,11 +80,14 @@ header{
 /* Jeder Bereich der Kopfzeile bekommt dieselbe Einrueckung und eine
    Trennlinie ueber die volle Hoehe. Gleicher Abstand links und rechts der
    Linie, sonst kippt das Bild. */
-.zelle{display:flex;align-items:center;padding:2px 17px}
+.zelle{display:flex;align-items:center;padding:2px 14px}
+/* 14 statt 17 Pixel: der Solarblock ist mit der Pfeilspalte breiter geworden,
+   und die drei Zentimeter kommen aus den Innenabstaenden, nicht aus dem Block. */
 .zelle:first-child{padding-left:2px}
 .zelle:last-child{padding-right:2px}
 .zelle + .zelle{border-left:1px solid #3a4756}
-header.ohne-solar{grid-template-columns:auto auto 1fr}
+header.ohne-solar{grid-template-columns:auto auto minmax(0,1fr)}
+.today{min-width:0}
 .place{font-size:21px;font-weight:700}
 .clock{font-size:38px;font-weight:750;line-height:1}
 .date{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap}
