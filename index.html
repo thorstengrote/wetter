@@ -158,7 +158,9 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.24)}
 .sblock{background:#111925;border:1px solid #263141;border-radius:10px;padding:10px 12px}
 .sblock .t{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
            color:#8b97a6;margin-bottom:7px}
-.leg{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:#c5ced8;margin-top:auto;padding-top:7px}
+/* Sieben Eintraege seit "aus dem Akku". Bei 11,5 Pixel und 12 Pixel Abstand
+   brach die Legende um, und die Detailseite wurde hoeher als der Schirm. */
+.leg{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:10.5px;color:#c5ced8;margin-top:auto;padding-top:6px}
 .leg i{display:inline-block;width:10px;height:10px;border-radius:2.5px;margin-right:5px;
        vertical-align:-1px}
 .paare{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 14px;
@@ -827,11 +829,38 @@ function wmoText(c){
 */
 const CLEAR_SKY_FACTOR=0.78;
 
+/*
+  Wie viel des Himmels die Wolken wirklich zudecken.
+
+  cloud_cover zaehlt jede Schicht voll, auch einen duennen Schleier aus
+  Zirren in zehn Kilometern Hoehe. Am 26.09.2026 meldete ICON den ganzen Tag
+  94 bis 100 Prozent, ausschliesslich hohe Wolken, bei 60 Minuten Sonne in
+  jeder Stunde, und die Anlage auf dem Dach machte 47,5 kWh. Die Seite zeigte
+  dazu "bedeckt".
+
+  Deshalb werden die Schichten gewichtet: tiefe Wolken sind dicht, mittlere
+  meist, hohe fast nie. Die Schichten ueberlappen zufaellig, daher das
+  Produkt der Luecken statt einer Summe. Fehlen die Schichten, bleibt es bei
+  der Gesamtbedeckung.
+
+  Geprueft ueber 14 Tage gegen ICONs eigene Sonnenscheindauer: vorher waren
+  53 Prozent der trockenen Tagesstunden zu truebe dargestellt und 3 Prozent
+  zu freundlich, jetzt 21 und 10.
+*/
+function wolkenWirkung(o){
+  const l=o.low, m=o.mid, h=o.high;
+  if(l==null&&m==null&&h==null) return Number(o.tot??o.cloud??0);
+  return 100*(1-(1-Number(l||0)/100)*(1-0.8*Number(m||0)/100)*(1-0.35*Number(h||0)/100));
+}
+/* Nur hohe Wolken: dann sagt die Prozentzahl wenig ueber die Sonne. */
+const nurHoheWolken=o=>Number(o.low||0)<10&&Number(o.mid||0)<10&&Number(o.high||0)>=40;
+
 function skyDecision(o){
   const code=Number(o.code||0);
   const precip=Number(o.precip||0), pop=Number(o.pop||0);
   const toa=Number(o.toa||0), swrad=Number(o.swrad||0);
-  const tot=Number(o.tot||0);
+  /* Die wirksame Bewoelkung, nicht die gemeldete. Siehe wolkenWirkung. */
+  const tot=wolkenWirkung(o);
   /* the hour counts as daylight when its midpoint lies between sunrise and
      sunset; radiation is only the fallback when those times are missing */
   const day=typeof o.isDay==="boolean"?o.isDay:toa>15;
@@ -839,7 +868,13 @@ function skyDecision(o){
   const clearSky=toa>0?CLEAR_SKY_FACTOR*toa:0;
   const ratio=clearSky>0?Math.min(1.25,swrad/clearSky):0;
   const sunFrac=Math.max(0,Math.min(1,Number(o.sunSec||0)/3600));
-  const brightness=Math.max(ratio,sunFrac*0.55);
+  /* Sonnenscheindauer ist nach WMO die Zeit mit ueber 120 W/m2 direkter
+     Strahlung, also genau "die Sonne ist zu sehen". Sie zaehlt deshalb voll,
+     sobald die Sonne hoch genug steht, dass klare Luft die 120 ueberhaupt
+     schafft. Darunter, morgens und abends, sagt sie wenig und wird wie
+     bisher nur zur Haelfte genommen. */
+  const hochGenug=typeof o.elev!=="number"||o.elev>=10;
+  const brightness=hochGenug?Math.max(ratio,sunFrac):Math.max(ratio,sunFrac*0.55);
 
   /*
     Himmelsstufe 0 bis 4 aus der Bewoelkung, nach oben korrigiert, wenn die
@@ -847,8 +882,9 @@ function skyDecision(o){
     Stundenkacheln die fuenf Abstufungen statt nur klar, Mix und bedeckt.
   */
   let stufe = tot<15?0 : tot<40?1 : tot<65?2 : tot<88?3 : 4;
-  if(day&&brightness>=0.70&&stufe>1) stufe=1;
-  const d={ratio,sunFrac,brightness,clearSky,day,stufe};
+  if(day&&brightness>=0.85&&stufe>1) stufe=1;
+  else if(day&&brightness>=0.60&&stufe>2) stufe=2;
+  const d={ratio,sunFrac,brightness,clearSky,day,stufe,wirkung:tot};
 
   /* Der Name bleibt fuer die Beschriftung erhalten, dazu kommt die Vorschrift
      fuer das zusammengesetzte Symbol. */
@@ -1203,10 +1239,14 @@ const ICON_URL=
   `&current=temperature_2m,apparent_temperature,weather_code,cloud_cover,wind_speed_10m,wind_gusts_10m`+
   `&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,precipitation,`+
     `rain,showers,snowfall,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,`+
-    `sunshine_duration,shortwave_radiation,terrestrial_radiation,relative_humidity_2m,dew_point_2m,`+
+    `sunshine_duration,shortwave_radiation,terrestrial_radiation,global_tilted_irradiance,`+
+    `relative_humidity_2m,dew_point_2m,`+
     `pressure_msl,visibility,wind_speed_10m,wind_gusts_10m,wind_direction_10m,wind_speed_80m,`+
     `cape,convective_inhibition,freezing_level_height,soil_temperature_0cm`+
   `&daily=${DAILY_VARS}`+
+  /* Neigung und Ausrichtung der Module fuer global_tilted_irradiance. Aus der
+     Messung vom 26.09.2026 geschaetzt, siehe SOLAR. */
+  `&tilt=35&azimuth=-55`+
   `&forecast_days=7&timezone=Europe%2FBerlin`;
 
 /* ICON carries no UV index, so the trend request supplies it for both panels.
@@ -1219,7 +1259,7 @@ const TREND_URL=
   `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}`+
   `&models=best_match`+
   `&hourly=uv_index,temperature_2m,weather_code,precipitation,precipitation_probability,`+
-    `cloud_cover,sunshine_duration,cape`+
+    `cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,sunshine_duration,cape`+
   `&daily=${DAILY_VARS},uv_index_max`+
   `&forecast_days=14&timezone=Europe%2FBerlin`;
 
@@ -1257,7 +1297,7 @@ function dayVerdict(hrs,daylightH){
     v.maxPop=Math.max(v.maxPop,Number(h.pop||0));
     v.sunH+=Number(h.sunSec||0)/3600;
     v.maxCape=Math.max(v.maxCape,Number(h.cape||0));
-    v.cloudAvg+=Number(h.cloud||0);
+    v.cloudAvg+=wolkenWirkung(h);
     if(WMO_STORM.includes(c)) v.storm=true;
     if(WMO_SNOW.includes(c)) v.snow=true;
     if(WMO_FOG.includes(c)) v.fog=true;
@@ -1446,7 +1486,7 @@ function teilUrteil(hrs,teil,srH,ssH){
   let mm=0,sun=0,cloud=0,nass=0,schnee=false,blitz=false,hell=0;
   for(const h of win){
     const c=Number(h.code||0), m=Number(h.precip||0);
-    mm+=m; sun+=Number(h.sunSec||0)/3600; cloud+=Number(h.cloud||0);
+    mm+=m; sun+=Number(h.sunSec||0)/3600; cloud+=wolkenWirkung(h);
     if(m>=0.1||WET.includes(c)) nass++;
     if(WMO_SNOW.includes(c)) schnee=true;
     if(WMO_STORM.includes(c)) blitz=true;
@@ -1498,6 +1538,7 @@ function hoursOfDay(H,dayIso){
       precip:H.precipitation?.[k],
       pop:H.precipitation_probability?.[k],
       cloud:H.cloud_cover?.[k],
+      low:H.cloud_cover_low?.[k], mid:H.cloud_cover_mid?.[k], high:H.cloud_cover_high?.[k],
       sunSec:H.sunshine_duration?.[k],
       temp:H.temperature_2m?.[k],
       cape:H.cape?.[k]
@@ -1798,12 +1839,37 @@ function himmelBauen(L){
     html+=`<div class="hg" style="background:${P(L.glut.x+"% "+y.toFixed(0)+"%",
       wt+"% "+R.toFixed(0)+"%", rgba(L.glut.farbe,a),"transparent")}"></div>`;
   }
-  if(L.deckung>=12){
-    const roh=L.deckung<78 ? .34 : .30;
-    const wirk=L.deckung<78?doppelt:(x=>x);
+  const haufen=L.haufen!=null?L.haufen:L.deckung;
+  if(haufen>=12){
+    const roh=haufen<78 ? .34 : .30;
+    const wirk=haufen<78?doppelt:(x=>x);
     const a=deckelnSchicht("#ffffff",roh,hellste,DECKE_SCHEIN,wirk);
     schichten.push({name:"Wolke", farbe:"#ffffff", alpha:wirk(a), bei:()=>1});
-    html+=wolken(L.deckung,a,5);
+    html+=wolken(haufen,a,5);
+  }
+  /* Zirren: ein milchiger Schleier hoch am Himmel, mit ein paar langen,
+     weichen Faeden. Er liegt oben und laeuft nach unten aus, denn so sieht
+     ein Zirrenhimmel aus, wenn die Sonne durchkommt. */
+  if(L.schleier>=25){
+    /* Wie beim Sonnenschein: der Schleier liegt oben und laeuft nach unten
+       aus, also wird er Hoehe fuer Hoehe gegen den Himmel an dieser Stelle
+       gedeckelt, nicht gegen die hellste Farbe unten am Horizont. */
+    const bei=pz=>Math.max(0,1-pz/70);
+    const passt=aa=>stops.every(([pz,f])=>lum(ueber("#ebf0f8",aa*bei(pz),f))<=DECKE_SCHEIN);
+    let a=0.12+0.30*L.schleier/100;
+    if(!passt(a)){ let lo=0,hi=a;
+      for(let i=0;i<24;i++){ const m=(lo+hi)/2; if(passt(m)) lo=m; else hi=m; }
+      a=lo; }
+    schichten.push({name:"Schleier", farbe:"#ebf0f8", alpha:a, bei});
+    /* Grundschleier und Faeden teilen sich die erlaubte Deckkraft je zur
+       Haelfte. Vorher lagen sie an den Fadenmitten zusammen beim 1,55-Fachen
+       dessen, was die Deckelung freigegeben hatte, und die Messung sah es
+       nicht, weil sie nur den Verlauf kannte. */
+    const f=(x,y,b,h,k)=>P(x+"% "+y+"%",b+"% "+h+"%",rgba("#ebf0f8",a*0.5*k),"transparent");
+    html+=`<div class="hg" style="background:
+      ${f(18,14,34,26,.9)},${f(52,8,40,22,1)},${f(83,18,32,24,.8)},
+      linear-gradient(180deg,${rgba("#ebf0f8",a*0.5)} 0%,${rgba("#ebf0f8",a*0.25)} 35%,transparent 70%);
+      filter:blur(2px)"></div>`;
   }
   if(L.nebel){
     const a=deckelnSchicht("#e8eef5",L.nebel,hellste);
@@ -1881,7 +1947,9 @@ function lageAus(w){
 
   const L={
     stops:POS.map((p,i)=>[p,farben[i]]),
-    elev:w.elev, deckung, mm, schnee:!!w.schnee
+    elev:w.elev, deckung, mm, schnee:!!w.schnee,
+    haufen: w.haufen!=null ? Math.max(0,Math.min(100,Number(w.haufen))) : deckung,
+    schleier: Math.max(0,Math.min(100,Number(w.schleier||0)))
   };
   /* Der Schein nur, solange ueberhaupt Himmel zu sehen ist. */
   if(deckung<88){
@@ -2129,7 +2197,21 @@ const VELUX=(()=>{
    dem Rest der Seite kollidieren.
    =================================================================== */
 const SOLAR=(()=>{
-  const FAKTOR=0.014;            /* kW je W/m2 */
+  /* Leistung je W/m2 auf der Modulebene.
+
+     Die Module liegen nicht waagerecht, sondern um 35 Grad geneigt und 55
+     Grad nach Osten gedreht. Das ist aus der Messung vom 26.09.2026
+     geschaetzt: direkte und diffuse Strahlung von ICON auf eine schraege
+     Flaeche umgerechnet und Neigung und Richtung so gesucht, dass die Kurve
+     die gemessene trifft. Restfehler 0,36 gegen 11,2 bei waagerechter
+     Rechnung, Tagessumme 47,7 gegen gemessen 47,5 kWh. Mit waagerechter
+     Einstrahlung lag die Prognose morgens zu tief und nachmittags zu hoch.
+
+     Ein Tag ist wenig, Neigung und Richtung sind aber Eigenschaften des
+     Dachs und aendern sich nicht. Der Faktor kann es, er bekommt im Winter
+     vermutlich eine Korrektur. */
+  const FAKTOR=0.01249;          /* kW je W/m2, schraeg */
+  const FAKTOR_WAAGERECHT=0.014; /* Rueckfall, falls die schraege Reihe fehlt */
   const AKKU_KWH=10.0, AKKU_MAX=5.0, WP=12.42;
   /* Tarife von Thorsten, Stand 25.09.2026. Der Arbeitspreis ist brutto.
      Die Einspeiseverguetung gilt 20 Jahre ab Inbetriebnahme und teilt sich
@@ -2181,14 +2263,24 @@ const SOLAR=(()=>{
   /* --- Prognose aus der Einstrahlung ------------------------------ */
   function setzePrognose(H,sonne){
     if(!H||!H.time||!H.shortwave_radiation) return;
+    const schraeg=Array.isArray(H.global_tilted_irradiance);
     const heute=isoDay(new Date());
     const morgen=isoDay(new Date(Date.now()+864e5));
     const ueber=isoDay(new Date(Date.now()+1728e5));
     const neu=new Array(24).fill(0), neuM=new Array(24).fill(0);
     let sM=0, sU=0;
     for(let i=0;i<H.time.length;i++){
-      const tag=H.time[i].slice(0,10), std=Number(H.time[i].slice(11,13));
-      const kwv=Math.min(10, (H.shortwave_radiation[i]||0)*FAKTOR);
+      /* Strahlung ist bei Open-Meteo das Mittel der Stunde davor: der Wert
+         mit 13:00 gilt fuer 12 bis 13 Uhr. Die Seite hatte ihn in die Stunde
+         von 13 bis 14 gebucht, die Prognose lief also eine Stunde zu spaet.
+         Nachgewiesen am 26.09.2026: mit der Verschiebung trifft die schraege
+         Rechnung die Messung mit Restfehler 0,36, ohne sie ist das beste
+         Ergebnis 11,5, und das bei unmoeglichen 60 Grad Neigung. */
+      const beginn=new Date(new Date(H.time[i]).getTime()-3600000);
+      const tag=isoDay(beginn), std=beginn.getHours();
+      const kwv=Math.min(10, schraeg
+        ? (H.global_tilted_irradiance[i]||0)*FAKTOR
+        : (H.shortwave_radiation[i]||0)*FAKTOR_WAAGERECHT);
       if(tag===heute) neu[std]=kwv;
       else if(tag===morgen){ neuM[std]=kwv; sM+=kwv; }
       else if(tag===ueber) sU+=kwv;
@@ -2302,14 +2394,14 @@ const SOLAR=(()=>{
                   akku:+m.akku||0, ein:Math.max(0,+m.netz||0),
                   bez:Math.max(0,-(+m.netz||0)), socEnde:null, gemessen:true});
       }else if(h<jetztStd){
-        /* Stunde liegt zurueck, aber es gibt keine Messung, weil der Dienst
-           damals noch nicht lief. Dann die Vorhersage zeigen und naiv
-           aufteilen, statt Netzbezug zu erfinden, den es nie gab. Ueber den
-           Akku wird in diesem Fall nichts behauptet. */
+        /* Stunde liegt zurueck, aber es gibt keine Messung. Gezeichnet wird
+           die Vorhersage, gezaehlt wird sie nicht. Die alte Fassung teilte
+           hier den ganzen Fehlbetrag dem Netz zu und behauptete damit
+           Netzbezug, den niemand gemessen hat. Am 26.09. waren das 0,85 kWh
+           in den Stunden 0 bis 2, die in "vom Netz" mitliefen. */
         const pv=prog[h]||0, haus=HAUS[h];
-        out.push({h,pv,haus,ausHaus:Math.min(pv,haus),akku:0,
-                  ein:Math.max(0,pv-haus),bez:Math.max(0,haus-pv),
-                  socEnde:null,gemessen:false});
+        out.push({h,pv,haus,ausHaus:Math.min(pv,haus),akku:0,ein:0,bez:0,
+                  socEnde:null,gemessen:false,unbekannt:true});
       }else{
         const e=schritt(prog[h]||0,HAUS[h],soc);
         soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100));
@@ -2352,16 +2444,21 @@ const SOLAR=(()=>{
   }
 
   function bilanz(ST){
-    let pv=0,haus=0,eigen=0,laden=0,entladen=0,ein=0,bez=0,bisher=0,spitze=0;
+    let pv=0,haus=0,eigen=0,laden=0,entladen=0,ein=0,bez=0,bisher=0,spitze=0,luecke=0;
     for(const e of ST){
+      if(e.unbekannt){ luecke++; continue; }
       pv+=e.pv; haus+=e.haus; eigen+=e.ausHaus;
       if(e.akku>0) laden+=e.akku; else entladen+=-e.akku;
       ein+=e.ein; bez+=e.bez;
       if(e.gemessen) bisher+=e.pv;
+      /* Die laufende Stunde zaehlt mit dem, was in ihr schon erzeugt wurde.
+         Sonst stand um 08:25 "Erzeugt 0,0 kWh", waehrend die Anlage seit
+         einer Stunde lieferte. */
+      else if(e.teil>0) bisher+=e.teil;
       spitze=Math.max(spitze,e.pv);
     }
     if(heuteKwh>bisher) bisher=heuteKwh;
-    return {pv,haus,eigen,laden,entladen,ein,bez,bisher,spitze,
+    return {pv,haus,eigen,laden,entladen,ein,bez,bisher,spitze,luecke,
             quote:pv>0?(pv-ein)/pv*100:0,
             autarkie:haus>0?(haus-bez)/haus*100:0,
             erloes:ein*VERGUETUNG, ersparnis:(eigen+entladen)*ARBEITSPREIS,
@@ -2552,7 +2649,17 @@ const SOLAR=(()=>{
     return `<span class="schliessen">antippen zum Schließen</span>
       <h4>Solar heute</h4>
       <div class="unter">${new Date().toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"long"})}
-        · ${z1(WP)} kWp · SUN2000-10KTL-M1 mit 10 kWh Speicher</div>
+        · ${z1(WP)} kWp · SUN2000-10KTL-M1 mit 10 kWh Speicher${(()=>{
+        /* Die Kennzahlen summieren den ganzen Tag. Solange er laeuft, ist der
+           Rest davon Prognose, und das soll dastehen. Es steht in dieser Zeile
+           und nicht in einer eigenen, sonst wird die Seite hoeher als der
+           Schirm. */
+        const offen=ST.some(e=>!e.gemessen&&!e.unbekannt&&e.h>=jetztStd&&e.pv>0.05);
+        const t=[];
+        if(offen) t.push(`bis ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})} gemessen, danach Prognose`);
+        if(z.luecke) t.push(`${z.luecke} ${z.luecke===1?"Stunde":"Stunden"} ohne Messung nicht mitgezählt`);
+        return t.length?" · <b style='color:#c5ced8;font-weight:600'>"+t.join(" · ")+"</b>":"";
+      })()}</div>
       <div class="kpis">
         ${kpi("Erzeugt",z1(z.bisher)+" "+eh+"kWh</span>","Prognose heute "+z1(z.pv)+" kWh",F_SOC)}
         ${kpi("Noch erwartet",z1(rest)+" "+eh+"kWh</span>",fensterText)}
@@ -2568,12 +2675,12 @@ const SOLAR=(()=>{
           <div class="t">Tagesverlauf · links gemessen, rechts gerechnet</div>
           ${tagesChart(ST)}
           <div class="leg">
-            <span><i style="background:${F_EIGEN}"></i>direkt ins Haus</span>
+            <span><i style="background:${F_EIGEN}"></i>ins Haus</span>
             <span><i style="background:${F_AKKU}"></i>in den Akku</span>
             <span><i style="background:${F_AKKU};opacity:.55"></i>aus dem Akku</span>
             <span><i style="background:${F_EIN}"></i>ins Netz</span>
             <span><i style="background:${F_BEZUG};opacity:.62"></i>aus dem Netz</span>
-            <span><i style="background:${F_HAUS}"></i>Hausverbrauch</span>
+            <span><i style="background:${F_HAUS}"></i>Verbrauch</span>
             <span><i style="background:${F_SOC}"></i>Ladezustand</span>
           </div>
         </div>
@@ -2604,11 +2711,12 @@ const SOLAR=(()=>{
         </div>
       </div>
       <div class="quelle">Anlage über Modbus am SDongle · Vorhersage aus der Einstrahlung
-        von Open-Meteo, ${z1(FAKTOR*1000)} kWh je kWh/m² · Vergütung
+        von Open-Meteo auf die Modulebene, 35° geneigt, 55° nach Osten,
+        ${z1(FAKTOR*1000)} kWh je kWh/m² · Vergütung
         ${z1(VERGUETUNG*100)} ct, Arbeitspreis ${Math.round(ARBEITSPREIS*100)} ct je kWh</div>`;
   }
 
-  function tagesChart(ST,b=560,h=200){
+  function tagesChart(ST,b=560,h=186){
     const VON=4,BIS=22,MAX=10,pL=26,pR=34,pT=9,pB=17;
     const iw=b-pL-pR, ih=h-pT-pB;
     const x=t=>pL+(t-VON)/(BIS-VON)*iw;
@@ -2910,7 +3018,12 @@ async function loadWeather(){
       const sTag=sunMap[isoDay(new Date())]||{};
       HIMMEL.setze({
         elev:    nowBlk.elev,
-        deckung: nowBlk.tot,
+        deckung: wolkenWirkung(nowBlk),
+        /* Haufenwolken kommen nur aus tiefen und mittleren Schichten. Hohe
+           Wolken sind Zirren, ein Schleier, und werden auch so gezeichnet.
+           Sonst malt der Himmel fuer einen Zirrenschleier dicke Quellwolken. */
+        haufen:  wolkenWirkung({low:nowBlk.low, mid:nowBlk.mid, high:0}),
+        schleier:Number(nowBlk.high||0),
         mm:      (nowBlk.precip||0),
         schnee:  (nowBlk.snow||0)>0.05,
         nebel:   nowDec.icon==="fog",
@@ -2921,7 +3034,7 @@ async function loadWeather(){
     nowTemp.textContent=Math.round(c.temperature_2m)+"°";
     nowDetails.innerHTML=
       `${specLabel(nowDec.spec,nowDec.icon)||wmoText(c.weather_code)}<br>`+
-      `gefühlt ${deg(c.apparent_temperature)} · Wolken ${pct(c.cloud_cover)}`+
+      `gefühlt ${deg(c.apparent_temperature)} · ${nurHoheWolken(nowBlk)?"Zirren":"Wolken"} ${pct(c.cloud_cover)}`+
       `${nowDec.day?` · Sonne ${pct(nowDec.brightness*100)}`:""}<br>`+
       `<span class="inl">${mi("sock")}Wind ${Math.round(c.wind_speed_10m)} km/h, Böen ${Math.round(c.wind_gusts_10m??0)} km/h</span>`;
 

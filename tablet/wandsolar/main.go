@@ -233,11 +233,19 @@ type zustand struct {
 	velux   *url.URL // Steuerdienst in hapwatch, nil heisst abgeschaltet
 }
 
+// laden holt den gespeicherten Tag zurueck, und zwar ohne Blick auf die Uhr.
+//
+// Nach einem Neustart laeuft das Tablet die erste Minute mit einer falschen
+// Zeit, bis das Netz sie stellt. Am 26.09.2026 um 03:00 kam es mit dem 23.05.
+// hoch. Der alte Vergleich mit heute() hat den gespeicherten Tag deshalb fuer
+// veraltet gehalten und verworfen, und die Stunden 0 bis 2 waren weg. Ob der
+// Tag wirklich vorbei ist, entscheidet jetzt die erste Messung in nimm(), mit
+// ihrem eigenen Datum.
 func (z *zustand) laden() {
 	roh, err := os.ReadFile(z.pfad)
 	if err == nil {
 		var t tagesspeicher
-		if json.Unmarshal(roh, &t) == nil && t.Tag == heute() {
+		if json.Unmarshal(roh, &t) == nil && t.Tag != "" && t.Stunden != nil {
 			z.tag = t
 		}
 	}
@@ -262,8 +270,19 @@ func heute() string { return time.Now().In(ort).Format("2006-01-02") }
 func (z *zustand) nimm(m messwert) {
 	z.Lock()
 	defer z.Unlock()
-	if z.tag.Tag != heute() {
-		z.tag = tagesspeicher{Tag: heute(), Stunden: map[string]stunde{}}
+	// Das Datum der Messung entscheidet. Liegt es vor dem gespeicherten Tag,
+	// ist die Uhr noch nicht gestellt: die Leistung stimmt, aber die Stunde
+	// waere falsch, also wird sie angezeigt und nicht verbucht. Liegt es
+	// danach, hat ein neuer Tag begonnen. Das Datumsformat laesst sich als
+	// Zeichenkette vergleichen.
+	tag := m.Zeit.Format("2006-01-02")
+	if tag < z.tag.Tag {
+		z.letzte = &m
+		z.fehler = ""
+		return
+	}
+	if tag > z.tag.Tag {
+		z.tag = tagesspeicher{Tag: tag, Stunden: map[string]stunde{}}
 	}
 	k := fmt.Sprintf("%d", m.Zeit.Hour())
 	s := z.tag.Stunden[k]
