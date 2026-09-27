@@ -2328,13 +2328,24 @@ const SOLAR=(()=>{
         out.push(eintrag);
       }
     }
-    /* Ladezustand der Vergangenheit ruecklaeufig aus den Akkufluessen */
+    /* Ladezustand der Vergangenheit ruecklaeufig aus den Akkufluessen.
+
+       Erst schreiben, dann zurueckrechnen. socEnde ist der Stand am Ende
+       der Stunde und wird dort auch gezeichnet. Die letzte volle Stunde
+       endet praktisch jetzt, ihr Ende ist also der jetzige Stand. Was
+       waehrend einer Stunde in den Akku floss, zieht man ab, um an ihren
+       Anfang zu kommen, und der ist das Ende der Stunde davor.
+
+       Vorher stand die Reihenfolge andersherum, jede Stunde bekam den Stand
+       ihres Anfangs, und die Linie lief eine Stunde hinterher. Am 26.09. um
+       22:06 endete sie deshalb bei 55 %, waehrend die Kennzahl daneben 33 %
+       zeigte. */
     let s=soc0;
     for(let h=jetztStd-1;h>=0;h--){
       const e=out[h];
       if(!e||!e.gemessen) break;   /* ohne Messung keine Linie */
-      s=Math.max(0,Math.min(100,s-e.akku/AKKU_KWH*100));
       e.socEnde=s;
+      s=Math.max(0,Math.min(100,s-e.akku/AKKU_KWH*100));
     }
     if(out[jetztStd]) out[jetztStd].socEnde=soc0;
     return out;
@@ -2559,8 +2570,9 @@ const SOLAR=(()=>{
           <div class="leg">
             <span><i style="background:${F_EIGEN}"></i>direkt ins Haus</span>
             <span><i style="background:${F_AKKU}"></i>in den Akku</span>
+            <span><i style="background:${F_AKKU};opacity:.55"></i>aus dem Akku</span>
             <span><i style="background:${F_EIN}"></i>ins Netz</span>
-            <span><i style="background:${F_BEZUG};opacity:.6"></i>aus dem Netz</span>
+            <span><i style="background:${F_BEZUG};opacity:.62"></i>aus dem Netz</span>
             <span><i style="background:${F_HAUS}"></i>Hausverbrauch</span>
             <span><i style="background:${F_SOC}"></i>Ladezustand</span>
           </div>
@@ -2615,8 +2627,16 @@ const SOLAR=(()=>{
     };
     const s0=std.map(()=>0), s1=std.map(e=>e.ausHaus);
     const s2=std.map(e=>e.ausHaus+Math.max(0,e.akku)), s3=std.map(e=>e.pv);
-    const ho=std.map(e=>e.haus>e.pv?e.haus:e.pv);
-    const hu=std.map(e=>e.pv);
+    /* Unter der Hauslinie: was nicht direkt aus der Sonne kam, kam aus dem
+       Akku oder aus dem Netz. Vorher war die ganze Flaeche zwischen PV und
+       Haus rot und hiess "aus dem Netz". Abends, wenn der Akku das Haus
+       traegt, behauptete der Graph damit Netzbezug, den es nie gab, und
+       widersprach der eigenen Kennzahl darueber. Am 26.09. zeichnete er
+       ueber den Tag 9,34 kWh Bezug, gemessen waren es 3,17, und fuer 18
+       bis 22 Uhr 6,41 gegen tatsaechlich 0,16. */
+    const uAkku=std.map(e=>Math.min(e.pv,e.haus));
+    const oAkku=std.map((e,i)=>Math.min(e.haus,uAkku[i]+Math.max(0,-e.akku)));
+    const oNetz=std.map((e,i)=>Math.max(oAkku[i],e.haus));
     let netz="",achse="";
     for(let v=2;v<=8;v+=2)
       netz+=`<line x1="${pL}" y1="${y(v)}" x2="${b-pR}" y2="${y(v)}" stroke="#233040" stroke-width="1"/>
@@ -2640,7 +2660,8 @@ const SOLAR=(()=>{
       <path d="${stufen(s0,s1)}" fill="${F_EIGEN}" opacity=".78"/>
       <path d="${stufen(s1,s2)}" fill="${F_AKKU}" opacity=".78"/>
       <path d="${stufen(s2,s3)}" fill="${F_EIN}" opacity=".70"/>
-      <path d="${stufen(hu,ho)}" fill="${F_BEZUG}" opacity=".30"/>
+      <path d="${stufen(uAkku,oAkku)}" fill="${F_AKKU}" opacity=".40"/>
+      <path d="${stufen(oAkku,oNetz)}" fill="${F_BEZUG}" opacity=".42"/>
       <path d="${hl}" fill="none" stroke="${F_HAUS}" stroke-width="1.5" opacity=".85"/>
       <path d="${sl}" fill="none" stroke="${F_SOC}" stroke-width="1.4"
             stroke-dasharray="4 3" opacity=".9"/>
