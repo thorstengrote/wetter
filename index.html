@@ -88,9 +88,12 @@ header{
 .zelle + .zelle{border-left:1px solid #3a4756}
 header.ohne-solar{grid-template-columns:auto auto minmax(0,1fr)}
 .today{min-width:0}
-.place{font-size:21px;font-weight:700}
-.clock{font-size:38px;font-weight:750;line-height:1}
-.date{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap}
+/* Drei Stufen im ganzen Banner: Titel 17, grosse Zahlen 36, alle Nebenzeilen
+   12,5 mit 18 Pixeln Zeilenhoehe. Vorher waren es acht Stile mit drei fast
+   gleichen kleinen Groessen. */
+.place{font-size:17px;font-weight:700;line-height:22px}
+.clock{font-size:36px;font-weight:750;line-height:40px}
+.date{font-size:12.5px;line-height:18px;color:var(--muted);white-space:nowrap}
 .date .stand{color:#8b97a6}
 .date .stale{color:#ff8a8a;font-weight:650}
 #stand{cursor:pointer;-webkit-user-select:none;user-select:none}
@@ -107,7 +110,7 @@ header.ohne-solar{grid-template-columns:auto auto minmax(0,1fr)}
 .current{display:flex;align-items:center;gap:12px}
 .current .icon{display:flex;align-items:center}
 .current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
-.current .temp{font-size:34px;font-weight:750}
+.current .temp{font-size:36px;font-weight:750;line-height:40px}
 .tempspalte{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
 /* Was das Radar ueber Uedorf fuer die naechsten zwei Stunden sieht */
 .pille{display:inline-flex;align-items:center;gap:5px;background:rgba(8,14,24,.62);border-radius:7px;
@@ -115,7 +118,7 @@ header.ohne-solar{grid-template-columns:auto auto minmax(0,1fr)}
 .pille.gewitter{color:#ffe08a}
 .pille[hidden]{display:none}
 .pille .mi{width:13px;height:13px}
-.current .details{font-size:13px;line-height:1.5;color:#c9d2dc;white-space:nowrap}
+.current .details{font-size:12.5px;line-height:18px;color:#c9d2dc;white-space:nowrap}
 /* Uhr, Datum und Jetzt-Zeilen brechen nie um. Sonst genuegte "Sonne 100 %"
    statt "Sonne 57 %", und die Zeile wie auch das Datum links daneben
    sprangen in eine zweite Zeile. Den Rest bekommt der Tagestext, der darf
@@ -123,9 +126,9 @@ header.ohne-solar{grid-template-columns:auto auto minmax(0,1fr)}
 .today{flex-direction:column;align-items:flex-start;cursor:pointer;
   -webkit-user-select:none;user-select:none}
 .today:active{background:rgba(255,255,255,.06)}
-.today .summary{font-size:17px;font-weight:700}
-.today .sub{font-size:12px;color:#c5ced8;margin-top:3px}
-.today .extra{font-size:12px;color:#c5ced8;margin-top:4px}
+.today .summary{font-size:17px;font-weight:700;line-height:22px}
+.today .sub{font-size:12.5px;line-height:18px;color:#c5ced8}
+.today .extra{font-size:12.5px;line-height:18px;color:#c5ced8}
 
 /* ---------- Himmel hinter der Kopfzeile ---------- */
 header{position:relative;overflow:hidden;isolation:isolate}
