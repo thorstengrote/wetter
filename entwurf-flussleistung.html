@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solarfluss Animation Kosten</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#070b10;color:#e6ecf3;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+h1{font-size:22px;margin:0 0 6px}
+p{margin:4px 0 12px;color:#aab6c3;font-size:14px;max-width:1100px;line-height:1.5}
+.marke{font-size:13px;color:#dfe6ee;margin:16px 0 5px;font-weight:700}
+.marke span{font-weight:400;color:#8b97a6}
+.banner{position:relative;width:600px;height:150px;border-radius:15px;overflow:hidden;border:1px solid rgba(255,255,255,.28)}
+.hg{position:absolute;inset:0}
+.solar{position:absolute;right:14px;top:6px;width:240px;height:138px}
+.solar svg{position:absolute;inset:0;overflow:visible}
+.iso{will-change:transform}
+@keyframes lauf{to{stroke-dashoffset:-12}}
+.css60 .fl{animation:lauf .5s linear infinite}
+/* E: drei Phasen, per Deckkraft umgeschaltet, jede Phase eine eigene Ebene */
+@keyframes ph{0%,32%{opacity:1}33%,100%{opacity:0}}
+.phase{will-change:opacity;animation:ph 1.2s steps(1,end) infinite}
+.phase.p1{animation-delay:-.4s}.phase.p2{animation-delay:-.8s}
+</style></head>
+<body>
+<h1>Solarfluss: was kostet welche Bewegung?</h1>
+<p>Gleicher Banner-Ausschnitt mit Himmel, Wolken und Sonne wie auf dem Tablet, darauf der Fluss um 10:30 (PV 4,2 kW, Akku lädt 3,4, Haus 0,8).
+Die Ergebnisse der Messung stehen unten, sobald sie gelaufen ist.</p>
+<div id="a"></div>
+<div id="messung"></div>
+<script>
+const V={
+  A:["Ohne Bewegung","Striche stehen still"],
+  B:["CSS-Animation","so war es heute Vormittag, der Browser zeichnet bei jedem Bild neu"],
+  C:["Zeitgeber, 1 Schritt pro Sekunde","so läuft es jetzt"],
+  D:["Zeitgeber, 1 Schritt pro Sekunde, eigene Ebene","Solarblock auf eigener Grafikebene, der Himmel darunter bleibt unberührt"],
+  E:["Drei feste Phasen, per Deckkraft umgeschaltet","jede Phase ist ein fertiges Bild auf eigener Ebene, die Grafikkarte blendet nur um"],
+  F:["Pfeilspitzen, stehend","kleine Winkel auf der Leitung zeigen die Richtung ohne jede Bewegung"],
+  G:["Pfeilspitzen, 1 Schritt pro Sekunde, eigene Ebene","wie D, aber mit Winkeln statt Strichen"],
+  H:["Striche, 4 Schritte pro Sekunde, eigene Ebene","flüssiger als D, kurze Striche mit Verlauf nach vorn"],
+  I:["Pfeilspitzen, 4 Schritte pro Sekunde, eigene Ebene","flüssig und eindeutig, die teuerste der ruhigen Varianten"]
+};
+const q=new URLSearchParams(location.search), nur=q.get("v");
+/* Himmel wie auf der Wand: Verlauf, Sonne, weichgezeichnete Wolken aus Rauschen */
+function wolken(){
+  const W=427,H=56,cv=document.createElement("canvas");cv.width=W;cv.height=H;
+  const c=cv.getContext("2d"),img=c.createImageData(W,H);
+  const h=(x,y)=>{let v=(x*374761393+y*668265263)|0;v=Math.imul(v^(v>>>13),1274126177);return((v^(v>>>16))>>>0)/4294967296};
+  const g=t=>t*t*(3-2*t),n=(x,y)=>{const xi=Math.floor(x),yi=Math.floor(y),u=g(x-xi),v=g(y-yi);return(h(xi,yi)*(1-u)+h(xi+1,yi)*u)*(1-v)+(h(xi,yi+1)*(1-u)+h(xi+1,yi+1)*u)*v};
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){let d=0,a=.5,f=1,t=0;for(let i=0;i<5;i++){d+=a*n(x/58*f,y/24*f);t+=a;a*=.5;f*=2}d/=t;
+    const k=Math.max(0,Math.min(1,(d-.45)/.16)),o=(y*W+x)*4;img.data[o]=img.data[o+1]=img.data[o+2]=245;img.data[o+3]=255*.5*k*k*(3-2*k)}
+  c.putImageData(img,0,0);return cv.toDataURL();
+}
+const WOLKE=wolken();
+const himmel=`<div class="hg" style="background:radial-gradient(circle 20px at 95.5% 11%,rgba(255,255,255,.97),rgba(255,255,255,.8) 45%,transparent 100%),radial-gradient(circle 58px at 95.5% 11%,rgba(255,255,255,.55),rgba(255,255,255,.2) 40%,transparent 100%),radial-gradient(circle 150px at 95.5% 11%,rgba(255,255,255,.28),rgba(255,255,255,.08) 45%,transparent 100%),linear-gradient(180deg,#3b75ab,#427eb7 35%,#5286b5 70%,#5d88aa)"></div>
+  <div class="hg" style="background:url(${WOLKE}) 0 0/100% 100%;filter:blur(1.2px)"></div>`;
+/* Fluss wie auf der Wand */
+const FB=240,G=30,Hc=[120,40],A_=[18,64],N=[18,16],P=[222,64],hl=[103,42],hr=[137,42];
+const kurve=(a,b)=>`M${a[0]} ${a[1]}C${(a[0]+b[0])/2} ${a[1]} ${(a[0]+b[0])/2} ${b[1]} ${b[0]} ${b[1]}`;
+const WEGE=[[kurve([P[0]-17,P[1]],hr),4.2,"#ffd166"],[kurve([hl[0],hl[1]+6],[A_[0]+13,A_[1]]),3.4,"#4fd6c9"],[kurve([hl[0],hl[1]-6],[N[0]+17,N[1]]),0,"#3ddc97"]];
+function spitzen(phase){
+  /* Winkel im Abstand von 16 px entlang jedes Weges, um phase verschoben */
+  let s="";
+  for(const [d,kw,f] of WEGE){
+    if(kw<.05) continue;
+    const p=document.createElementNS("http://www.w3.org/2000/svg","path"); p.setAttribute("d",d);
+    const L=p.getTotalLength(), w=(3+Math.min(8,kw)*.5);
+    for(let l=(phase%16+16)%16+4;l<L-4;l+=16){
+      const a=p.getPointAtLength(l), b=p.getPointAtLength(Math.min(L,l+1));
+      const ang=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
+      s+=`<path d="M${-w/2} ${-w/2}L${w/2} 0L${-w/2} ${w/2}" transform="translate(${a.x.toFixed(1)} ${a.y.toFixed(1)}) rotate(${ang.toFixed(0)})" stroke="${f}" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
+  }
+  return s;
+}
+function leitungen(offset,nurStriche){
+  let s="";
+  for(const [d,kw,f] of WEGE){
+    if(kw<.05){ if(!nurStriche) s+=`<path d="${d}" stroke="rgba(255,255,255,.2)" stroke-width="1.4" fill="none"/>`; continue; }
+    const w=(1.6+Math.min(8,kw)*.9).toFixed(1);
+    if(!nurStriche) s+=`<path d="${d}" stroke="${f}" stroke-width="${w}" stroke-linecap="round" fill="none" opacity=".35"/>`;
+    s+=`<path class="fl" d="${d}" stroke="${f}" stroke-width="${w}" stroke-linecap="round" fill="none" stroke-dasharray="3 9" stroke-dashoffset="${offset}"/>`;
+  }
+  return s;
+}
+const symbole=`<g transform="translate(${Hc[0]-15} ${Hc[1]-17}) scale(1.25)"><path d="M2 22V10.5L12 2l10 8.5V22z" fill="#f2f5f9"/></g>
+  <g transform="translate(${P[0]-15} ${P[1]-15}) scale(1.25)"><circle cx="17.5" cy="4.5" r="3.2" fill="#ffd166"/><path d="M1 20 4.2 9.5h14.6L22 20z" fill="#ffd166"/></g>
+  <rect x="${A_[0]-9.5}" y="${A_[1]-15}" width="19" height="30" rx="3" fill="#1b232e" stroke="#6b7a8c" stroke-width="1.6"/><rect x="${A_[0]-6}" y="${A_[1]-6}" width="12" height="18" fill="#3ddc97"/>
+  <g transform="translate(${N[0]-15} ${N[1]-15}) scale(1.25)" stroke="#dfe6ee" stroke-width="1.9" fill="none"><path d="M8 23 12 2l4 21M6 7h12M4 11h16"/></g>
+  <text x="${(P[0]+hr[0])/2+6}" y="${P[1]-12}" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">4,2</text>
+  <text x="${(A_[0]+hl[0])/2-4}" y="${A_[1]-12}" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">3,4</text>
+  <text x="${Hc[0]}" y="${Hc[1]+27}" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">0,8 kW</text>`;
+let streifen=""; for(let i=0;i<17;i++){ const v=[0,.1,.6,1.8,3.2,4.6,5.8,6.8,7.4,7.6,7.2,6.3,5,3.5,1.9,.7,.1][i], hh=Math.max(1.5,v/10*38), x=i*14.3;
+  streifen+=`<rect x="${x}" y="${138-hh}" width="11" height="${hh}" rx="2" fill="${i<6?"#3ddc97":"#5b6b7d"}" opacity="${i<6?1:.3}"/>`; }
+function grund(){ let s=""; for(const [d,kw,f] of WEGE){ const w=kw<.05?1.4:(1.6+Math.min(8,kw)*.9).toFixed(1);
+  s+=`<path d="${d}" stroke="${kw<.05?"rgba(255,255,255,.2)":f}" stroke-width="${w}" stroke-linecap="round" fill="none" opacity="${kw<.05?1:.35}"/>`; } return s; }
+function block(v){
+  const svg=(inner,cls="")=>`<svg class="${cls}" width="${FB}" height="138" viewBox="0 0 ${FB} 138">${inner}</svg>`;
+  if(v==="F"||v==="G"||v==="I") return `<div class="solar ${v!=="F"?"iso":""}">${svg(grund()+`<g class="sp">${spitzen(0)}</g>`+symbole+streifen)}</div>`;
+  if(v==="E") return `<div class="solar">${svg(leitungen(0,false).replace(/<path class="fl"[^>]*\/>/g,"")+symbole+streifen)}
+      ${svg(leitungen(0,true),"phase p0")}${svg(leitungen(-4,true),"phase p1")}${svg(leitungen(-8,true),"phase p2")}</div>`;
+  return `<div class="solar ${v==="D"?"iso":""} ${v==="B"?"css60":""}">${svg(leitungen(0,false)+symbole+streifen)}</div>`;
+}
+let h="";
+for(const [k,[t,u]] of Object.entries(V)){ if(nur&&nur!==k) continue;
+  h+=`<div class="marke">${k} · ${t} <span>${u}</span></div><div class="banner" data-v="${k}">${himmel}${block(k)}</div>`; }
+document.getElementById("a").innerHTML=h;
+/* Zeitgeber für C und D */
+let off=0; setInterval(()=>{ off=(off-4)%12;
+  for(const b of document.querySelectorAll('.banner[data-v="C"] .fl, .banner[data-v="D"] .fl')) b.setAttribute("stroke-dashoffset",off); },1000);
+/* H: 4 Schritte pro Sekunde, kurze Striche */
+let offH=0; setInterval(()=>{ offH=(offH-3)%12;
+  for(const b of document.querySelectorAll('.banner[data-v="H"] .fl')) b.setAttribute("stroke-dashoffset",offH); },250);
+/* G und I: Pfeilspitzen wandern in Flussrichtung */
+let phG=0, phI=0;
+setInterval(()=>{ phG+=4; const g=document.querySelector('.banner[data-v="G"] .sp'); if(g) g.innerHTML=spitzen(phG); },1000);
+setInterval(()=>{ phI+=4; const g=document.querySelector('.banner[data-v="I"] .sp'); if(g) g.innerHTML=spitzen(phI); },250);
+/* Messergebnis anzeigen, falls vorhanden */
+fetch("flussleistung.json?t="+Date.now()).then(r=>r.ok?r.json():null).then(m=>{ if(!m) return;
+  let t=`<div class="marke">Messung auf dem Mac, Chrome ohne Grafikkarte, je ${m.sek} s pro Variante</div><table style="font-size:14px;border-collapse:collapse">
+  <tr><th style="text-align:left;padding:4px 10px">Variante</th><th style="padding:4px 10px">CPU aller Chrome-Prozesse</th><th style="padding:4px 10px">Seite, Hauptfaden</th><th style="padding:4px 10px">Neu gezeichnete Bilder</th></tr>`;
+  for(const [k,x] of Object.entries(m.v)) t+=`<tr><td style="padding:4px 10px">${k} · ${V[k][0]}</td><td style="text-align:right;padding:4px 10px">${x.cpu.toFixed(1)} %</td><td style="text-align:right;padding:4px 10px">${x.haupt.toFixed(1)} %</td><td style="text-align:right;padding:4px 10px">${x.bilder}</td></tr>`;
+  document.getElementById("messung").innerHTML=t+"</table>"; }).catch(()=>{});
+</script>
+</body></html>

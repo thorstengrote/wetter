@@ -934,7 +934,13 @@ function skyDecision(o){
 
   if([95,96,99].includes(code))                 return mit("storm",  {wet:"regen",storm:true}, "WMO-Code "+code+" = Gewitter");
   if([71,73,75,77,85,86].includes(code))        return mit("snow",   {wet:precip>=3?"schnee-viel":"schnee"}, "WMO-Code "+code+" = Schnee");
-  if([61,63,65,66,67,80,81,82].includes(code))  return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, "WMO-Code "+code+" = Regen");
+  /* Ein Regencode ohne jede Menge und ohne Wahrscheinlichkeit ist ein
+     Widerspruch im Modell. Am 28.09.2026 um 19 Uhr lieferte ICON Code 80
+     (Schauer) mit 0,0 mm und 0 %, die Kachel zeigte Regen neben 0 %. Dann
+     gilt der Code nicht, und es entscheiden die Wolken. */
+  const regenCode=[61,63,65,66,67,80,81,82].includes(code);
+  const leererCode=regenCode&&precip<0.05&&pop<20;
+  if(regenCode&&!leererCode)                     return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, "WMO-Code "+code+" = Regen");
   if(precip>=0.3)                               return mit("rain",   {wet:precip>=2.5?"viel":"regen"}, n1(precip)+NB+"mm Niederschlag");
   if([51,53,55,56,57].includes(code)||precip>0) return mit("drizzle",{wet:"niesel"}, "leichter Niederschlag ("+n1(precip)+NB+"mm)");
   if([45,48].includes(code))                    return mit("fog",    {fog:true}, "WMO-Code "+code+" = Nebel");
@@ -2655,11 +2661,13 @@ const SOLAR=(()=>{
     const laden=Math.max(0,akku), entl=Math.max(0,-akku), ein=Math.max(0,netz), bez=Math.max(0,-netz);
     const G=30, Hc=[FB/2,40], A=[18,64], N=[18,16], P=[FB-18,64], hl=[Hc[0]-17,Hc[1]+2], hr=[Hc[0]+17,Hc[1]+2];
     const kurve=(a,b)=>`M${a[0]} ${a[1]}C${(a[0]+b[0])/2} ${a[1]} ${(a[0]+b[0])/2} ${b[1]} ${b[0]} ${b[1]}`;
+    /* Die Leitung selbst steht still. Die Richtung zeigen kleine Winkel, die
+       ein Zeitgeber einmal pro Sekunde um 4 px weiterschiebt, siehe unten. */
     const leitung=(d,kw,farbe)=>{
       if(kw<0.05) return `<path d="${d}" stroke="rgba(255,255,255,.2)" stroke-width="1.4" fill="none"/>`;
       const w=(1.6+Math.min(8,kw)*0.9).toFixed(1);
-      return `<path d="${d}" stroke="${farbe}" stroke-width="${w}" stroke-linecap="round" fill="none" opacity=".35"/>
-              <path d="${d}" stroke="${farbe}" stroke-width="${w}" stroke-linecap="round" fill="none" stroke-dasharray="3 9" class="solfl"/>`;
+      return `<path class="solweg" data-kw="${kw.toFixed(2)}" data-f="${farbe}" d="${d}" stroke="${farbe}"
+              stroke-width="${w}" stroke-linecap="round" fill="none" opacity=".35"/>`;
     };
     const zahl=(x,y,v)=>`<text x="${x}" y="${y}" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">${
       Math.abs(v).toFixed(1).replace(".",",")}</text>`;
@@ -2682,14 +2690,29 @@ const SOLAR=(()=>{
     return s;
   }
 
-  /* Ein Schritt pro Sekunde, nur wenn die Seite sichtbar ist. Zwei Schritte
-     kosteten auf dem Tablet noch rund 50 % CPU. */
-  let flussVersatz=0;
-  setInterval(()=>{
-    if(document.hidden) return;
-    flussVersatz=(flussVersatz-4)%12;
-    for(const p of document.querySelectorAll("#solar .solfl")) p.setAttribute("stroke-dashoffset",flussVersatz);
-  },1000);
+  /* Pfeilwinkel im Abstand von 16 px entlang jeder Leitung, einmal pro
+     Sekunde 4 px weiter. Gemessen am 28.09.2026 auf dem Mac mit Software-
+     Rendering: ohne Bewegung 1,9 %, so 2,5 %, die alte CSS-Animation 16,6 %.
+     Der Solarblock liegt auf einer eigenen Ebene (will-change), damit der
+     Himmel darunter nicht mitgezeichnet wird. Entwurf entwurf-flussleistung.html, G. */
+  let flussPhase=0;
+  function spitzen(){
+    const el=document.querySelector("#solar .solspitzen"); if(!el) return;
+    let s="";
+    for(const p of document.querySelectorAll("#solar .solweg")){
+      const kw=Number(p.dataset.kw), f=p.dataset.f, w=3+Math.min(8,kw)*0.5;
+      let L=0; try{ L=p.getTotalLength(); }catch(e){ continue; }
+      for(let l=flussPhase%16+4;l<L-4;l+=16){
+        const a=p.getPointAtLength(l), b=p.getPointAtLength(Math.min(L,l+1));
+        const ang=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
+        s+=`<path d="M${(-w/2).toFixed(1)} ${(-w/2).toFixed(1)}L${(w/2).toFixed(1)} 0L${(-w/2).toFixed(1)} ${(w/2).toFixed(1)}"
+            transform="translate(${a.x.toFixed(1)} ${a.y.toFixed(1)}) rotate(${ang.toFixed(0)})" stroke="${f}"
+            stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+      }
+    }
+    el.innerHTML=s;
+  }
+  setInterval(()=>{ if(document.hidden) return; flussPhase+=4; spitzen(); },1000);
 
   /* --- Der Block in der Kopfzeile ---------------------------------- */
   function zeichne(){
@@ -2704,7 +2727,8 @@ const SOLAR=(()=>{
     const ST=m?tagMorgen():tag();
     /* Oben der Fluss, unten der Streifen, siehe fluss() und streifenBreit() */
     el.innerHTML=`<svg width="${FB}" height="${FHOCH}" viewBox="0 0 ${FB} ${FHOCH}"
-        style="display:block;overflow:visible">${fluss()}<g class="sstreifen">${streifenBreit(ST,m)}</g></svg>`;
+        style="display:block;overflow:visible;will-change:transform">${fluss()}<g class="solspitzen"></g><g class="sstreifen">${streifenBreit(ST,m)}</g></svg>`;
+    spitzen();
     /* Der Block steht senkrecht mittig im Feld. Die Ausrichtung auf die
        letzte Textzeile des Tagesblocks liess oben kaum Rand, wenn der
        Tagesblock nur vier Zeilen hatte. */

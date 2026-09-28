@@ -1,0 +1,50 @@
+{
+ "sek": "60, zweimal gemittelt (B 20 s)",
+ "v": {
+  "A": {
+   "cpu": 1.898305292604674,
+   "haupt": 0.0579173014052862,
+   "bilder": "0 Layouts / 0 Stilberechnungen"
+  },
+  "B": {
+   "cpu": 16.60351017151974,
+   "haupt": 2.0231501794974074,
+   "bilder": "0 Layouts / 1203 Stilberechnungen"
+  },
+  "C": {
+   "cpu": 2.6897439979547597,
+   "haupt": 0.09814673967858639,
+   "bilder": "0 Layouts / 61 Stilberechnungen"
+  },
+  "D": {
+   "cpu": 2.314299799562309,
+   "haupt": 0.1340839601322703,
+   "bilder": "0 Layouts / 61 Stilberechnungen"
+  },
+  "E": {
+   "cpu": 4.080002719999964,
+   "haupt": 0.02984901140980083,
+   "bilder": "0 Layouts / 0 Stilberechnungen"
+  },
+  "F": {
+   "cpu": 2.1229609898330235,
+   "haupt": 0.05728337906924203,
+   "bilder": "0 Layouts / 0 Stilberechnungen"
+  },
+  "G": {
+   "cpu": 2.5226834025673233,
+   "haupt": 0.34015830322653795,
+   "bilder": "61 Layouts / 61 Stilberechnungen"
+  },
+  "H": {
+   "cpu": 4.230557711497168,
+   "haupt": 0.3576904767315997,
+   "bilder": "0 Layouts / 241 Stilberechnungen"
+  },
+  "I": {
+   "cpu": 4.096624171026356,
+   "haupt": 1.0063233161277991,
+   "bilder": "241 Layouts / 241 Stilberechnungen"
+  }
+ }
+}
