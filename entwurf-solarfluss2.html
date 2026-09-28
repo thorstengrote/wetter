@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solarfluss zehn Konzepte &ndash; Entwurf</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#070b10;color:#e6ecf3;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:17px;margin:30px 0 2px}
+p{margin:4px 0 10px;color:#aab6c3;font-size:14px;max-width:1300px;line-height:1.5}
+.reihe{display:flex;gap:10px;flex-wrap:nowrap}
+.kasten{border-radius:12px;padding:10px 12px 8px;width:292px;
+  background:linear-gradient(180deg,#3b75ab 0%,#427eb7 35%,#5286b5 70%,#5d88aa 100%)}
+.kasten.abend{background:linear-gradient(180deg,#163c62 0%,#34566d 35%,#5a6f66 70%,#686f48 100%)}
+.kasten.nacht{background:linear-gradient(180deg,#16284a 0%,#1d3254 35%,#253d61 70%,#2d476b 100%)}
+.kasten .l{font-size:11.5px;color:#fff;opacity:.8;margin-top:5px}
+svg text{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+@keyframes fl{to{stroke-dashoffset:-24}}
+.fl{animation:fl 1s linear infinite}
+@keyframes wf{from{transform:translateX(-18px)}to{transform:translateX(0)}}
+.buehne{width:1280px;margin-bottom:6px}
+header{position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.28);border-radius:15px;padding:10px 14px;
+  display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:stretch;
+  background:linear-gradient(180deg,#3b75ab 0%,#427eb7 35%,#5286b5 70%,#5d88aa 100%)}
+.zelle{display:flex;align-items:center;padding:2px 14px;color:#fff}
+.zelle:first-child{padding-left:2px}.zelle:last-child{padding-right:2px}
+.zelle + .zelle{border-left:1px solid rgba(255,255,255,.30)}
+.place{font-size:17px;font-weight:700;line-height:22px}.clock{font-size:36px;font-weight:750;line-height:40px}
+.date,.details,.sub{font-size:12.5px;line-height:18px;white-space:nowrap}
+.temp{font-size:36px;font-weight:750;line-height:40px}.current{gap:12px}
+.today{flex-direction:column;align-items:flex-start;justify-content:center;min-width:0}
+.summary{font-size:17px;font-weight:700;line-height:22px}.gew{color:#ffe08a}
+.solar{padding-left:14px}
+</style></head>
+<body>
+<h1>Solarblock: zehn Flusskonzepte über dem Balkenstreifen</h1>
+<p>Der Balkenstreifen bleibt, wie er ist: grün gemessen, grau umrandet die Prognose, keine Linie, keine Beschriftung außer „morgen“. Er sitzt unten,
+seine Grundlinie auf Höhe von „Gewitter nicht ausgeschlossen“, und ist so breit wie der Block. Darüber gut 80 Pixel für den Fluss.
+Oben ein ganzes Banner zur Einordnung, darunter jedes Konzept in fünf Lagen. Die Bewegung läuft nur im Browser.</p>
+<div id="a"></div>
+<script>
+const W=268, H=138, SY=94, SH=44, FH=84;   /* Streifen unten, Flussfläche oben */
+const PROG=[0,0.1,0.6,1.8,3.2,4.6,5.8,6.8,7.4,7.6,7.2,6.3,5.0,3.5,1.9,0.7,0.1];
+const HAUS=[0.5,0.6,0.9,0.8,0.7,0.8,1.1,1.0,0.9,1.0,0.8,0.9,1.3,1.6,1.4,1.2,1.4];
+const LAGEN=[
+  {z:"10:30",sky:"",     n:{pv:4.2,haus:0.8,akku:3.4,netz:0},  soc:46, st:10, t:"Vormittag, lädt"},
+  {z:"13:10",sky:"",     n:{pv:7.6,haus:1.1,akku:0,netz:6.5},  soc:100,st:13, t:"Mittag, speist ein"},
+  {z:"19:40",sky:"abend",n:{pv:0.1,haus:1.4,akku:-1.3,netz:0}, soc:62, st:19, t:"Abend, aus dem Akku"},
+  {z:"06:10",sky:"nacht",n:{pv:0,haus:0.6,akku:0,netz:-0.6},   soc:6,  st:6,  t:"Früh, aus dem Netz"},
+  {z:"22:30",sky:"nacht",n:{pv:0,haus:0.5,akku:-0.5,netz:0},   soc:35, st:22, t:"Nacht, Streifen morgen", morgen:true}
+];
+const F={pv:"#ffd166",haus:"#f2f5f9",akku:"#4fd6c9",ein:"#3ddc97",bez:"#ff7b6b",leer:"rgba(255,255,255,.2)"};
+const komma=v=>Math.abs(v).toFixed(1).replace(".",",");
+
+/* Flüsse aus dem Jetzt: wer liefert an wen */
+function fluesse(n){
+  const pvHaus=Math.min(n.pv,n.haus), laden=Math.max(0,n.akku), entl=Math.max(0,-n.akku);
+  const ein=Math.max(0,n.netz), bez=Math.max(0,-n.netz);
+  return {pvHaus, pvAkku:Math.min(laden,Math.max(0,n.pv-pvHaus)), pvNetz:ein, akkuHaus:entl, netzHaus:bez,
+          pv:n.pv, haus:n.haus, laden, entl, ein, bez};
+}
+
+/* ---------- Symbole ---------- */
+function pvIcon(x,y,s,f=F.pv){ const k=s/24;
+  return `<g transform="translate(${x} ${y}) scale(${k})"><circle cx="17.5" cy="4.5" r="3.2" fill="${f}"/>
+  <g stroke="${f}" stroke-width="1.3" stroke-linecap="round"><path d="M17.5 -.6v1.3M22.6 4.5h-1.3M21.1 .9l-.9.9M13.9 .9l.9.9"/></g>
+  <path d="M1 20 4.2 9.5h14.6L22 20z" fill="${f}"/><path d="M9 9.5 8 20M14.3 9.5 15.3 20M2.5 14.8h18" stroke="#1a2430" stroke-width="1.1" fill="none"/>
+  <path d="M11.5 20v3M8 23.2h7" stroke="${f}" stroke-width="1.6" stroke-linecap="round"/></g>`; }
+function hausIcon(x,y,s,f=F.haus){ const k=s/24;
+  return `<g transform="translate(${x} ${y}) scale(${k})"><path d="M2 22V10.5L12 2l10 8.5V22z" fill="${f}"/><rect x="9.3" y="14" width="5.4" height="8" fill="#1a2430" opacity=".55"/></g>`; }
+function netzIcon(x,y,s,f="#dfe6ee"){ const k=s/24;
+  return `<g transform="translate(${x} ${y}) scale(${k})" stroke="${f}" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 23 12 2l4 21M9.5 15h5M6 7h12M4 11h16M10.5 9.5 13.5 13M13.5 9.5 10.5 13"/></g>`; }
+function akkuIcon(x,y,b,h,soc){
+  const kap=Math.max(2.5,h*.08), g=1.4, r=1.4, x0=x+1+r/2+g, x1=x+b-1-r/2-g, y0=y+kap+r/2+g, y1=y+h-1-r/2-g;
+  const n=5, zh=(y1-y0-(n-1)*g)/n, v=Math.max(0,Math.min(100,soc))/100*n, f=soc>=50?"#3ddc97":soc>=25?"#ffd166":"#ff7b6b";
+  let z=""; for(let i=0;i<n;i++){ const u=y1-i*(zh+g), vo=Math.max(0,Math.min(1,v-i)); if(vo>0) z+=`<rect x="${x0}" y="${u-zh*vo}" width="${x1-x0}" height="${zh*vo}" rx=".8" fill="${f}"/>`; }
+  return `<rect x="${x+b/2-b*.19}" y="${y}" width="${b*.38}" height="${kap+1}" rx="1" fill="#5b6b7d"/><rect x="${x+1}" y="${y+kap}" width="${b-2}" height="${h-kap-1}" rx="${b*.15}" fill="#1b232e" stroke="#6b7a8c" stroke-width="${r}"/>${z}`; }
+const T=(x,y,s,a="middle",f="#fff",g=12.5)=>`<text x="${x}" y="${y}" font-size="${g}" font-weight="700" fill="${f}" text-anchor="${a}">${s}</text>`;
+const TK=(x,y,s,a="middle")=>`<text x="${x}" y="${y}" font-size="12" font-weight="700" fill="#fff" text-anchor="${a}" stroke="rgba(8,14,22,.75)" stroke-width="3" paint-order="stroke">${s}</text>`;
+
+/* ---------- Streifen, unverändert, unten ---------- */
+function streifen(L){
+  const n=PROG.length, gap=3, bw=(W-(n-1)*gap)/n; let s="";
+  for(let i=0;i<n;i++){
+    const h=5+i, gem=!L.morgen&&h<L.st, v=gem?PROG[i]*(0.9+0.2*((i*37)%10)/10):PROG[i];
+    const hh=Math.max(1.5,(v/10)*(SH-6)), x=i*(bw+gap), y=SY+SH-hh, u=v-HAUS[i];
+    const f=!gem?"#5b6b7d":u>1?"#3ddc97":u>0?"#9ad9b5":"#5b6b7d";
+    s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="2" fill="${f}" opacity="${gem?1:.3}"/>`;
+    if(!gem) s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="2" fill="none" stroke="#c5ced8" stroke-width="1" stroke-opacity=".45"/>`;
+  }
+  if(L.morgen) s+=`<text x="0" y="${SY+8}" font-size="8.5" font-weight="700" fill="#dfe6ee" letter-spacing=".3">morgen</text>`;
+  return s;
+}
+
+/* ---------- Bausteine ---------- */
+const breite=kw=>(1.6+Math.min(8,kw)*0.9).toFixed(1);
+function leitung(d,kw,farbe,{zahl=true,anim=true,min=0.05}={}){
+  if(kw<min) return `<path d="${d}" stroke="${F.leer}" stroke-width="1.4" fill="none"/>`;
+  const w=breite(kw);
+  return `<path d="${d}" stroke="${farbe}" stroke-width="${w}" stroke-linecap="round" fill="none" opacity=".35"/>`+
+    (anim?`<path d="${d}" stroke="${farbe}" stroke-width="${w}" stroke-linecap="round" fill="none" stroke-dasharray="3 9" class="fl"/>`:"");
+}
+function punkte(d,kw,farbe){ /* Teilchen, Zahl nach Leistung */
+  if(kw<0.05) return `<path d="${d}" stroke="${F.leer}" stroke-width="1.4" fill="none"/>`;
+  const n=Math.max(1,Math.min(7,Math.round(kw*1.2))), dur=1.8; let s=`<path d="${d}" stroke="${farbe}" stroke-width="1.2" fill="none" opacity=".35"/>`;
+  for(let i=0;i<n;i++) s+=`<circle r="${(2+Math.min(3,kw*0.35)).toFixed(1)}" fill="${farbe}"><animateMotion dur="${dur}s" begin="${(-dur*i/n).toFixed(2)}s" repeatCount="indefinite" path="${d}"/></circle>`;
+  return s;
+}
+const svg=(inhalt,L)=>`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">${inhalt}${streifen(L)}</svg>`;
+
+/* ---------- 1 und 2: Reihe ---------- */
+function reihe(L,zahlen){
+  const f=fluesse(L.n), y=58, xP=14, xK=100, xH=180, xN=250, yA=16; let s="";
+  s+=leitung(`M${xP+13} ${y}H${xK}`,f.pv,F.pv);
+  s+=leitung(`M${xK} ${y}H${xH-13}`,f.haus,F.haus);
+  const netzKw=f.ein||f.bez, netzF=f.ein?F.ein:F.bez;
+  s+=f.bez?leitung(`M${xN-12} ${y}H${xH+13}`,f.bez,F.bez):leitung(`M${xH+13} ${y}H${xN-12}`,f.ein,F.ein);
+  s+=f.entl?leitung(`M${xK} ${yA+14}V${y-5}`,f.entl,F.akku):leitung(`M${xK} ${y-5}V${yA+14}`,f.laden,F.akku);
+  s+=`<circle cx="${xK}" cy="${y}" r="4" fill="#fff"/>`+pvIcon(xP-13,y-13,26)+hausIcon(xH-12,y-12,24)+netzIcon(xN-12,y-12,24,f.bez?F.bez:f.ein?F.ein:"#dfe6ee")+akkuIcon(xK-9,yA-14,18,28,L.soc);
+  if(zahlen){
+    if(f.pv>.05) s+=T((xP+xK)/2,y-9,komma(f.pv));
+    if(f.haus>.05) s+=T((xK+xH)/2,y-9,komma(f.haus));
+    if(netzKw>.05) s+=T((xH+xN)/2,y-9,komma(netzKw));
+    if(f.laden+f.entl>.05) s+=T(xK-9,yA+26,komma(f.laden+f.entl),"end");
+    s+=T(xK+13,yA+5,L.soc+" %","start");
+  }
+  return svg(s,L);
+}
+/* ---------- 3 und 4: Stern ---------- */
+function stern(L,zahlen,teilchen){
+  const f=fluesse(L.n), K=[134,40], P=[16,14],A=[16,66],Hs=[252,14],N=[252,66]; let s="";
+  const kurve=(a,b)=>`M${a[0]} ${a[1]}C${(a[0]+b[0])/2} ${a[1]} ${(a[0]+b[0])/2} ${b[1]} ${b[0]} ${b[1]}`;
+  const L_=teilchen?punkte:leitung;
+  s+=L_(kurve([P[0]+16,P[1]],K),f.pv,F.pv);
+  s+=f.entl?L_(kurve([A[0]+14,A[1]],K),f.entl,F.akku):L_(kurve(K,[A[0]+14,A[1]]),f.laden,F.akku);
+  s+=L_(kurve(K,[Hs[0]-16,Hs[1]]),f.haus,F.haus);
+  s+=f.bez?L_(kurve([N[0]-16,N[1]],K),f.bez,F.bez):L_(kurve(K,[N[0]-16,N[1]]),f.ein,F.ein);
+  s+=`<circle cx="${K[0]}" cy="${K[1]}" r="4.5" fill="#fff"/>`;
+  s+=pvIcon(P[0]-13,P[1]-13,26)+akkuIcon(A[0]-8,A[1]-13,16,26,L.soc)+hausIcon(Hs[0]-12,Hs[1]-12,24)+netzIcon(N[0]-12,N[1]-12,24,f.bez?F.bez:f.ein?F.ein:"#dfe6ee");
+  if(zahlen){
+    s+=T(P[0]+18,P[1]+5,komma(f.pv),"start");
+    s+=T(A[0]+14,A[1]+17,(f.laden?"+":f.entl?"−":"")+komma(f.laden+f.entl)+" · "+L.soc+" %","start");
+    s+=T(Hs[0]-18,Hs[1]+5,komma(f.haus),"end");
+    s+=T(N[0]-18,N[1]+17,(f.ein?"+":f.bez?"−":"")+komma(f.ein+f.bez),"end");
+  }
+  return svg(s,L);
+}
+/* ---------- 5 und 6: Sankey ---------- */
+function sankey(L,zahlen){
+  const f=fluesse(L.n), k=8.2, x0=34, x1=W-34; let s="";
+  const quellen=[["pv",f.pv,F.pv],["akku",f.entl,F.akku],["netz",f.bez,F.bez]].filter(q=>q[1]>0.05);
+  const senken=[["haus",f.haus,F.haus],["akku",f.laden,F.akku],["netz",f.ein,F.ein]].filter(q=>q[1]>0.05);
+  const verb=[["pv","haus",f.pvHaus],["pv","akku",f.pvAkku],["pv","netz",f.pvNetz],["akku","haus",f.akkuHaus],["netz","haus",f.netzHaus]].filter(v=>v[2]>0.05);
+  const gesamt=Math.max(quellen.reduce((a,q)=>a+q[1],0),0.1), top=Math.max(2,(FH-6-gesamt*k-(quellen.length-1)*4)/2);
+  const posQ={},posS={}; let y=top;
+  for(const q of quellen){ posQ[q[0]]={y,h:Math.max(2,q[1]*k),f:q[2],off:0}; y+=posQ[q[0]].h+4; }
+  const gesS=Math.max(senken.reduce((a,q)=>a+q[1],0),0.1); y=Math.max(2,(FH-6-gesS*k-(senken.length-1)*4)/2);
+  for(const q of senken){ posS[q[0]]={y,h:Math.max(2,q[1]*k),f:q[2],off:0}; y+=posS[q[0]].h+4; }
+  for(const [a,b,v] of verb){
+    const h=Math.max(1.5,v*k), q=posQ[a], z=posS[b]; if(!q||!z) continue;
+    const ya=q.y+q.off, yb=z.y+z.off; q.off+=h; z.off+=h; const m=(x0+x1)/2;
+    s+=`<path d="M${x0} ${ya}C${m} ${ya} ${m} ${yb} ${x1} ${yb}V${yb+h}C${m} ${yb+h} ${m} ${ya+h} ${x0} ${ya+h}Z" fill="${q.f}" opacity=".8"/>`;
+  }
+  for(const [id,p] of Object.entries(posQ)) s+=`<rect x="${x0-5}" y="${p.y}" width="5" height="${p.h}" fill="${p.f}"/>`;
+  for(const [id,p] of Object.entries(posS)) s+=`<rect x="${x1}" y="${p.y}" width="5" height="${p.h}" fill="${p.f}"/>`;
+  const ik=(id,x,y,al)=>id==="pv"?pvIcon(x,y,20):id==="haus"?hausIcon(x,y,18):id==="akku"?akkuIcon(x+4,y-1,12,20,L.soc):netzIcon(x,y,18,id==="netz"&&f.bez?F.bez:F.ein);
+  for(const q of quellen){ const p=posQ[q[0]]; s+=ik(q[0],3,p.y+p.h/2-10); if(zahlen) s+=TK(x0+4,p.y+p.h/2+4.5,komma(q[1]),"start"); }
+  for(const q of senken){ const p=posS[q[0]]; s+=ik(q[0],W-22,p.y+p.h/2-9); if(zahlen) s+=TK(x1-4,p.y+p.h/2+4.5,komma(q[1]),"end"); }
+  if(zahlen) s+=T(W/2,FH-2,"Akku "+L.soc+" %","middle","#fff",11.5);
+  return svg(s,L);
+}
+/* ---------- 7: Haus in der Mitte ---------- */
+function hausMitte(L){
+  const f=fluesse(L.n), Hc=[134,40], P=[20,16], A=[20,66], N=[248,40]; let s="";
+  s+=leitung(`M${P[0]+14} ${P[1]}C80 ${P[1]} 90 ${Hc[1]} ${Hc[0]-20} ${Hc[1]-4}`,f.pvHaus,F.pv);
+  s+=f.pvAkku>.05?leitung(`M${P[0]} ${P[1]+14}V${A[1]-14}`,f.pvAkku,F.pv):"";
+  s+=leitung(`M${A[0]+12} ${A[1]}C80 ${A[1]} 90 ${Hc[1]} ${Hc[0]-20} ${Hc[1]+4}`,f.akkuHaus,F.akku);
+  s+=f.bez?leitung(`M${N[0]-14} ${N[1]}H${Hc[0]+20}`,f.bez,F.bez):leitung(`M${Hc[0]+20} ${N[1]}H${N[0]-14}`,f.pvNetz,F.ein);
+  s+=hausIcon(Hc[0]-18,Hc[1]-20,36)+pvIcon(P[0]-13,P[1]-13,26)+akkuIcon(A[0]-8,A[1]-13,16,26,L.soc)+netzIcon(N[0]-12,N[1]-12,24,f.bez?F.bez:f.ein?F.ein:"#dfe6ee");
+  s+=T(Hc[0],Hc[1]+30,komma(f.haus)+" kW");
+  if(f.pvHaus>.05) s+=T(78,P[1]+2,komma(f.pvHaus));
+  if(f.pvAkku>.05) s+=T(P[0]+8,A[1]-22,komma(f.pvAkku),"start");
+  if(f.akkuHaus>.05) s+=T(78,A[1]+4,komma(f.akkuHaus));
+  if(f.bez+f.pvNetz>.05) s+=T((Hc[0]+N[0])/2+8,N[1]-8,komma(f.bez+f.pvNetz));
+  s+=T(A[0]+14,A[1]+17,L.soc+" %","start",  "#fff",11.5);
+  return svg(s,L);
+}
+/* ---------- 8: Raute wie in den Hersteller-Apps ---------- */
+function raute(L){
+  const f=fluesse(L.n), K=[134,40], P=[134,10], A=[44,40], Hs=[224,40], N=[134,72]; let s="";
+  s+=leitung(`M${P[0]} ${P[1]+13}V${K[1]}`,f.pv,F.pv);
+  s+=f.entl?leitung(`M${A[0]+14} ${A[1]}H${K[0]}`,f.entl,F.akku):leitung(`M${K[0]} ${A[1]}H${A[0]+14}`,f.laden,F.akku);
+  s+=leitung(`M${K[0]} ${Hs[1]}H${Hs[0]-14}`,f.haus,F.haus);
+  s+=f.bez?leitung(`M${N[0]} ${N[1]-12}V${K[1]}`,f.bez,F.bez):leitung(`M${K[0]} ${K[1]}V${N[1]-12}`,f.ein,F.ein);
+  s+=`<circle cx="${K[0]}" cy="${K[1]}" r="4.5" fill="#fff"/>`;
+  s+=pvIcon(P[0]-12,P[1]-12,24)+akkuIcon(A[0]-8,A[1]-13,16,26,L.soc)+hausIcon(Hs[0]-12,Hs[1]-12,24)+netzIcon(N[0]-11,N[1]-11,22,f.bez?F.bez:f.ein?F.ein:"#dfe6ee");
+  s+=T(P[0]+16,P[1]+5,komma(f.pv),"start");
+  s+=T(A[0]-12,A[1]-4,komma(f.laden+f.entl),"end")+T(A[0]-12,A[1]+11,L.soc+" %","end","#fff",11);
+  s+=T(Hs[0]+16,Hs[1]+5,komma(f.haus),"start");
+  s+=T(N[0]+14,N[1]+5,komma(f.ein+f.bez),"start");
+  return svg(s,L);
+}
+/* ---------- 9: Waage, Quellen oben, Verbrauch unten ---------- */
+function waage(L){
+  const f=fluesse(L.n), k=(W-40)/8, x0=40; let s="";
+  const oben=[[f.pv,F.pv,"pv"],[f.entl,F.akku,"akku"],[f.bez,F.bez,"netz"]], unten=[[f.haus,F.haus,"haus"],[f.laden,F.akku,"akku"],[f.ein,F.ein,"netz"]];
+  const zeile=(teile,y)=>{ let x=x0,g=""; for(const [v,c,id] of teile){ if(v<0.05) continue; const w=Math.max(3,Math.min(W-x0,v*k));
+      g+=`<rect x="${x}" y="${y}" width="${w}" height="20" rx="3" fill="${c}"/>`;
+      const lab=komma(v)+(id==="akku"?" · "+L.soc+" %":"");
+      if(w>lab.length*7.5+6) g+=T(x+w/2,y+14.5,lab,"middle","#10161e",12); else { g+=TK(x+w+4,y+14.5,lab,"start"); x+=lab.length*7.2+6; } x+=w+2; } return g; };
+  s+=`<text x="0" y="23" font-size="11.5" font-weight="700" fill="#fff" opacity=".8">von</text>`+zeile(oben,8);
+  s+=`<text x="0" y="69" font-size="11.5" font-weight="700" fill="#fff" opacity=".8">nach</text>`+zeile(unten,54);
+  for(let i=0;i<6;i++){ const x=x0+12+i*36; s+=`<path d="M${x} 32V50" stroke="#fff" stroke-width="2" stroke-dasharray="3 5" class="fl" opacity=".7"/>`; }
+  return svg(s,L);
+}
+/* ---------- 10: eine Textzeile mit laufenden Pfeilen ---------- */
+function textzeile(L){
+  const f=fluesse(L.n); let s="", x=0, y=36;
+  const pf=(farbe)=>{ let g=`<g>`; for(let i=0;i<3;i++) g+=`<path d="M${x+i*6} ${y-12}l4 4-4 4" stroke="${farbe}" stroke-width="2.2" fill="none" opacity=".25"><animate attributeName="opacity" values=".25;1;.25" dur="1.2s" begin="${(i*0.3).toFixed(1)}s" repeatCount="indefinite"/></path>`; x+=22; return g+`</g>`; };
+  const gross=Math.max(f.pv,f.entl,f.bez);
+  const quelle=gross===f.pv&&f.pv>.05?[pvIcon(x,y-22,26),komma(f.pv)]:gross===f.entl?[akkuIcon(x+6,y-24,16,26,L.soc),komma(f.entl)]:[netzIcon(x,y-22,24,F.bez),komma(f.bez)];
+  s+=quelle[0]; x+=30; s+=T(x,y-3,quelle[1],"start"); x+=30; s+=pf("#fff");
+  s+=hausIcon(x,y-21,24); x+=28; s+=T(x,y-3,komma(f.haus),"start"); x+=30;
+  if(f.laden>.05){ s+=pf(F.akku); s+=akkuIcon(x+4,y-24,16,26,L.soc); x+=24; s+=T(x,y-3,komma(f.laden),"start"); }
+  else if(f.ein>.05){ s+=pf(F.ein); s+=netzIcon(x,y-22,24,F.ein); x+=28; s+=T(x,y-3,komma(f.ein),"start"); }
+  s+=T(0,y+34,`Akku ${L.soc} %${f.laden>.05?" · lädt":f.entl>.05?" · entlädt":""}${f.bez>.05?" · Netzbezug":""}`,"start","#fff",12.5);
+  return svg(s,L);
+}
+
+const KONZEPTE=[
+  ["1","Reihe mit Zahlen","PV, Knoten, Haus, Netz auf einer Linie, der Akku hängt darüber. Dicke nach kW, Striche laufen in Flussrichtung, Zahlen über jeder Leitung.",L=>reihe(L,true)],
+  ["2","Reihe ohne Zahlen","Wie 1, nur Dicke und Bewegung. Der Akku zeigt seinen Stand über die Füllung.",L=>reihe(L,false)],
+  ["3","Stern mit Zahlen","Vier Ecken, geschwungene Leitungen zur Mitte. Werte stehen neben den Symbolen, nicht an den Leitungen.",L=>stern(L,true,false)],
+  ["4","Stern mit Teilchen, ohne Zahlen","Punkte wandern die Leitungen entlang, mehr und größere Punkte bei mehr Leistung.",L=>stern(L,false,true)],
+  ["5","Sankey mit Zahlen","Links die Quellen, rechts die Verbraucher, die Bänder so breit wie die Leistung. Werte auf den Stirnseiten.",L=>sankey(L,true)],
+  ["6","Sankey ohne Zahlen","Nur die Bänder. Man sieht sofort, wohin der größte Teil geht.",L=>sankey(L,false)],
+  ["7","Haus in der Mitte","Das Haus groß in der Mitte mit seinem Verbrauch, Quellen fließen von links hinein, das Netz rechts hinein oder hinaus.",hausMitte],
+  ["8","Raute wie in den Hersteller-Apps","PV oben, Akku links, Haus rechts, Netz unten, Knoten in der Mitte. Zahl jeweils neben dem Symbol.",raute],
+  ["9","Waage: woher und wohin","Oben gestapelt, woher der Strom kommt, unten, wohin er geht, Längen nach kW. Striche laufen von oben nach unten.",waage],
+  ["10","Eine Zeile mit laufenden Pfeilen","Nur der Hauptweg: Quelle, Pfeil, Haus, Pfeil, Ziel des Überschusses. Darunter eine Textzeile zum Akku.",textzeile]
+];
+
+/* ein ganzes Banner zur Einordnung */
+function banner(inhalt){
+  return `<div class="buehne"><header>
+    <div class="zelle"><div><div class="place">Uedorf</div><div class="clock">10:30</div><div class="date">Montag, 28.09. · Stand 10:30</div></div></div>
+    <div class="zelle current"><div style="font-size:44px">⛅</div><div class="temp">17°</div>
+      <div class="details">wechselnd<br>gefühlt 17° · Wolken 60 % · Sonne 53 %<br>Wind 1 km/h, Böen 7 km/h</div></div>
+    <div class="zelle today"><div class="summary">Heute wechselnd mit etwas Regen, 15–27 °C</div>
+      <div class="sub">💧 Regenrisiko bis 3 %, 0,3 mm</div><div class="sub">☀ 6,8 h Sonne</div><div class="sub">▲ 07:27 · ▼ 19:16</div>
+      <div class="sub">⚑ Wind bis 10 km/h, Böen 22 km/h</div><div class="sub gew">⚡ Gewitter nicht ausgeschlossen</div></div>
+    <div class="zelle solar">${inhalt}</div></header></div>`;
+}
+let h=`<h2>Einordnung im Banner, Konzept 1 um 10:30</h2>`+banner(KONZEPTE[0][3](LAGEN[0]));
+for(const [nr,titel,text,fn] of KONZEPTE){
+  h+=`<h2>${nr} · ${titel}</h2><p>${text}</p><div class="reihe">`;
+  for(const L of LAGEN) h+=`<div class="kasten ${L.sky}">${fn(L)}<div class="l">${L.z} · ${L.t}</div></div>`;
+  h+=`</div>`;
+}
+document.getElementById("a").innerHTML=h;
+</script>
+</body></html>

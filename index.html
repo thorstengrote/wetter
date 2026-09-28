@@ -151,7 +151,10 @@ header.himmel{border-color:rgba(255,255,255,.28)}
 header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 
 /* ---------- Solar ---------- */
-.solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px}
+.solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px;align-items:flex-end}
+/* Fluss im Solarblock: Striche wandern in Stromrichtung */
+@keyframes solfluss{to{stroke-dashoffset:-24}}
+.solfl{animation:solfluss 1s linear infinite}
 .solar:active{background:rgba(255,255,255,.06)}
 .solar[hidden]{display:none}
 /* Drei Spalten fester Breite: Batterie und Knoten auf einer Achse, schmale
@@ -2601,6 +2604,81 @@ const SOLAR=(()=>{
     return {symbol,quer,senk,balken};
   }
 
+  /* --- Fluss und Streifen, Stand 28.09.2026 --------------------------
+     Oben der Fluss: Netz oben links, Akku unten links, Haus in der Mitte,
+     PV unten rechts, damit das Modul unter der Sonne des Himmelsbilds steht.
+     Aller Strom laeuft durchs Haus, die Dicke der Leitung waechst mit den kW,
+     die Striche laufen in Flussrichtung. Unten der Stundenstreifen wie
+     bisher, nur so breit wie der Block, seine Grundlinie auf der letzten
+     Textzeile des Tagesblocks. Entwurf: entwurf-solarfluss3.html. */
+  const FB=268, FHOCH=138, SOBEN=94, SHOCH=44;
+  function streifenBreit(ST,morgen){
+    const n=SBIS-SVON+1, gap=3, bw=(FB-(n-1)*gap)/n, hoehe=SHOCH;
+    let s="";
+    for(let t=SVON;t<=SBIS;t++){
+      const e=ST[t], v=e.pv, hh=Math.max(1.5,(v/10)*(hoehe-6));
+      const x=(t-SVON)*(bw+gap), y=SOBEN+hoehe-hh, u=v-e.haus;
+      const f=!e.gemessen ? "#5b6b7d" : u>1.0 ? "#3ddc97" : u>0 ? "#9ad9b5" : "#5b6b7d";
+      s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}"
+               rx="2" fill="${f}" opacity="${e.gemessen?1:.30}"/>`;
+      if(e.teil>0.02){
+        const th=Math.max(1.5,(e.teil/10)*(hoehe-6));
+        const tf=e.teilU>1.0?"#3ddc97":e.teilU>0?"#9ad9b5":"#8b97a6";
+        s+=`<rect x="${x.toFixed(1)}" y="${(SOBEN+hoehe-th).toFixed(1)}" width="${bw.toFixed(1)}"
+                 height="${th.toFixed(1)}" rx="2" fill="${tf}"/>`;
+      }
+      if(!e.gemessen) s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}"
+               height="${hh.toFixed(1)}" rx="2" fill="none" stroke="#c5ced8"
+               stroke-width="1" stroke-opacity="${e.teil>0.02?".8":".45"}"/>`;
+    }
+    if(morgen) s+=`<text x="0" y="${SOBEN+8}" font-size="8.5" font-weight="700"
+                style="fill:var(--leise,#8b97a6)" letter-spacing=".3">morgen</text>`;
+    return s;
+  }
+  const IK={
+    pv:(x,y,g,f="#ffd166")=>`<g transform="translate(${x} ${y}) scale(${g/24})"><circle cx="17.5" cy="4.5" r="3.2" fill="${f}"/>
+      <g stroke="${f}" stroke-width="1.3" stroke-linecap="round"><path d="M17.5 -.6v1.3M22.6 4.5h-1.3M21.1 .9l-.9.9M13.9 .9l.9.9"/></g>
+      <path d="M1 20 4.2 9.5h14.6L22 20z" fill="${f}"/><path d="M9 9.5 8 20M14.3 9.5 15.3 20M2.5 14.8h18" stroke="#1a2430" stroke-width="1.1" fill="none"/>
+      <path d="M11.5 20v3M8 23.2h7" stroke="${f}" stroke-width="1.6" stroke-linecap="round"/></g>`,
+    haus:(x,y,g,f="#f2f5f9")=>`<g transform="translate(${x} ${y}) scale(${g/24})"><path d="M2 22V10.5L12 2l10 8.5V22z" fill="${f}"/>
+      <rect x="9.3" y="14" width="5.4" height="8" fill="#1a2430" opacity=".55"/></g>`,
+    netz:(x,y,g,f="#dfe6ee")=>`<g transform="translate(${x} ${y}) scale(${g/24})" stroke="${f}" stroke-width="1.9" fill="none"
+      stroke-linecap="round" stroke-linejoin="round"><path d="M8 23 12 2l4 21M9.5 15h5M6 7h12M4 11h16M10.5 9.5 13.5 13M13.5 9.5 10.5 13"/></g>`
+  };
+  function fluss(){
+    const g=gemittelt();
+    const pv=Math.max(0,Number(g.pv||0)), haus=Math.max(0,Number(g.haus||0));
+    const netz=Number(g.netz||0), akku=Number(g.akku||0);
+    const laden=Math.max(0,akku), entl=Math.max(0,-akku), ein=Math.max(0,netz), bez=Math.max(0,-netz);
+    const G=30, Hc=[134,40], A=[20,64], N=[20,16], P=[248,64], hl=[Hc[0]-17,Hc[1]+2], hr=[Hc[0]+17,Hc[1]+2];
+    const kurve=(a,b)=>`M${a[0]} ${a[1]}C${(a[0]+b[0])/2} ${a[1]} ${(a[0]+b[0])/2} ${b[1]} ${b[0]} ${b[1]}`;
+    const leitung=(d,kw,farbe)=>{
+      if(kw<0.05) return `<path d="${d}" stroke="rgba(255,255,255,.2)" stroke-width="1.4" fill="none"/>`;
+      const w=(1.6+Math.min(8,kw)*0.9).toFixed(1);
+      return `<path d="${d}" stroke="${farbe}" stroke-width="${w}" stroke-linecap="round" fill="none" opacity=".35"/>
+              <path d="${d}" stroke="${farbe}" stroke-width="${w}" stroke-linecap="round" fill="none" stroke-dasharray="3 9" class="solfl"/>`;
+    };
+    const zahl=(x,y,v)=>`<text x="${x}" y="${y}" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">${
+      Math.abs(v).toFixed(1).replace(".",",")}</text>`;
+    let s="";
+    s+=leitung(kurve([P[0]-17,P[1]],hr),pv,F_SOC);
+    s+=entl>0.05?leitung(kurve([A[0]+13,A[1]],[hl[0],hl[1]+6]),entl,F_AKKU):leitung(kurve([hl[0],hl[1]+6],[A[0]+13,A[1]]),laden,F_AKKU);
+    s+=bez>0.05?leitung(kurve([N[0]+17,N[1]],[hl[0],hl[1]-6]),bez,F_BEZUG):leitung(kurve([hl[0],hl[1]-6],[N[0]+17,N[1]]),ein,F_EIN);
+    /* Akku als verschachteltes SVG, sonst wie die bisherige Batterie */
+    s+=batterie(Number(jetzt.soc||0),laden>0.05,19,G).replace("<svg ",`<svg x="${A[0]-9.5}" y="${A[1]-G/2}" `);
+    s+=IK.haus(Hc[0]-G/2,Hc[1]-G/2-2,G)+IK.pv(P[0]-G/2,P[1]-G/2,G)+IK.netz(N[0]-G/2,N[1]-G/2,G,bez>0.05?F_BEZUG:ein>0.05?F_EIN:"#dfe6ee");
+    if(pv>0.05) s+=zahl(204,P[1]-12,pv);
+    if(laden+entl>0.05) s+=zahl(66,A[1]-12,laden+entl);
+    if(ein+bez>0.05) s+=zahl(78,N[1]+2,ein+bez);
+    /* Traegt nur eine Leitung Strom, und zwar genau den Verbrauch, steht die
+       Zahl schon dort. Am Haus waere sie doppelt. */
+    const aktiv=[pv,laden+entl,ein+bez].filter(v=>v>0.05);
+    if(!(aktiv.length===1 && Math.abs(aktiv[0]-haus)<0.05))
+      s+=`<text x="${Hc[0]}" y="${Hc[1]+27}" font-size="12.5" font-weight="700" fill="#fff" text-anchor="middle">${
+        haus.toFixed(1).replace(".",",")} kW</text>`;
+    return s;
+  }
+
   /* --- Der Block in der Kopfzeile ---------------------------------- */
   function zeichne(){
     const el=document.getElementById("solar");
@@ -2612,24 +2690,25 @@ const SOLAR=(()=>{
        wechselt abends auf den naechsten Tag. */
     const m=morgenModus();
     const ST=m?tagMorgen():tag();
-    /* Zwei Spalten, zwei Zeilen. Oben Batterie und Stundenstreifen, gleich
-       hoch, damit die Unterkante der Batterie auf der Grundlinie der Balken
-       steht. Unten Symbol und Strahl, der Strahl so breit wie der Streifen. */
-    const w=wohin();
-    el.innerHTML=`<div class="solarraster">
-      <div class="sr-links">${batterie(Number(jetzt.soc||0), Number(jetzt.akku||0)>0.05)}</div>
-      <div></div><div>${streifen(ST,44,m)}</div>
-      <div class="sr-links">${w.symbol}</div>
-      <div class="sr-links">${w.quer}</div><div>${w.balken}</div>
-      ${w.senk?`<div class="kn-senk">${w.senk}</div>`:""}</div>`;
-    /* Akkupfeil samt Zahl mittig auf die Achse und mittig in die Fuge */
-    const sk=el.querySelector(".kn-senk");
-    if(sk){
-      const r=el.querySelector(".solarraster"), R=r.getBoundingClientRect();
-      const a=r.children[0].querySelector("svg").getBoundingClientRect();
-      const y=r.children[3].querySelector("svg").getBoundingClientRect();
-      sk.style.left=(a.left-R.left+a.width/2-sk.offsetWidth/2).toFixed(2)+"px";
-      sk.style.top=(a.bottom-R.top+(y.top-a.bottom-sk.offsetHeight)/2).toFixed(2)+"px";
+    /* Oben der Fluss, unten der Streifen, siehe fluss() und streifenBreit() */
+    el.innerHTML=`<svg width="${FB}" height="${FHOCH}" viewBox="0 0 ${FB} ${FHOCH}"
+        style="display:block;overflow:visible">${fluss()}<g class="sstreifen">${streifenBreit(ST,m)}</g></svg>`;
+    /* Die Grundlinie des Streifens steht auf der letzten Zeile des
+       Tagesblocks. Der ist mittig gesetzt und mal vier, mal fuenf Zeilen
+       hoch, deshalb wird gemessen statt fest verschoben. Verschoben wird per
+       transform, das aendert die Hoehe des Banners nicht. Der ganze Block
+       rueckt hoechstens 11 Pixel, so viel gibt der Innenrand oben her. Den
+       Rest rueckt nur der Streifen; dort, wo er dann an die Symbole kaeme,
+       sind seine Balken frueh und spaet am Tag flach. */
+    const bild=el.firstElementChild;
+    const tb=kopf.querySelector(".today");
+    const letzte=tb&&[...tb.children].filter(c=>c.offsetParent!==null&&c.textContent.trim()).pop();
+    if(bild&&letzte){
+      const d=bild.getBoundingClientRect().bottom-letzte.getBoundingClientRect().bottom;
+      const k=Math.max(0,Math.min(11,d)), r=Math.max(0,Math.min(30,d-k));
+      bild.style.transform=k>0.5?`translateY(${(-k).toFixed(1)}px)`:"";
+      const sg=bild.querySelector(".sstreifen");
+      if(sg) sg.setAttribute("transform",r>0.5?`translate(0 ${(-r).toFixed(1)})`:"");
     }
     if(document.getElementById("sdetail").classList.contains("on")) detailZeigen();
   }

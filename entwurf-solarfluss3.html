@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Haus in der Mitte &ndash; Entwurf</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#070b10;color:#e6ecf3;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:17px;margin:30px 0 2px}
+p{margin:4px 0 10px;color:#aab6c3;font-size:14px;max-width:1300px;line-height:1.5}
+.reihe{display:flex;gap:10px;flex-wrap:nowrap}
+.kasten{border-radius:12px;padding:10px 12px 8px;width:292px;
+  background:linear-gradient(180deg,#3b75ab 0%,#427eb7 35%,#5286b5 70%,#5d88aa 100%)}
+.kasten.abend{background:linear-gradient(180deg,#163c62 0%,#34566d 35%,#5a6f66 70%,#686f48 100%)}
+.kasten.nacht{background:linear-gradient(180deg,#16284a 0%,#1d3254 35%,#253d61 70%,#2d476b 100%)}
+.kasten .l{font-size:11.5px;color:#fff;opacity:.8;margin-top:5px}
+svg text{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+@keyframes fl{to{stroke-dashoffset:-24}}
+.fl{animation:fl 1s linear infinite}
+@keyframes wf{from{transform:translateX(-18px)}to{transform:translateX(0)}}
+.buehne{width:1280px;margin-bottom:6px}
+header{position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.28);border-radius:15px;padding:10px 14px;
+  display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:stretch;
+  background:linear-gradient(180deg,#3b75ab 0%,#427eb7 35%,#5286b5 70%,#5d88aa 100%)}
+.zelle{display:flex;align-items:center;padding:2px 14px;color:#fff}
+.zelle:first-child{padding-left:2px}.zelle:last-child{padding-right:2px}
+.zelle + .zelle{border-left:1px solid rgba(255,255,255,.30)}
+.place{font-size:17px;font-weight:700;line-height:22px}.clock{font-size:36px;font-weight:750;line-height:40px}
+.date,.details,.sub{font-size:12.5px;line-height:18px;white-space:nowrap}
+.temp{font-size:36px;font-weight:750;line-height:40px}.current{gap:12px}
+.today{flex-direction:column;align-items:flex-start;justify-content:center;min-width:0}
+.summary{font-size:17px;font-weight:700;line-height:22px}.gew{color:#ffe08a}
+.solar{padding-left:14px}
+</style></head>
+<body>
+<h1>Konzept 7, Haus in der Mitte: zwei Anordnungen im Banner</h1>
+<p>Echtes Banner mit Sonne beziehungsweise Mond oben rechts, wie auf dem Tablet. Balkenstreifen unverändert unten. Die Zeilen über den Bannern gehören nur zum Entwurf.</p>
+<div id="a"></div>
+<script>
+const W=268, H=138, SY=94, SH=44, FH=84;   /* Streifen unten, Flussfläche oben */
+const PROG=[0,0.1,0.6,1.8,3.2,4.6,5.8,6.8,7.4,7.6,7.2,6.3,5.0,3.5,1.9,0.7,0.1];
+const HAUS=[0.5,0.6,0.9,0.8,0.7,0.8,1.1,1.0,0.9,1.0,0.8,0.9,1.3,1.6,1.4,1.2,1.4];
+const LAGEN=[
+  {z:"10:30",sky:"",     n:{pv:4.2,haus:0.8,akku:3.4,netz:0},  soc:46, st:10, t:"Vormittag, lädt"},
+  {z:"13:10",sky:"",     n:{pv:7.6,haus:1.1,akku:0,netz:6.5},  soc:100,st:13, t:"Mittag, speist ein"},
+  {z:"19:40",sky:"abend",n:{pv:0.1,haus:1.4,akku:-1.3,netz:0}, soc:62, st:19, t:"Abend, aus dem Akku"},
+  {z:"06:10",sky:"nacht",n:{pv:0,haus:0.6,akku:0,netz:-0.6},   soc:6,  st:6,  t:"Früh, aus dem Netz"},
+  {z:"22:30",sky:"nacht",n:{pv:0,haus:0.5,akku:-0.5,netz:0},   soc:35, st:22, t:"Nacht, Streifen morgen", morgen:true}
+];
+const F={pv:"#ffd166",haus:"#f2f5f9",akku:"#4fd6c9",ein:"#3ddc97",bez:"#ff7b6b",leer:"rgba(255,255,255,.2)"};
+const komma=v=>Math.abs(v).toFixed(1).replace(".",",");
+
+/* Flüsse aus dem Jetzt: wer liefert an wen */
+function fluesse(n){
+  const pvHaus=Math.min(n.pv,n.haus), laden=Math.max(0,n.akku), entl=Math.max(0,-n.akku);
+  const ein=Math.max(0,n.netz), bez=Math.max(0,-n.netz);
+  return {pvHaus, pvAkku:Math.min(laden,Math.max(0,n.pv-pvHaus)), pvNetz:ein, akkuHaus:entl, netzHaus:bez,
+          pv:n.pv, haus:n.haus, laden, entl, ein, bez};
+}
+
+/* ---------- Symbole ---------- */
+function pvIcon(x,y,s,f=F.pv){ const k=s/24;
+  return `<g transform="translate(${x} ${y}) scale(${k})"><circle cx="17.5" cy="4.5" r="3.2" fill="${f}"/>
+  <g stroke="${f}" stroke-width="1.3" stroke-linecap="round"><path d="M17.5 -.6v1.3M22.6 4.5h-1.3M21.1 .9l-.9.9M13.9 .9l.9.9"/></g>
+  <path d="M1 20 4.2 9.5h14.6L22 20z" fill="${f}"/><path d="M9 9.5 8 20M14.3 9.5 15.3 20M2.5 14.8h18" stroke="#1a2430" stroke-width="1.1" fill="none"/>
+  <path d="M11.5 20v3M8 23.2h7" stroke="${f}" stroke-width="1.6" stroke-linecap="round"/></g>`; }
+function hausIcon(x,y,s,f=F.haus){ const k=s/24;
+  return `<g transform="translate(${x} ${y}) scale(${k})"><path d="M2 22V10.5L12 2l10 8.5V22z" fill="${f}"/><rect x="9.3" y="14" width="5.4" height="8" fill="#1a2430" opacity=".55"/></g>`; }
+function netzIcon(x,y,s,f="#dfe6ee"){ const k=s/24;
+  return `<g transform="translate(${x} ${y}) scale(${k})" stroke="${f}" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8 23 12 2l4 21M9.5 15h5M6 7h12M4 11h16M10.5 9.5 13.5 13M13.5 9.5 10.5 13"/></g>`; }
+function akkuIcon(x,y,b,h,soc){
+  const kap=Math.max(2.5,h*.08), g=1.4, r=1.4, x0=x+1+r/2+g, x1=x+b-1-r/2-g, y0=y+kap+r/2+g, y1=y+h-1-r/2-g;
+  const n=5, zh=(y1-y0-(n-1)*g)/n, v=Math.max(0,Math.min(100,soc))/100*n, f=soc>=50?"#3ddc97":soc>=25?"#ffd166":"#ff7b6b";
+  let z=""; for(let i=0;i<n;i++){ const u=y1-i*(zh+g), vo=Math.max(0,Math.min(1,v-i)); if(vo>0) z+=`<rect x="${x0}" y="${u-zh*vo}" width="${x1-x0}" height="${zh*vo}" rx=".8" fill="${f}"/>`; }
+  return `<rect x="${x+b/2-b*.19}" y="${y}" width="${b*.38}" height="${kap+1}" rx="1" fill="#5b6b7d"/><rect x="${x+1}" y="${y+kap}" width="${b-2}" height="${h-kap-1}" rx="${b*.15}" fill="#1b232e" stroke="#6b7a8c" stroke-width="${r}"/>${z}`; }
+const T=(x,y,s,a="middle",f="#fff",g=12.5)=>`<text x="${x}" y="${y}" font-size="${g}" font-weight="700" fill="${f}" text-anchor="${a}">${s}</text>`;
+const TK=(x,y,s,a="middle")=>`<text x="${x}" y="${y}" font-size="12" font-weight="700" fill="#fff" text-anchor="${a}" stroke="rgba(8,14,22,.75)" stroke-width="3" paint-order="stroke">${s}</text>`;
+
+/* ---------- Streifen, unverändert, unten ---------- */
+function streifen(L){
+  const n=PROG.length, gap=3, bw=(W-(n-1)*gap)/n; let s="";
+  for(let i=0;i<n;i++){
+    const h=5+i, gem=!L.morgen&&h<L.st, v=gem?PROG[i]*(0.9+0.2*((i*37)%10)/10):PROG[i];
+    const hh=Math.max(1.5,(v/10)*(SH-6)), x=i*(bw+gap), y=SY+SH-hh, u=v-HAUS[i];
+    const f=!gem?"#5b6b7d":u>1?"#3ddc97":u>0?"#9ad9b5":"#5b6b7d";
+    s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="2" fill="${f}" opacity="${gem?1:.3}"/>`;
+    if(!gem) s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="2" fill="none" stroke="#c5ced8" stroke-width="1" stroke-opacity=".45"/>`;
+  }
+  if(L.morgen) s+=`<text x="0" y="${SY+8}" font-size="8.5" font-weight="700" fill="#dfe6ee" letter-spacing=".3">morgen</text>`;
+  return s;
+}
+
+/* ---------- Bausteine ---------- */
+const breite=kw=>(1.6+Math.min(8,kw)*0.9).toFixed(1);
+function leitung(d,kw,farbe,{zahl=true,anim=true,min=0.05}={}){
+  if(kw<min) return `<path d="${d}" stroke="${F.leer}" stroke-width="1.4" fill="none"/>`;
+  const w=breite(kw);
+  return `<path d="${d}" stroke="${farbe}" stroke-width="${w}" stroke-linecap="round" fill="none" opacity=".35"/>`+
+    (anim?`<path d="${d}" stroke="${farbe}" stroke-width="${w}" stroke-linecap="round" fill="none" stroke-dasharray="3 9" class="fl"/>`:"");
+}
+function punkte(d,kw,farbe){ /* Teilchen, Zahl nach Leistung */
+  if(kw<0.05) return `<path d="${d}" stroke="${F.leer}" stroke-width="1.4" fill="none"/>`;
+  const n=Math.max(1,Math.min(7,Math.round(kw*1.2))), dur=1.8; let s=`<path d="${d}" stroke="${farbe}" stroke-width="1.2" fill="none" opacity=".35"/>`;
+  for(let i=0;i<n;i++) s+=`<circle r="${(2+Math.min(3,kw*0.35)).toFixed(1)}" fill="${farbe}"><animateMotion dur="${dur}s" begin="${(-dur*i/n).toFixed(2)}s" repeatCount="indefinite" path="${d}"/></circle>`;
+  return s;
+}
+const svg=(inhalt,L)=>`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">${inhalt}${streifen(L)}</svg>`;
+
+
+/* Haus in der Mitte, zwei Anordnungen */
+function hausMitte2(L,tausch){
+  const f=fluesse(L.n), Hc=[134,40], A=tausch?[20,64]:[20,66];
+  const P=tausch?[248,64]:[20,16], N=tausch?[20,16]:[248,66];
+  const kurve=(a,b)=>`M${a[0]} ${a[1]}C${(a[0]+b[0])/2} ${a[1]} ${(a[0]+b[0])/2} ${b[1]} ${b[0]} ${b[1]}`;
+  const hl=[Hc[0]-(tausch?17:20),Hc[1]+2], hr=[Hc[0]+(tausch?17:20),Hc[1]+2];
+  let s="";
+  if(!tausch){
+    s+=leitung(kurve([P[0]+14,P[1]],[hl[0],hl[1]-6]),f.pvHaus,F.pv);
+    if(f.pvAkku>.05) s+=leitung(`M${P[0]} ${P[1]+14}V${A[1]-14}`,f.pvAkku,F.pv);
+    s+=leitung(kurve([A[0]+12,A[1]],[hl[0],hl[1]+6]),f.akkuHaus,F.akku);
+    s+=f.bez?leitung(kurve([N[0]-14,N[1]],hr),f.bez,F.bez):leitung(kurve(hr,[N[0]-14,N[1]]),f.pvNetz,F.ein);
+  }else{
+    /* PV rechts unten: alles läuft durchs Haus */
+    s+=leitung(kurve([P[0]-17,P[1]],hr),f.pv,F.pv);
+    s+=f.entl?leitung(kurve([A[0]+13,A[1]],[hl[0],hl[1]+6]),f.entl,F.akku):leitung(kurve([hl[0],hl[1]+6],[A[0]+13,A[1]]),f.laden,F.akku);
+    s+=f.bez?leitung(kurve([N[0]+17,N[1]],[hl[0],hl[1]-6]),f.bez,F.bez):leitung(kurve([hl[0],hl[1]-6],[N[0]+17,N[1]]),f.ein,F.ein);
+  }
+  const G=30;   /* alle vier Symbole gleich gross */
+  if(tausch){
+    s+=hausIcon(Hc[0]-G/2,Hc[1]-G/2-2,G)+pvIcon(P[0]-G/2,P[1]-G/2,G)+akkuIcon(A[0]-9.5,A[1]-G/2,19,G,L.soc)+netzIcon(N[0]-G/2,N[1]-G/2,G,f.bez?F.bez:f.ein?F.ein:"#dfe6ee");
+    /* Nur eine Leitung aktiv und sie trägt genau den Verbrauch: dann steht die
+       Zahl schon an der Leitung, am Haus wäre sie doppelt. */
+    const aktiv=[f.pv,f.laden+f.entl,f.ein+f.bez].filter(v=>v>0.05);
+    const doppelt=aktiv.length===1 && Math.abs(aktiv[0]-f.haus)<0.05;
+    if(!doppelt) s+=T(Hc[0],Hc[1]+27,komma(f.haus)+" kW");
+  }else{
+    s+=hausIcon(Hc[0]-18,Hc[1]-20,36)+pvIcon(P[0]-13,P[1]-13,26)+akkuIcon(A[0]-8,A[1]-13,16,26,L.soc)+netzIcon(N[0]-12,N[1]-12,24,f.bez?F.bez:f.ein?F.ein:"#dfe6ee");
+    s+=T(Hc[0],Hc[1]+30,komma(f.haus)+" kW");
+    s+=T(A[0]+14,A[1]+17,L.soc+" %","start","#fff",11.5);
+  }
+  if(!tausch){
+    if(f.pvHaus>.05) s+=T(78,P[1]+2,komma(f.pvHaus));
+    if(f.pvAkku>.05) s+=T(P[0]+8,A[1]-22,komma(f.pvAkku),"start");
+    if(f.akkuHaus>.05) s+=T(66,A[1]-12,komma(f.akkuHaus));
+    if(f.bez+f.pvNetz>.05) s+=T(204,N[1]-12,komma(f.bez+f.pvNetz));
+  }else{
+    if(f.pv>.05) s+=T(204,P[1]-12,komma(f.pv));
+    if(f.laden+f.entl>.05) s+=T(66,A[1]-12,komma(f.laden+f.entl));
+    if(f.ein+f.bez>.05) s+=T(78,N[1]+2,komma(f.ein+f.bez));
+  }
+  return svg(s,L);
+}
+
+/* Banner mit Sonne oder Mond oben rechts wie auf dem Tablet */
+function bannerMit(L,inhalt){
+  const nacht=L.sky==="nacht", abend=L.sky==="abend";
+  const himmel=nacht?"linear-gradient(180deg,#16284a,#1d3254 35%,#253d61 70%,#2d476b)":abend?"linear-gradient(180deg,#163c62,#34566d 35%,#5a6f66 70%,#686f48)":"linear-gradient(180deg,#3b75ab,#427eb7 35%,#5286b5 70%,#5d88aa)";
+  const gestirn=nacht
+    ?"radial-gradient(circle 24px at 95.5% 11%,rgba(176,192,212,.62),rgba(150,170,196,.55) 92%,transparent 100%),radial-gradient(circle 60px at 95.5% 11%,rgba(190,205,225,.14),transparent 100%)"
+    :"radial-gradient(circle 20px at 95.5% 11%,rgba(255,255,255,.97),rgba(255,255,255,.8) 45%,transparent 100%),radial-gradient(circle 58px at 95.5% 11%,rgba(255,255,255,.55),rgba(255,255,255,.2) 40%,transparent 100%),radial-gradient(circle 150px at 95.5% 11%,rgba(255,255,255,.28),rgba(255,255,255,.08) 45%,transparent 100%)";
+  return `<div class="buehne"><header style="background:${gestirn},${himmel}">
+    <div class="zelle"><div><div class="place">Uedorf</div><div class="clock">${L.z}</div><div class="date">Montag, 28.09. · Stand ${L.z}</div></div></div>
+    <div class="zelle current"><div style="font-size:44px">${nacht?"🌙":"⛅"}</div><div class="temp">17°</div>
+      <div class="details">wechselnd<br>gefühlt 17° · Wolken 60 % · Sonne 53 %<br>Wind 1 km/h, Böen 7 km/h</div></div>
+    <div class="zelle today"><div class="summary">${L.morgen?"Morgen sonnig, 14–26 °C":"Heute wechselnd mit etwas Regen, 15–27 °C"}</div>
+      <div class="sub">💧 Regenrisiko bis 3 %, 0,3 mm</div><div class="sub">☀ 6,8 h Sonne</div><div class="sub">▲ 07:27 · ▼ 19:16</div>
+      <div class="sub">⚑ Wind bis 10 km/h, Böen 22 km/h</div><div class="sub gew">⚡ Gewitter nicht ausgeschlossen</div></div>
+    <div class="zelle solar">${inhalt}</div></header></div>`;
+}
+let h="";
+const V_ALT=[["a","Netz unten rechts, auf Höhe des Akkus","PV oben links, Akku unten links, Haus in der Mitte, Netz unten rechts. Oben rechts bleibt frei für Sonne und Mond.",false],
+         ["b","PV und Netz getauscht: PV unten rechts, unter der Sonne","Netz oben links, Akku unten links, Haus in der Mitte, PV unten rechts. Der Strom zum Akku läuft durchs Haus, die Leitungen tragen die ganze PV-Leistung ins Haus und von dort weiter.",true]];
+const V=V_ALT.filter(v=>v[3]);
+for(const [k,t,txt,tausch] of V){
+  h+=`<h2>${k} · ${t}</h2><p>${txt}</p>`;
+  for(const L of LAGEN) h+=`<p style="margin:12px 0 4px;font-size:13px">${L.z} · ${L.t}</p>`+bannerMit(L,hausMitte2(L,tausch));
+}
+document.getElementById("a").innerHTML=h;
+</script>
+</body></html>
