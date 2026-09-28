@@ -2695,24 +2695,40 @@ const SOLAR=(()=>{
      Rendering: ohne Bewegung 1,9 %, so 2,5 %, die alte CSS-Animation 16,6 %.
      Der Solarblock liegt auf einer eigenen Ebene (will-change), damit der
      Himmel darunter nicht mitgezeichnet wird. Entwurf entwurf-flussleistung.html, G. */
+  /* Die vier Phasen werden nur einmal gebaut, wenn der Block neu gezeichnet
+     wird, also mit neuen Messwerten. Der Zeitgeber schaltet danach nur um,
+     welche Phase sichtbar ist. Vorher entstanden die Winkel jede Sekunde neu
+     samt Punkten auf den Kurven: auf dem Tablet 25 % gegen 18,6 % CPU ohne
+     Bewegung, gemessen am 28.09.2026 je 2 x 10 Minuten. */
+  const PHASEN=4, ABSTAND=16;
   let flussPhase=0;
   function spitzen(){
     const el=document.querySelector("#solar .solspitzen"); if(!el) return;
     let s="";
-    for(const p of document.querySelectorAll("#solar .solweg")){
-      const kw=Number(p.dataset.kw), f=p.dataset.f, w=3+Math.min(8,kw)*0.5;
-      let L=0; try{ L=p.getTotalLength(); }catch(e){ continue; }
-      for(let l=flussPhase%16+4;l<L-4;l+=16){
-        const a=p.getPointAtLength(l), b=p.getPointAtLength(Math.min(L,l+1));
-        const ang=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
-        s+=`<path d="M${(-w/2).toFixed(1)} ${(-w/2).toFixed(1)}L${(w/2).toFixed(1)} 0L${(-w/2).toFixed(1)} ${(w/2).toFixed(1)}"
-            transform="translate(${a.x.toFixed(1)} ${a.y.toFixed(1)}) rotate(${ang.toFixed(0)})" stroke="${f}"
-            stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+    for(let ph=0;ph<PHASEN;ph++){
+      let g="";
+      for(const p of document.querySelectorAll("#solar .solweg")){
+        const kw=Number(p.dataset.kw), f=p.dataset.f, w=3+Math.min(8,kw)*0.5;
+        let L=0; try{ L=p.getTotalLength(); }catch(e){ continue; }
+        for(let l=ph*ABSTAND/PHASEN+4;l<L-4;l+=ABSTAND){
+          const a=p.getPointAtLength(l), b=p.getPointAtLength(Math.min(L,l+1));
+          const ang=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
+          g+=`<path d="M${(-w/2).toFixed(1)} ${(-w/2).toFixed(1)}L${(w/2).toFixed(1)} 0L${(-w/2).toFixed(1)} ${(w/2).toFixed(1)}"
+              transform="translate(${a.x.toFixed(1)} ${a.y.toFixed(1)}) rotate(${ang.toFixed(0)})" stroke="${f}"
+              stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+        }
       }
+      s+=`<g visibility="${ph===flussPhase?"visible":"hidden"}">${g}</g>`;
     }
     el.innerHTML=s;
   }
-  setInterval(()=>{ if(document.hidden) return; flussPhase+=4; spitzen(); },1000);
+  setInterval(()=>{
+    if(document.hidden) return;
+    const gs=document.querySelectorAll("#solar .solspitzen > g"); if(!gs.length) return;
+    gs[flussPhase].setAttribute("visibility","hidden");
+    flussPhase=(flussPhase+1)%PHASEN;
+    gs[flussPhase].setAttribute("visibility","visible");
+  },1000);
 
   /* --- Der Block in der Kopfzeile ---------------------------------- */
   function zeichne(){
