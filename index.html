@@ -2611,7 +2611,9 @@ const SOLAR=(()=>{
      die Striche laufen in Flussrichtung. Unten der Stundenstreifen wie
      bisher, nur so breit wie der Block, seine Grundlinie auf der letzten
      Textzeile des Tagesblocks. Entwurf: entwurf-solarfluss3.html. */
-  const FB=268, FHOCH=138, SOBEN=94, SHOCH=44;
+  /* 240 Pixel wie der alte Block. Mit 268 wurde die Vorhersagespalte
+     schmaler, und ihre Zeilen, die nicht umbrechen, liefen ueber die Linie. */
+  const FB=240, FHOCH=138, SOBEN=94, SHOCH=44;
   function streifenBreit(ST,morgen){
     const n=SBIS-SVON+1, gap=3, bw=(FB-(n-1)*gap)/n, hoehe=SHOCH;
     let s="";
@@ -2650,7 +2652,7 @@ const SOLAR=(()=>{
     const pv=Math.max(0,Number(g.pv||0)), haus=Math.max(0,Number(g.haus||0));
     const netz=Number(g.netz||0), akku=Number(g.akku||0);
     const laden=Math.max(0,akku), entl=Math.max(0,-akku), ein=Math.max(0,netz), bez=Math.max(0,-netz);
-    const G=30, Hc=[134,40], A=[20,64], N=[20,16], P=[248,64], hl=[Hc[0]-17,Hc[1]+2], hr=[Hc[0]+17,Hc[1]+2];
+    const G=30, Hc=[FB/2,40], A=[18,64], N=[18,16], P=[FB-18,64], hl=[Hc[0]-17,Hc[1]+2], hr=[Hc[0]+17,Hc[1]+2];
     const kurve=(a,b)=>`M${a[0]} ${a[1]}C${(a[0]+b[0])/2} ${a[1]} ${(a[0]+b[0])/2} ${b[1]} ${b[0]} ${b[1]}`;
     const leitung=(d,kw,farbe)=>{
       if(kw<0.05) return `<path d="${d}" stroke="rgba(255,255,255,.2)" stroke-width="1.4" fill="none"/>`;
@@ -2667,9 +2669,9 @@ const SOLAR=(()=>{
     /* Akku als verschachteltes SVG, sonst wie die bisherige Batterie */
     s+=batterie(Number(jetzt.soc||0),laden>0.05,19,G).replace("<svg ",`<svg x="${A[0]-9.5}" y="${A[1]-G/2}" `);
     s+=IK.haus(Hc[0]-G/2,Hc[1]-G/2-2,G)+IK.pv(P[0]-G/2,P[1]-G/2,G)+IK.netz(N[0]-G/2,N[1]-G/2,G,bez>0.05?F_BEZUG:ein>0.05?F_EIN:"#dfe6ee");
-    if(pv>0.05) s+=zahl(204,P[1]-12,pv);
-    if(laden+entl>0.05) s+=zahl(66,A[1]-12,laden+entl);
-    if(ein+bez>0.05) s+=zahl(78,N[1]+2,ein+bez);
+    if(pv>0.05) s+=zahl((hr[0]+P[0])/2+6,P[1]-12,pv);
+    if(laden+entl>0.05) s+=zahl((A[0]+hl[0])/2-4,A[1]-12,laden+entl);
+    if(ein+bez>0.05) s+=zahl((N[0]+hl[0])/2+8,N[1]+2,ein+bez);
     /* Traegt nur eine Leitung Strom, und zwar genau den Verbrauch, steht die
        Zahl schon dort. Am Haus waere sie doppelt. */
     const aktiv=[pv,laden+entl,ein+bez].filter(v=>v>0.05);
@@ -2934,7 +2936,8 @@ function renderOutlook(){
 
   const info=entry.info, v=info.verdict;
   const word=target===isoDay(now)?"Heute":"Morgen";
-  summary.textContent=`${word} ${v.text}, ${Math.round(info.minT)}–${Math.round(info.maxT)}\u00a0°C`;
+  /* Wortverbinder nach dem Strich, sonst bricht die Zeile zwischen "14–" und "25 °C" */
+  summary.textContent=`${word} ${v.text}, ${Math.round(info.minT)}–\u2060${Math.round(info.maxT)}\u00a0°C`;
 
   todaySub.innerHTML=
     `<span class="inl">${mi("drop")}Regenrisiko bis ${pct(v.maxPop)}, ${n1(v.mm)}${NB}mm</span>`+
