@@ -151,7 +151,7 @@ header.himmel{border-color:rgba(255,255,255,.28)}
 header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 
 /* ---------- Solar ---------- */
-.solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px;align-items:flex-end}
+.solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px;align-items:center}
 /* Fluss im Solarblock: Striche wandern in Stromrichtung */
 @keyframes solfluss{to{stroke-dashoffset:-24}}
 .solfl{animation:solfluss 1s linear infinite}
@@ -2695,23 +2695,9 @@ const SOLAR=(()=>{
     /* Oben der Fluss, unten der Streifen, siehe fluss() und streifenBreit() */
     el.innerHTML=`<svg width="${FB}" height="${FHOCH}" viewBox="0 0 ${FB} ${FHOCH}"
         style="display:block;overflow:visible">${fluss()}<g class="sstreifen">${streifenBreit(ST,m)}</g></svg>`;
-    /* Die Grundlinie des Streifens steht auf der letzten Zeile des
-       Tagesblocks. Der ist mittig gesetzt und mal vier, mal fuenf Zeilen
-       hoch, deshalb wird gemessen statt fest verschoben. Verschoben wird per
-       transform, das aendert die Hoehe des Banners nicht. Der ganze Block
-       rueckt hoechstens 11 Pixel, so viel gibt der Innenrand oben her. Den
-       Rest rueckt nur der Streifen; dort, wo er dann an die Symbole kaeme,
-       sind seine Balken frueh und spaet am Tag flach. */
-    const bild=el.firstElementChild;
-    const tb=kopf.querySelector(".today");
-    const letzte=tb&&[...tb.children].filter(c=>c.offsetParent!==null&&c.textContent.trim()).pop();
-    if(bild&&letzte){
-      const d=bild.getBoundingClientRect().bottom-letzte.getBoundingClientRect().bottom;
-      const k=Math.max(0,Math.min(11,d)), r=Math.max(0,Math.min(30,d-k));
-      bild.style.transform=k>0.5?`translateY(${(-k).toFixed(1)}px)`:"";
-      const sg=bild.querySelector(".sstreifen");
-      if(sg) sg.setAttribute("transform",r>0.5?`translate(0 ${(-r).toFixed(1)})`:"");
-    }
+    /* Der Block steht senkrecht mittig im Feld. Die Ausrichtung auf die
+       letzte Textzeile des Tagesblocks liess oben kaum Rand, wenn der
+       Tagesblock nur vier Zeilen hatte. */
     if(document.getElementById("sdetail").classList.contains("on")) detailZeigen();
   }
 
