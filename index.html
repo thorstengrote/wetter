@@ -152,9 +152,10 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 
 /* ---------- Solar ---------- */
 .solar{gap:12px;cursor:pointer;-webkit-user-select:none;user-select:none;min-height:68px;align-items:center}
-/* Fluss im Solarblock: Striche wandern in Stromrichtung */
-@keyframes solfluss{to{stroke-dashoffset:-24}}
-.solfl{animation:solfluss 1s linear infinite}
+/* Fluss im Solarblock: Striche wandern in Stromrichtung. Keine CSS-Animation:
+   Firefox zeichnete das SVG auf dem Tablet 60 Mal pro Sekunde neu, zusammen
+   160 % CPU und 550 mA, der Akku war am 28.09.2026 nach drei Stunden leer.
+   Jetzt rueckt ein Zeitgeber die Striche zweimal pro Sekunde weiter. */
 .solar:active{background:rgba(255,255,255,.06)}
 .solar[hidden]{display:none}
 /* Drei Spalten fester Breite: Batterie und Knoten auf einer Achse, schmale
@@ -1109,7 +1110,7 @@ function diagPush(ev){
   Abruf: bei "Daily" bis Mitternacht UTC, bei "Hourly" bis zur naechsten
   vollen Stunde, sonst zwei Minuten.
 */
-const OM_BUDGET=7000, OM_BUDGET_KARTE=5500, OM_KEY="om-kontingent";
+const OM_BUDGET=7000, OM_BUDGET_KARTE=6000, OM_KEY="om-kontingent";
 function omKosten(url){
   const q=new URL(url).searchParams;
   const vars=["current","hourly","daily","minutely_15"]
@@ -2681,6 +2682,15 @@ const SOLAR=(()=>{
     return s;
   }
 
+  /* Ein Schritt pro Sekunde, nur wenn die Seite sichtbar ist. Zwei Schritte
+     kosteten auf dem Tablet noch rund 50 % CPU. */
+  let flussVersatz=0;
+  setInterval(()=>{
+    if(document.hidden) return;
+    flussVersatz=(flussVersatz-4)%12;
+    for(const p of document.querySelectorAll("#solar .solfl")) p.setAttribute("stroke-dashoffset",flussVersatz);
+  },1000);
+
   /* --- Der Block in der Kopfzeile ---------------------------------- */
   function zeichne(){
     const el=document.getElementById("solar");
@@ -3268,6 +3278,13 @@ function computeGridBox(){
       w=b.getWest() -dLon*GRID_PAD; e=b.getEast() +dLon*GRID_PAD;
     }
   }catch(err){ /* keep the fallback box */ }
+  /* Auf ein halbes Grad nach aussen runden. Vorher aenderte jede kleine
+     Aenderung des Ausschnitts, etwa Vollbild an oder aus nach einem Neustart,
+     den Schluessel des Zwischenspeichers, und die Karte wurde fuer 190
+     Abrufe neu geholt. Am 28.09.2026 war so das Kartenkontingent nach
+     vielen Neustarts um 16 Uhr aufgebraucht. */
+  const R=0.5;
+  s=Math.floor(s/R)*R; n=Math.ceil(n/R)*R; w=Math.floor(w/R)*R; e=Math.ceil(e/R)*R;
   return {s,n,w,e};
 }
 
@@ -3578,12 +3595,17 @@ function cacheKeyNow(box){
   const h=new Date().toISOString().slice(0,13);
   return `${h}|${box.s.toFixed(3)},${box.n.toFixed(3)},${box.w.toFixed(3)},${box.e.toFixed(3)}`;
 }
-function readCache(box){
+function readCache(box,auchAlt=false){
   try{
     const raw=localStorage.getItem(CACHE_KEY);
     if(!raw) return null;
     const c=JSON.parse(raw);
-    return c&&c.key===cacheKeyNow(box)&&Array.isArray(c.data)?c.data:null;
+    if(!c||!Array.isArray(c.data)) return null;
+    if(c.key===cacheKeyNow(box)) return c.data;
+    /* Ist das Kontingent aufgebraucht, lieber ein aelterer Film fuer denselben
+       Ausschnitt als gar keiner. Die Bilder tragen ihre echten Uhrzeiten. */
+    if(auchAlt&&c.key.split("|")[1]===cacheKeyNow(box).split("|")[1]) return c.data;
+    return null;
   }catch(e){ return null; }
 }
 function writeCache(box,data){
@@ -3610,7 +3632,10 @@ async function loadCloudForecast(){
     let j=readCache(gridBox);
     let fromCache=!!j;
     if(!j){
-      j=await fetchJson(url,"Karte");
+      try{ j=await fetchJson(url,"Karte"); }
+      catch(err){ j=readCache(gridBox,true); if(!j) throw err; fromCache=true; }
+    }
+    if(!fromCache){
       if(!Array.isArray(j)) j=[j];
       if(!j.length) throw new Error("Karte: keine Wolkendaten");
       /* keep only what the raster needs, so the cache stays small */
