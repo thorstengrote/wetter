@@ -25,6 +25,17 @@ TAG_AB=300            # 05:00 in Minuten seit Mitternacht
 NACHT_AB=1410         # 23:30
 PRUEFUNG=180          # 03:00
 
+# Sparbetrieb nach Ladestand, mit Abstand zwischen Ein und Aus, damit die
+# Helligkeit nicht hin und her springt. Am 30.09.2026 lief der Akku tagsueber
+# leer, und das Tablet startete zwischen 16:40 und 22:05 fuenfmal neu, weil es
+# bei Helligkeit 153 mehr verbrauchte, als das Netzteil lieferte. Bei 51 laedt
+# es auch dann noch.
+HELL_SPAR=51          # ab SPAR_AB Prozent abwaerts, auch tagsueber
+HELL_NOT=20           # ab NOT_AB Prozent abwaerts
+SPAR_AB=20
+NOT_AB=8
+SPAR_BIS=35           # erst ab diesem Ladestand wieder normal
+
 CPU_GRENZE=35         # Prozent
 MEM_GRENZE=400000     # kB frei
 
@@ -85,9 +96,23 @@ kiosk(){
     sag "Kiosk gestartet"
 }
 
+SPAR=0                # 0 normal, 1 Sparbetrieb, 2 Notbetrieb
 hell(){
     M=$(minuten)
     if [ "$M" -ge $TAG_AB ] && [ "$M" -lt $NACHT_AB ]; then W=$HELL_TAG; else W=$HELL_NACHT; fi
+    LVL=$(dumpsys battery | grep ' level:' | tr -dc 0-9)
+    if [ -n "$LVL" ]; then
+        ALT=$SPAR
+        if [ "$LVL" -le $NOT_AB ]; then SPAR=2
+        elif [ "$LVL" -le $SPAR_AB ] && [ $SPAR -lt 1 ]; then SPAR=1
+        elif [ "$LVL" -ge $SPAR_BIS ]; then SPAR=0
+        elif [ $SPAR -eq 2 ] && [ "$LVL" -gt $NOT_AB ]; then SPAR=1
+        fi
+        [ "$SPAR" != "$ALT" ] && sag "Akku ${LVL} Prozent, Stufe $ALT -> $SPAR"
+    fi
+    if [ $SPAR -eq 2 ] && [ $W -gt $HELL_NOT ]; then W=$HELL_NOT
+    elif [ $SPAR -eq 1 ] && [ $W -gt $HELL_SPAR ]; then W=$HELL_SPAR
+    fi
     IST=$(settings get system screen_brightness)
     if [ "$IST" != "$W" ]; then
         settings put system screen_brightness $W
