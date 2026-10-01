@@ -59,6 +59,34 @@ minuten(){ echo $(( 10#$(date +%H) * 60 + 10#$(date +%M) )); }
 # ohnehin als root und liest den Ladestrom deshalb direkt. Positiv heisst
 # laden, negativ heisst zehren.
 STROM=/sys/class/power_supply/Battery/current_now
+# Zustand des Ladechips bq25601. Er misst Eingangsspannung und -strom nicht,
+# meldet aber, ob er drosselt: REG08 Ladephase und Netzteil gut, REG0A Bit 6
+# Spannung am Eingang eingebrochen (VINDPM), Bit 5 Stromgrenze erreicht (IINDPM).
+# REG06 und REG00 zeigen, wo die Grenzen gerade stehen.
+LADER=/sys/class/hw_power/charger/bq2560x
+lader(){
+    for r in 00 06 08 0A; do
+        echo 0x$r > $LADER/reg_addr 2>/dev/null
+        printf "%s=%s " $r "$(cat $LADER/reg_value 2>/dev/null)"
+    done
+}
+
+# Untergrenze der Eingangsspannung (VINDPM, REG06 Bits 3..0, 3,9 V plus 100 mV
+# je Stufe). Ab Werk 0x55 = 4,4 V. An der Wandleitung bricht die Spannung unter
+# Last so weit ein, dass der Chip bei 4,4 V den Strom drosselt; bei 3,9 V
+# kamen im Test am 30.09.2026 rund 100 mA mehr im Akku an. Der Treiber setzt
+# den Wert bei Neustart und Steckwechsel zurueck, deshalb jede Minute pruefen.
+VINDPM=50
+vindpm(){
+    echo 0x06 > $LADER/reg_addr 2>/dev/null || return
+    IST=$(cat $LADER/reg_value 2>/dev/null)
+    [ -z "$IST" ] && return
+    if [ "$IST" != "$VINDPM" ]; then
+        echo 0x$VINDPM > $LADER/reg_value 2>/dev/null
+        sag "VINDPM $IST -> $(cat $LADER/reg_value 2>/dev/null)"
+    fi
+}
+
 bilanz(){
     n=0; s=0
     while [ $n -lt 5 ]; do
@@ -67,7 +95,7 @@ bilanz(){
         sleep 2
     done
     D=$(dumpsys battery)
-    echo "$(date '+%m-%d %H:%M')  $(echo "$D" | grep ' level:' | tr -dc 0-9)%  $(echo "$D" | grep ' voltage:' | tr -dc 0-9) mV  Hell $(settings get system screen_brightness)  Strom $((s / 5)) mA" >> $B
+    echo "$(date '+%m-%d %H:%M')  $(echo "$D" | grep ' level:' | tr -dc 0-9)%  $(echo "$D" | grep ' voltage:' | tr -dc 0-9) mV  Hell $(settings get system screen_brightness)  Strom $((s / 5)) mA  Lader $(lader)" >> $B
     if [ "$(wc -c < $B)" -gt 200000 ]; then
         tail -400 $B > $B.neu && mv $B.neu $B
     fi
@@ -147,6 +175,7 @@ bilanz
 while true; do
     sleep 60
     hell
+    vindpm
 
     RUNDE=$((RUNDE + 1))
     if [ $RUNDE -ge 10 ]; then RUNDE=0; bilanz; fi
