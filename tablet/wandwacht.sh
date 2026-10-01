@@ -19,7 +19,10 @@
 URL=http://127.0.0.1:8099/
 FF=org.mozilla.firefox
 
-HELL_TAG=153          # 60 Prozent, laut Messung +149 mA Bilanz
+HELL_TAG=120          # 47 Prozent. 153 ergab am 01.10.2026 mit Samsung-Netzteil
+                      # an der Wandleitung im Mittel -55 mA, 51 rund +200 mA.
+# Ohne root aenderbar: eine Zahl in /data/local/tmp/hell_tag gilt statt HELL_TAG.
+HELL_TAG_DATEI=/data/local/tmp/hell_tag
 HELL_NACHT=51         # 20 Prozent, laut Messung +390 mA Bilanz
 TAG_AB=300            # 05:00 in Minuten seit Mitternacht
 NACHT_AB=1410         # 23:30
@@ -65,11 +68,21 @@ STROM=/sys/class/power_supply/Battery/current_now
 # REG06 und REG00 zeigen, wo die Grenzen gerade stehen.
 LADER=/sys/class/hw_power/charger/bq2560x
 DATEN=/sys/class/hw_power/charger/charge_data
+# Registerzugriff geht ueber zwei Dateien (Adresse, dann Wert). Hauptschleife
+# und Versuchsschleife laufen parallel, deshalb mit Sperre, sonst landet ein
+# Wert im falschen Register.
+SPERRE=/data/local/tmp/.lader.sperre
+sperren(){ while ! mkdir $SPERRE 2>/dev/null; do sleep 1; done; }
+entsperren(){ rmdir $SPERRE 2>/dev/null; }
+rmdir $SPERRE 2>/dev/null
+
 lader(){
+    sperren
     for r in 00 06 08 0A; do
         echo 0x$r > $LADER/reg_addr 2>/dev/null
         printf "%s=%s " $r "$(cat $LADER/reg_value 2>/dev/null)"
     done
+    entsperren
     # Was der Huawei-Treiber selbst misst und vorgibt: Spannung und Strom am
     # Eingang, erkannter Netzteiltyp, Eingangsgrenze gesamt und wegen Waerme.
     for f in Vbus Ibus chargerType inputcurrent iin_thermal; do
@@ -117,7 +130,7 @@ kiosk(){
 SPAR=0                # 0 normal, 1 Sparbetrieb, 2 Notbetrieb
 hell(){
     M=$(minuten)
-    if [ "$M" -ge $TAG_AB ] && [ "$M" -lt $NACHT_AB ]; then W=$HELL_TAG; else W=$HELL_NACHT; fi
+    if [ "$M" -ge $TAG_AB ] && [ "$M" -lt $NACHT_AB ]; then W=$(tr -dc 0-9 < $HELL_TAG_DATEI 2>/dev/null); [ -z "$W" ] && W=$HELL_TAG; else W=$HELL_NACHT; fi
     LVL=$(dumpsys battery | grep ' level:' | tr -dc 0-9)
     if [ -n "$LVL" ]; then
         ALT=$SPAR
@@ -158,6 +171,41 @@ settings put system screen_brightness_mode 0
 sag "Start nach Neustart"
 hell
 kiosk
+
+# Versuchsschalter, ohne root von aussen zu bedienen (adb shell, ohne root):
+#   /data/local/tmp/iin_halten   enthaelt z. B. 09: REG00 alle 5 s auf diesen
+#                                Wert setzen (09 = 1000 mA Eingangsgrenze).
+#                                Der Huawei-Treiber drosselt bei "weak source"
+#                                auf 04 = 500 mA; damit testen wir, ob das
+#                                die Ladung bremst.
+#   /data/local/tmp/messen       jede Minute REG00, REG0A, Akkustrom und
+#                                Helligkeit nach /data/local/tmp/messung.log.
+HALTEN=/data/local/tmp/iin_halten
+MESSEN=/data/local/tmp/messen
+M_LOG=/data/local/tmp/messung.log
+versuch(){
+    n=0
+    while true; do
+        if [ -f $HALTEN ]; then
+            W=$(tr -dc 0-9a-f < $HALTEN)
+            if [ -n "$W" ]; then
+                sperren
+                echo 0x00 > $LADER/reg_addr
+                [ "$(cat $LADER/reg_value)" != "$W" ] && echo 0x$W > $LADER/reg_value
+                entsperren
+            fi
+        fi
+        n=$((n + 1))
+        if [ $n -ge 12 ] && [ -f $MESSEN ]; then
+            n=0
+            echo "$(date '+%m-%d %H:%M:%S')  halten=$(cat $HALTEN 2>/dev/null || echo -)  Strom $(cat $STROM) mA  Hell $(settings get system screen_brightness)  $(lader | cut -d' ' -f1-4)" >> $M_LOG
+            chmod 666 $M_LOG
+        fi
+        [ $n -ge 12 ] && n=0
+        sleep 5
+    done
+}
+versuch &
 
 GEPRUEFT=
 RUNDE=0
