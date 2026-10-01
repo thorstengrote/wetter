@@ -64,27 +64,17 @@ STROM=/sys/class/power_supply/Battery/current_now
 # Spannung am Eingang eingebrochen (VINDPM), Bit 5 Stromgrenze erreicht (IINDPM).
 # REG06 und REG00 zeigen, wo die Grenzen gerade stehen.
 LADER=/sys/class/hw_power/charger/bq2560x
+DATEN=/sys/class/hw_power/charger/charge_data
 lader(){
     for r in 00 06 08 0A; do
         echo 0x$r > $LADER/reg_addr 2>/dev/null
         printf "%s=%s " $r "$(cat $LADER/reg_value 2>/dev/null)"
     done
-}
-
-# Untergrenze der Eingangsspannung (VINDPM, REG06 Bits 3..0, 3,9 V plus 100 mV
-# je Stufe). Ab Werk 0x55 = 4,4 V. An der Wandleitung bricht die Spannung unter
-# Last so weit ein, dass der Chip bei 4,4 V den Strom drosselt; bei 3,9 V
-# kamen im Test am 30.09.2026 rund 100 mA mehr im Akku an. Der Treiber setzt
-# den Wert bei Neustart und Steckwechsel zurueck, deshalb jede Minute pruefen.
-VINDPM=50
-vindpm(){
-    echo 0x06 > $LADER/reg_addr 2>/dev/null || return
-    IST=$(cat $LADER/reg_value 2>/dev/null)
-    [ -z "$IST" ] && return
-    if [ "$IST" != "$VINDPM" ]; then
-        echo 0x$VINDPM > $LADER/reg_value 2>/dev/null
-        sag "VINDPM $IST -> $(cat $LADER/reg_value 2>/dev/null)"
-    fi
+    # Was der Huawei-Treiber selbst misst und vorgibt: Spannung und Strom am
+    # Eingang, erkannter Netzteiltyp, Eingangsgrenze gesamt und wegen Waerme.
+    for f in Vbus Ibus chargerType inputcurrent iin_thermal; do
+        printf "%s=%s " $f "$(cat $DATEN/$f 2>/dev/null)"
+    done
 }
 
 bilanz(){
@@ -175,7 +165,6 @@ bilanz
 while true; do
     sleep 60
     hell
-    vindpm
 
     RUNDE=$((RUNDE + 1))
     if [ $RUNDE -ge 10 ]; then RUNDE=0; bilanz; fi
