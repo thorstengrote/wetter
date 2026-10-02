@@ -231,6 +231,7 @@ type zustand struct {
 	fehler  string
 	seitPfd string
 	velux   *url.URL // Steuerdienst in hapwatch, nil heisst abgeschaltet
+	ef      *entfeuchter
 }
 
 // laden holt den gespeicherten Tag zurueck, und zwar ohne Blick auf die Uhr.
@@ -304,6 +305,7 @@ type ausgabe struct {
 	Jetzt    map[string]float64            `json:"jetzt"`
 	HeuteKwh float64                       `json:"heute_kwh"`
 	Stunden  map[string]map[string]float64 `json:"stunden"`
+	Entf     map[string]any                `json:"entfeuchter,omitempty"`
 }
 
 func rund(v float64, stellen int) float64 {
@@ -346,6 +348,9 @@ func (z *zustand) json() []byte {
 			"pv": rund(s.PV/n, 3), "haus": rund(s.Haus/n, 3),
 			"akku": rund(s.Akku/n, 3), "netz": rund(s.Netz/n, 3),
 		}
+	}
+	if z.ef != nil {
+		a.Entf = z.ef.status()
 	}
 	roh, _ := json.Marshal(a)
 	return roh
@@ -417,6 +422,11 @@ func main() {
 		prot  = flag.String("log", "", "Protokolldatei, leer heisst Standardfehler")
 		vlx   = flag.String("velux", "http://127.0.0.1:8098", "Steuerdienst in hapwatch, leer schaltet ihn ab")
 		einm  = flag.Bool("einmal", false, "einmal messen und beenden")
+		shIP  = flag.String("shelly", "192.168.2.160", "Shelly am Luftentfeuchter, leer schaltet die Regelung ab")
+		shMAC = flag.String("shelly-mac", "089272568D2C", "MAC des Shelly, zum Wiederfinden nach IP-Wechsel")
+		efKW  = flag.Float64("entfeuchter-kw", 0.4, "Leistung des Entfeuchters bis zur ersten Messung")
+		efDat = flag.String("entfeuchter-daten", "/data/local/tmp/wand/entfeuchter.json", "Stand der Regelung")
+		efSch = flag.String("entfeuchter-scharf", "/data/local/tmp/entfeuchter.scharf", "existiert sie, wird wirklich geschaltet")
 	)
 	flag.Parse()
 
@@ -457,6 +467,14 @@ func main() {
 		}
 	}
 	z.laden()
+	if *shIP != "" {
+		z.ef = neuerEntfeuchter(*efDat, *efSch, *shIP, *shMAC, *efKW, sag)
+		if z.ef.scharf {
+			sag("Entfeuchter: scharf")
+		} else {
+			sag("Entfeuchter: Probebetrieb")
+		}
+	}
 
 	mux := http.NewServeMux()
 	z.bediene(mux)
@@ -488,6 +506,9 @@ func main() {
 			if fehler == 1 || fehler%40 == 0 {
 				sag("keine Antwort vom Wechselrichter (%d): %v", fehler, err)
 			}
+			if z.ef != nil {
+				z.ef.veraltet(time.Now().In(ort))
+			}
 			return
 		}
 		if fehler > 0 {
@@ -495,6 +516,9 @@ func main() {
 			fehler = 0
 		}
 		z.nimm(m)
+		if z.ef != nil {
+			z.ef.pruefe(m)
+		}
 	}
 	messen()
 
