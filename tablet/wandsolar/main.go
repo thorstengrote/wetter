@@ -394,6 +394,11 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// Ohne diese Zeile haelt Firefox die Seite nach eigener Schaetzung
+		// fuer frisch und zeigt nach dem Ausrollen die alte Fassung, so am
+		// 02.10.2026 nach einem Neustart des Browsers. no-cache heisst: vor
+		// jeder Nutzung nachfragen. Unveraendert kostet das nur eine 304.
+		w.Header().Set("Cache-Control", "no-cache")
 		// ServeContent setzt Last-Modified, damit die Seite ihren eigenen
 		// Stand anzeigen kann, und beantwortet bedingte Anfragen.
 		http.ServeContent(w, r, "index.html", st.ModTime(), f)

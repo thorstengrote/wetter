@@ -2819,7 +2819,16 @@ const SOLAR=(()=>{
             <div class="paare">
               <div class="k">Leistung jetzt</div><div class="v">${z3(l.pv)} kW</div>
               <div class="k">Hausverbrauch jetzt</div><div class="v">${z3(l.haus)} kW</div>
-              <div class="k">Spitze heute</div><div class="v">${z3(z.spitze)} kW</div>
+              ${(()=>{
+                /* Gemessen und gerechnet getrennt halten. Vor der ersten
+                   Erzeugung stand hier die Spitze der Prognose, als waere
+                   sie gemessen. */
+                const gem=ST.reduce((a,e)=>Math.max(a,e.gemessen?e.pv:0),Number(l&&l.pv||0));
+                const offen=ST.some(e=>!e.gemessen&&!e.unbekannt&&e.h>=jetztStd&&e.pv>0.05);
+                const [k,v]=gem<0.05&&offen?["Spitze erwartet",z.spitze]
+                           :[offen?"Spitze bisher":"Spitze heute",gem];
+                return `<div class="k">${k}</div><div class="v">${z3(v)} kW</div>`;
+              })()}
               <div class="k">Ladezustand</div><div class="v">${Math.round(l.soc)} %</div>
               <div class="k">Akku geladen / entladen</div><div class="v">${z1(z.laden)} / ${z1(z.entladen)} kWh</div>
               <div class="k">Hausverbrauch heute</div><div class="v">${z1(z.haus)} kWh</div>
@@ -2847,7 +2856,10 @@ const SOLAR=(()=>{
   }
 
   function tagesChart(ST,b=560,h=186){
-    const VON=4,BIS=22,MAX=10,pL=26,pR=34,pT=9,pB=17;
+    /* Der ganze Tag. Vorher 4 bis 22 Uhr: morgens fehlten dann die
+       gemessenen Nachtstunden, die in "vom Netz" schon mitzaehlten. Am
+       02.10.2026 um 06:37 waren das 1,1 kWh Bezug, die man nicht sah. */
+    const VON=0,BIS=24,MAX=10,pL=26,pR=34,pT=9,pB=17;
     const iw=b-pL-pR, ih=h-pT-pB;
     const x=t=>pL+(t-VON)/(BIS-VON)*iw;
     const y=v=>pT+ih-(Math.max(0,v)/MAX)*ih;
@@ -2921,7 +2933,7 @@ const SOLAR=(()=>{
       if(e.ein>=.2)
         s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${(h-14)/2+4.5}" text-anchor="middle"
                   font-size="10.5" font-weight="700" fill="${tf}">${z1(e.ein)}</text>`;
-      if(t%3===0||t===VON)
+      if(t%3===0)
         s+=`<text x="${(i*zw+zw/2).toFixed(1)}" y="${h-1}" text-anchor="middle"
                   font-size="9" fill="#6c7b8c">${t}</text>`;
     }
