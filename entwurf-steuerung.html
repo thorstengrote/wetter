@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Haussteuerung Entwurf</title>
+<style>
+:root{
+  --bg:#0d131b; --flaeche:#141c27; --flaeche2:#1a2431; --linie:#253244;
+  --text:#e8eef5; --leise:#8b97a6; --sehrleise:#5b6b7d;
+  --pv:#ffd166; --haus:#63b3ff; --akku:#4fd6c9; --ein:#3ddc97; --netz:#ff7b6b;
+  --fenster:#1f2a38; --akzent:#63b3ff;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.entwurf{position:sticky;top:0;z-index:10;display:flex;gap:6px;align-items:center;
+  padding:10px 16px;background:#090e14;border-bottom:1px solid var(--linie);flex-wrap:wrap}
+.entwurf b{margin-right:10px;color:var(--leise);font-weight:600}
+.entwurf button{background:var(--flaeche2);color:var(--text);border:1px solid var(--linie);
+  border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer}
+.entwurf button.an{background:var(--akzent);color:#08111c;border-color:var(--akzent)}
+.schirm{display:none}
+.schirm.an{display:block}
+
+/* Rahmen der Anwendung */
+.app{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 50px)}
+nav.seite{background:#0a1018;border-right:1px solid var(--linie);padding:18px 12px}
+nav.seite .marke{font-weight:750;font-size:16px;padding:0 10px 16px}
+nav.seite .marke small{display:block;color:var(--leise);font-weight:400;font-size:12px}
+nav.seite a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;
+  color:var(--leise);text-decoration:none;margin-bottom:2px}
+nav.seite a.an{background:var(--flaeche2);color:var(--text)}
+nav.seite .gruppe{margin:18px 10px 6px;font-size:11px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--sehrleise)}
+nav.seite .punkt{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+nav.seite .neu{color:var(--sehrleise);border:1px dashed var(--linie);margin-top:8px}
+main{padding:22px 28px 40px;max-width:1240px}
+h1{font-size:24px;margin:0 0 4px}
+.unter{color:var(--leise);margin-bottom:18px}
+.karte{background:var(--flaeche);border:1px solid var(--linie);border-radius:12px;padding:16px 18px}
+.karte h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--leise);
+  margin:0 0 12px;font-weight:650}
+.raster{display:grid;gap:14px}
+.zahl{font-size:26px;font-weight:750;line-height:1.1}
+.zahl small{font-size:13px;color:var(--leise);font-weight:500}
+.klein{font-size:12px;color:var(--leise)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 9px;
+  border-radius:99px;background:var(--flaeche2);border:1px solid var(--linie);color:var(--leise)}
+.chip.gruen{color:var(--ein);border-color:#245c45}
+.chip.rot{color:var(--netz);border-color:#6a3330}
+.chip.blau{color:var(--haus);border-color:#28496b}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--linie);margin:4px 0 18px}
+.tabs span{padding:8px 14px;color:var(--leise);border-bottom:2px solid transparent;cursor:default}
+.tabs span.an{color:var(--text);border-color:var(--akzent)}
+.knopf{background:var(--flaeche2);color:var(--text);border:1px solid var(--linie);
+  border-radius:8px;padding:7px 13px;font:inherit}
+.knopf.haupt{background:var(--akzent);color:#08111c;border-color:var(--akzent);font-weight:650}
+table{border-collapse:collapse;width:100%}
+td,th{padding:7px 8px;border-bottom:1px solid var(--linie);text-align:left;vertical-align:top}
+th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--sehrleise);font-weight:600}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+
+/* PIN */
+.pin{min-height:calc(100vh - 50px);display:flex;align-items:center;justify-content:center}
+.pin .kasten{width:300px;text-align:center}
+.pin .stellen{display:flex;gap:12px;justify-content:center;margin:22px 0}
+.pin .stellen i{width:14px;height:14px;border-radius:50%;border:2px solid var(--leise)}
+.pin .stellen i.v{background:var(--text);border-color:var(--text)}
+.pin .tasten{display:grid;grid-template-columns:repeat(3,72px);gap:12px;justify-content:center}
+.pin .tasten span{height:72px;border-radius:50%;background:var(--flaeche2);border:1px solid var(--linie);
+  display:flex;align-items:center;justify-content:center;font-size:24px}
+.pin .tasten span.leer{visibility:hidden}
+
+/* Fluss jetzt */
+.jetzt{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:14px}
+.jetzt .karte{padding:14px 16px}
+.jetzt .t{font-size:12px;color:var(--leise);margin-bottom:6px;display:flex;gap:6px;align-items:center}
+
+/* Geraetekarten */
+.geraete{grid-template-columns:repeat(3,1fr)}
+.geraet{display:flex;flex-direction:column;gap:10px}
+.geraet .kopf{display:flex;justify-content:space-between;align-items:flex-start}
+.geraet .name{font-weight:700;font-size:16px}
+.geraet .mini{height:34px}
+.geraet.leer{border-style:dashed;align-items:center;justify-content:center;color:var(--sehrleise);min-height:170px}
+
+/* Plan */
+.plan svg{display:block;width:100%;height:auto}
+.legende{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--leise);margin-top:10px}
+.legende i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* Formular */
+.form{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.feld{display:grid;grid-template-columns:1fr auto;gap:4px 14px;align-items:center;
+  padding:10px 0;border-bottom:1px solid var(--linie)}
+.feld:last-child{border-bottom:0}
+.feld .n{font-weight:600}
+.feld .e{grid-column:1/-1;font-size:12px;color:var(--leise)}
+.eing{display:inline-flex;align-items:center;gap:6px}
+.eing input,.eing select{background:#0b1119;color:var(--text);border:1px solid var(--linie);
+  border-radius:7px;padding:6px 8px;font:inherit;width:74px;text-align:right}
+.eing select{width:auto;text-align:left}
+.schalter{width:40px;height:22px;border-radius:99px;background:var(--linie);position:relative}
+.schalter::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--leise)}
+.schalter.an{background:#2a6b51}
+.schalter.an::after{left:21px;background:var(--ein)}
+.wochen td{padding:5px 8px}
+.wochen .balken{position:relative;height:16px;background:#0b1119;border-radius:4px;min-width:280px}
+.wochen .balken i{position:absolute;top:0;bottom:0;background:#28496b;border-radius:4px}
+.segment{display:inline-flex;border:1px solid var(--linie);border-radius:8px;overflow:hidden}
+.segment span{padding:6px 12px;color:var(--leise)}
+.segment span.an{background:var(--ein);color:#08111c;font-weight:650}
+</style>
+</head>
+<body>
+
+<div class="entwurf">
+  <b>Entwurf, Daten erfunden</b>
+  <button data-s="pin">1 PIN</button>
+  <button data-s="uebersicht" class="an">2 Übersicht</button>
+  <button data-s="plan">3 Entfeuchter: Plan</button>
+  <button data-s="einst">4 Entfeuchter: Einstellungen</button>
+  <button data-s="verlauf">5 Entfeuchter: Verlauf</button>
+  <button data-s="neu">6 Neues Gerät</button>
+</div>
+
+<!-- 1 PIN -->
+<section class="schirm" id="pin">
+  <div class="pin"><div class="kasten">
+    <div style="font-size:20px;font-weight:700">Haussteuerung</div>
+    <div class="klein">Uedorf · Wandtablet 192.168.2.105</div>
+    <div class="stellen"><i class="v"></i><i class="v"></i><i></i><i></i></div>
+    <div class="tasten">
+      <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span>
+      <span>7</span><span>8</span><span>9</span><span class="leer"></span><span>0</span><span style="font-size:16px">&#9003;</span>
+    </div>
+    <div class="klein" style="margin-top:18px">Der Mac bleibt 30 Tage angemeldet.</div>
+  </div></div>
+</section>
+
+<!-- Rahmen fuer 2 bis 6 -->
+<section class="schirm an" id="rahmen">
+<div class="app">
+  <nav class="seite">
+    <div class="marke">Haussteuerung<small>Stand 09:14 · scharf</small></div>
+    <a href="#" data-s="uebersicht" class="an">&#9673; Übersicht</a>
+    <div class="gruppe">Geräte</div>
+    <a href="#" data-s="plan"><span class="punkt" style="background:var(--ein)"></span>Luftentfeuchter</a>
+    <a href="#"><span class="punkt" style="background:var(--haus)"></span>Wandtablet</a>
+    <a href="#" data-s="neu" class="neu">+ Gerät hinzufügen</a>
+    <div class="gruppe">Anlage</div>
+    <a href="#">Energie und Prognose</a>
+    <a href="#">Protokoll</a>
+    <a href="#">Zugang und PIN</a>
+  </nav>
+  <main id="inhalt"></main>
+</div>
+</section>
+
+<script>
+/* ---------- erfundene Daten ---------------------------------------- */
+const TAGE=[
+  {d:"Sa 03.10.",we:true, pv:53.7,soc:[7,100],laeufe:[{von:13.0,bis:17.7,q:"ein"}]},
+  {d:"So 04.10.",we:true, pv:8.6, soc:[62,31],laeufe:[{von:13.0,bis:13.72,q:"akku"}]},
+  {d:"Mo 05.10.",we:false,pv:31.2,soc:[28,100],laeufe:[{von:11.3,bis:16.8,q:"ein"}]},
+  {d:"Di 06.10.",we:false,pv:44.0,soc:[35,100],laeufe:[{von:11.0,bis:17.2,q:"ein"}]},
+  {d:"Mi 07.10.",we:false,pv:21.5,soc:[30,88], laeufe:[{von:12.2,bis:14.5,q:"ein"}]},
+  {d:"Do 08.10.",we:false,pv:36.0,soc:[24,100],laeufe:[{von:11.5,bis:16.3,q:"ein"}]},
+  {d:"Fr 09.10.",we:false,pv:11.8,soc:[18,9],  laeufe:[{von:17.2,bis:17.92,q:"netz"}]},
+];
+/* Stundenform der Erzeugung, Ostdach: frueher Gipfel */
+function pvStunden(sum){
+  const f=[];let s=0;
+  for(let h=0;h<24;h++){const x=(h+0.5-11.6)/3.1;const v=h>=7&&h<=18?Math.exp(-x*x):0;f.push(v);s+=v;}
+  return f.map(v=>v/s*sum);
+}
+const Q={ein:"var(--ein)",akku:"var(--akku)",netz:"var(--netz)"};
+const QT={ein:"Überschuss",akku:"aus dem Akku",netz:"vom Netz"};
+const h2t=h=>`${String(Math.floor(h)).padStart(2,"0")}:${String(Math.round((h%1)*60)).padStart(2,"0")}`;
+const dauer=l=>l.bis-l.von;
+const z1=v=>v.toFixed(1).replace(".",",");
+
+/* ---------- Bausteine ---------------------------------------------- */
+function planSvg(kompakt){
+  const b=1100, links=92, rechts=150, zeile=kompakt?30:44, oben=24;
+  const iw=b-links-rechts, h=oben+TAGE.length*zeile+6;
+  const x=t=>links+t/24*iw;
+  let s="";
+  for(let t=0;t<=24;t+=3){
+    s+=`<line x1="${x(t)}" y1="${oben-4}" x2="${x(t)}" y2="${h-4}" stroke="#1f2a38"/>
+        <text x="${x(t)}" y="${oben-9}" fill="#5b6b7d" font-size="11" text-anchor="middle">${t}</text>`;
+  }
+  TAGE.forEach((T,i)=>{
+    const y=oben+i*zeile, hh=zeile-8;
+    const von=T.we?13:11;
+    s+=`<rect x="${x(von)}" y="${y}" width="${x(18)-x(von)}" height="${hh}" fill="#1f2a38" rx="4"/>`;
+    const st=pvStunden(T.pv), mx=4.2;
+    let d=`M${x(0)} ${y+hh}`;
+    st.forEach((v,k)=>{d+=`L${x(k)} ${y+hh-Math.min(1,v/mx)*hh}L${x(k+1)} ${y+hh-Math.min(1,v/mx)*hh}`;});
+    d+=`L${x(24)} ${y+hh}Z`;
+    s+=`<path d="${d}" fill="#ffd166" opacity=".16"/>`;
+    T.laeufe.forEach(l=>{
+      s+=`<rect x="${x(l.von)}" y="${y+hh*0.3}" width="${Math.max(3,x(l.bis)-x(l.von))}" height="${hh*0.4}"
+              rx="3" fill="${Q[l.q]}"/>`;
+    });
+    if(i===0) s+=`<line x1="${x(9.23)}" y1="${y-2}" x2="${x(9.23)}" y2="${y+hh+2}" stroke="#e8eef5" stroke-opacity=".6"/>`;
+    const lz=T.laeufe.reduce((a,l)=>a+dauer(l),0);
+    s+=`<text x="${links-12}" y="${y+hh/2+4}" fill="${i===0?"#e8eef5":"#8b97a6"}" font-size="12" text-anchor="end">${T.d}</text>
+        <text x="${b-rechts+12}" y="${y+hh/2+4}" fill="#c9d2dc" font-size="12">${lz<1?Math.round(lz*60)+" min":z1(lz)+" h"}</text>
+        <text x="${b-rechts+70}" y="${y+hh/2+4}" fill="#8b97a6" font-size="12">${z1(T.pv)} kWh</text>`;
+  });
+  s+=`<text x="${b-rechts+12}" y="${oben-9}" fill="#5b6b7d" font-size="11">Laufzeit</text>
+      <text x="${b-rechts+70}" y="${oben-9}" fill="#5b6b7d" font-size="11">PV</text>`;
+  return `<svg viewBox="0 0 ${b} ${h}">${s}</svg>`;
+}
+const legende=`<div class="legende">
+  <span><i style="background:#1f2a38"></i>erlaubte Laufzeit</span>
+  <span><i style="background:#ffd166;opacity:.4"></i>erwartete Erzeugung</span>
+  <span><i style="background:var(--ein)"></i>läuft aus Überschuss</span>
+  <span><i style="background:var(--akku)"></i>Pflichtlauf aus dem Akku</span>
+  <span><i style="background:var(--netz)"></i>Pflichtlauf vom Netz</span></div>`;
+
+function summen(){
+  const l=TAGE.flatMap(T=>T.laeufe);
+  const ges=l.reduce((a,x)=>a+dauer(x),0);
+  const netz=l.filter(x=>x.q==="netz").reduce((a,x)=>a+dauer(x),0);
+  return {ges,netz};
+}
+
+function jetztLeiste(){
+  const k=(t,f,z,u)=>`<div class="karte"><div class="t"><span class="punkt" style="width:8px;height:8px;border-radius:50%;background:${f}"></span>${t}</div>
+    <div class="zahl">${z}</div><div class="klein">${u}</div></div>`;
+  return `<div class="jetzt">
+    ${k("Erzeugung","var(--pv)","1,42 <small>kW</small>","heute erwartet 53,7 kWh")}
+    ${k("Haus","var(--haus)","0,31 <small>kW</small>","Entfeuchter aus")}
+    ${k("Hausakku","var(--akku)","12 <small>%</small>","lädt mit 1,1 kW, voll gegen 12:40")}
+    ${k("Netz","var(--ein)","0,00 <small>kW</small>","Einspeisung ab etwa 12:40")}
+    ${k("Wandtablet","var(--leise)","79 <small>%</small>","Helligkeit 120, lädt +40 mA")}
+  </div>`;
+}
+
+/* ---------- Schirme ------------------------------------------------- */
+const S={};
+S.uebersicht=()=>`
+  <h1>Übersicht</h1><div class="unter">Samstag, 3. Oktober · 09:14 · Prognose von 09:00</div>
+  ${jetztLeiste()}
+  <div class="raster geraete">
+    <div class="karte geraet">
+      <div class="kopf"><div><div class="name">Luftentfeuchter</div><div class="klein">Shelly Plug M · 192.168.2.160</div></div>
+        <span class="chip gruen">scharf</span></div>
+      <div><span class="zahl">aus</span> <span class="klein">&nbsp;darf ab 13:00 laufen</span></div>
+      <div class="klein">Plan heute: 13:00 bis 17:40 aus Überschuss, 4,7 h</div>
+      <div class="klein">Letzte 7 Tage: 0,0 von höchstens 30 h · Minimum 5 h</div>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <span class="knopf">1 h jetzt</span><span class="knopf">Heute aus</span><span class="knopf haupt">Plan</span></div>
+    </div>
+    <div class="karte geraet">
+      <div class="kopf"><div><div class="name">Wandtablet</div><div class="klein">MediaPad T5 · Wächter</div></div>
+        <span class="chip blau">läuft</span></div>
+      <div><span class="zahl">79 %</span> <span class="klein">&nbsp;Akku, lädt</span></div>
+      <div class="klein">Helligkeit tags 120, nachts 51 · Sparstufe ab 20 %</div>
+      <div class="klein">Ladechip: 1,1 A, keine Drosselung seit Netzteilwechsel</div>
+      <div style="display:flex;gap:8px;margin-top:4px"><span class="knopf">Helligkeit</span><span class="knopf">Neustart</span></div>
+    </div>
+    <div class="karte geraet leer">+ Gerät hinzufügen<div class="klein" style="margin-top:6px">Shelly, Wallbox, Wärmepumpe …</div></div>
+  </div>
+  <div class="karte plan" style="margin-top:14px">
+    <h2>Die nächsten 7 Tage</h2>
+    ${planSvg(true)}${legende}
+  </div>`;
+
+S.plan=()=>{const z=summen();return `
+  <h1>Luftentfeuchter</h1><div class="unter">Shelly Plug M Gen3 · gemessen 0,38 kW · scharf seit 03.10. 08:50</div>
+  <div class="tabs"><span class="an">Plan</span><span>Einstellungen</span><span>Verlauf</span></div>
+  <div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+    <div class="karte"><h2>Geplant, 7 Tage</h2><div class="zahl">${z1(z.ges)} <small>h</small></div><div class="klein">höchstens 30 h, mindestens 5 h</div></div>
+    <div class="karte"><h2>Davon vom Netz</h2><div class="zahl" style="color:var(--netz)">${Math.round(z.netz*60)} <small>min</small></div><div class="klein">Freitag, Akku leer und kaum Sonne</div></div>
+    <div class="karte"><h2>Netzstrom</h2><div class="zahl">0,27 <small>kWh</small></div><div class="klein">etwa 7 ct</div></div>
+    <div class="karte"><h2>Nächster Schritt</h2><div class="zahl" style="font-size:20px">13:00 ein</div><div class="klein">sobald 5 min Einspeisung über 0,48 kW</div></div>
+  </div>
+  <div class="karte plan"><h2>Plan, gleitend 7 Tage</h2>${planSvg(false)}${legende}
+    <div class="klein" style="margin-top:12px">Gerechnet vom Tablet mit derselben Regel, die schaltet. Prognose Open-Meteo ICON, Abruf 09:00.
+      Pflichtläufe nur, wenn bis zum Ende der erlaubten Zeit kein Überschuss mehr zu erwarten ist.</div></div>`;};
+
+S.einst=()=>{
+  const tage=["Mo","Di","Mi","Do","Fr","Sa","So"];
+  const fen=t=>t>=5?[13,18]:[11,18];
+  const x=v=>v/24*100;
+  return `
+  <h1>Luftentfeuchter</h1><div class="unter">Änderungen gelten ab der nächsten Messung, spätestens nach 30 Sekunden</div>
+  <div class="tabs"><span>Plan</span><span class="an">Einstellungen</span><span>Verlauf</span></div>
+  <div class="form">
+    <div class="karte"><h2>Betrieb</h2>
+      <div class="feld"><span class="n">Modus</span><span class="segment"><span>Aus</span><span>Probe</span><span class="an">Scharf</span></span>
+        <span class="e">Probe rechnet und protokolliert, schaltet aber nicht.</span></div>
+      <div class="feld"><span class="n">Gerät</span><span class="eing">Shelly <input value="192.168.2.160" style="width:130px;text-align:left"></span>
+        <span class="e">Wird über die MAC 08:92:72:56:8D:2C wiedergefunden, falls sich die Adresse ändert.</span></div>
+      <div class="feld"><span class="n">Leistung</span><span class="eing"><select><option>gemessen 0,38 kW</option><option>fest</option></select></span></div>
+      <div class="feld"><span class="n">Selbstabschaltung am Shelly</span><span class="eing"><input value="15"> min</span>
+        <span class="e">Falls das Tablet ausfällt.</span></div>
+    </div>
+    <div class="karte"><h2>Erlaubte Laufzeit</h2>
+      <table class="wochen">${tage.map((t,i)=>{const [a,b]=fen(i);return `<tr><td style="width:36px">${t}</td>
+        <td><span class="eing"><input value="${a}:00" style="width:64px"> bis <input value="${b}:00" style="width:64px"></span></td>
+        <td><div class="balken"><i style="left:${x(a)}%;width:${x(b)-x(a)}%"></i></div></td></tr>`}).join("")}</table>
+    </div>
+    <div class="karte"><h2>Laufzeiten, gleitend über 7 Tage</h2>
+      <div class="feld"><span class="n">Höchstens</span><span class="eing"><input value="30"> h</span></div>
+      <div class="feld"><span class="n">Mindestens</span><span class="eing"><input value="5"> h</span>
+        <span class="e">Gegen Schimmel, auch ohne Sonne.</span></div>
+      <div class="feld"><span class="n">Mindestens je Tag</span><span class="eing"><input value="30"> min</span></div>
+      <div class="feld"><span class="n">Kürzester Lauf, kürzeste Pause</span><span class="eing"><input value="10"> min</span>
+        <span class="e">Schont den Kompressor.</span></div>
+    </div>
+    <div class="karte"><h2>Wann er läuft</h2>
+      <div class="feld"><span class="n">Ein bei Einspeisung über</span><span class="eing">Leistung + <input value="100"> W</span>
+        <span class="e">fünf Minuten lang</span></div>
+      <div class="feld"><span class="n">Aus bei Bezug oder Akkuentladung über</span><span class="eing"><input value="100"> W</span>
+        <span class="e">drei Minuten lang, erst wenn das Tagesminimum erreicht ist</span></div>
+      <div class="feld"><span class="n">Pflichtlauf aus dem Akku</span><div class="schalter an"></div>
+        <span class="e">Nur wenn der Akku den ganzen Block trägt, Untergrenze 5 % plus 3 % Polster.</span></div>
+      <div class="feld"><span class="n">Pflichtlauf vom Netz als letzte Möglichkeit</span><div class="schalter an"></div>
+        <span class="e">Aus heißt: lieber einen Tag ohne Lauf als Netzstrom.</span></div>
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+    <span class="knopf">Verwerfen</span><span class="knopf haupt">Speichern</span></div>`;};
+
+S.verlauf=()=>{
+  const z=[
+    ["Sa 03.10.","08:50","scharf geschaltet","",""],
+    ["Fr 02.10.","17:12","Probe: wäre eingeschaltet","Pflichtlauf, spätester Start","43 min"],
+    ["Fr 02.10.","12:05","Probe: wäre eingeschaltet","Überschuss 1,62 kW seit 12:00","4,9 h"],
+    ["Do 01.10.","16:44","Probe: wäre ausgeschaltet","kein Überschuss mehr, Akku −0,31 kW",""],
+    ["Do 01.10.","11:20","Probe: wäre eingeschaltet","Überschuss 0,94 kW seit 11:15","5,4 h"],
+  ];
+  return `
+  <h1>Luftentfeuchter</h1><div class="unter">Schaltprotokoll der letzten 28 Tage</div>
+  <div class="tabs"><span>Plan</span><span>Einstellungen</span><span class="an">Verlauf</span></div>
+  <div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+    <div class="karte"><h2>Letzte 7 Tage</h2><div class="zahl">0,0 <small>h</small></div><div class="klein">seit Scharfschaltung</div></div>
+    <div class="karte"><h2>Strom</h2><div class="zahl">0,00 <small>kWh</small></div><div class="klein">laut Shelly</div></div>
+    <div class="karte"><h2>Davon Netz</h2><div class="zahl">0 <small>%</small></div><div class="klein"></div></div>
+    <div class="karte"><h2>Schaltungen</h2><div class="zahl">0</div><div class="klein">im Mittel je Tag</div></div>
+  </div>
+  <div class="karte"><table>
+    <tr><th>Tag</th><th>Zeit</th><th>Was</th><th>Grund</th><th class="r">Dauer</th></tr>
+    ${z.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td class="klein">${r[3]}</td><td class="r">${r[4]}</td></tr>`).join("")}
+  </table></div>`;};
+
+S.neu=()=>`
+  <h1>Gerät hinzufügen</h1><div class="unter">Jedes Gerät ist ein Schalter plus eine Regel. Der Luftentfeuchter ist die erste.</div>
+  <div class="raster" style="grid-template-columns:1fr 1fr">
+    <div class="karte"><h2>1 · Schalter</h2>
+      <div class="feld"><span class="n">Shelly im Netz gefunden</span><span class="chip">3</span></div>
+      <table>
+        <tr><td>Shelly Plug M Gen3</td><td class="klein">192.168.2.160</td><td class="klein">belegt: Luftentfeuchter</td></tr>
+        <tr><td>Shelly Plus 1PM</td><td class="klein">192.168.2.171</td><td><span class="knopf">wählen</span></td></tr>
+        <tr><td>Shelly Plug S</td><td class="klein">192.168.2.183</td><td><span class="knopf">wählen</span></td></tr>
+      </table>
+      <div class="klein" style="margin-top:10px">Später auch: Tasmota, Fritz!DECT, SwitchBot.</div>
+    </div>
+    <div class="karte"><h2>2 · Regel</h2>
+      <div class="feld"><span class="n">Überschuss nutzen</span><span class="chip gruen">gewählt</span>
+        <span class="e">Läuft, wenn eingespeist wird. Erlaubte Zeiten, Höchst- und Mindestlaufzeit wie beim Entfeuchter.</span></div>
+      <div class="feld"><span class="n">Einmal pro Tag fertig bis</span><span class="chip">z. B. Waschmaschine</span>
+        <span class="e">Startet in der sonnigsten Zeit, spätestens so, dass das Programm bis zur Uhrzeit fertig ist.</span></div>
+      <div class="feld"><span class="n">Feste Zeiten</span><span class="chip">Zeitschaltuhr</span></div>
+      <div class="feld"><span class="n">Nur messen</span><span class="chip">kein Schalten</span>
+        <span class="e">Zeigt Verbrauch im Plan, ohne einzugreifen.</span></div>
+    </div>
+  </div>
+  <div class="karte" style="margin-top:14px"><h2>Reihenfolge bei knappem Überschuss</h2>
+    <div class="klein">Mehrere Geräte teilen sich die Einspeisung. Wer oben steht, bekommt sie zuerst.</div>
+    <table style="margin-top:8px"><tr><td style="width:24px">1</td><td>Hausakku</td><td class="klein">fest, immer zuerst</td></tr>
+      <tr><td>2</td><td>Luftentfeuchter</td><td class="klein">0,38 kW</td></tr>
+      <tr><td>3</td><td style="color:var(--sehrleise)">neues Gerät</td><td></td></tr></table>
+  </div>`;
+
+/* ---------- Umschalten ---------------------------------------------- */
+function zeige(n){
+  document.querySelectorAll(".entwurf button").forEach(b=>b.classList.toggle("an",b.dataset.s===n));
+  document.getElementById("pin").classList.toggle("an",n==="pin");
+  document.getElementById("rahmen").classList.toggle("an",n!=="pin");
+  if(n!=="pin") document.getElementById("inhalt").innerHTML=S[n]();
+  document.querySelectorAll("nav.seite a").forEach(a=>a.classList.toggle("an",
+    a.dataset.s===n||(a.dataset.s==="plan"&&["einst","verlauf"].includes(n))));
+}
+document.querySelectorAll("[data-s]").forEach(b=>b.addEventListener("click",e=>{e.preventDefault();zeige(b.dataset.s);}));
+zeige(new URLSearchParams(location.search).get("s")||"uebersicht");
+</script>
+</body>
+</html>

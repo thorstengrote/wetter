@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -231,7 +232,7 @@ type zustand struct {
 	fehler  string
 	seitPfd string
 	velux   *url.URL // Steuerdienst in hapwatch, nil heisst abgeschaltet
-	ef      *entfeuchter
+	st      *steuerung
 }
 
 // laden holt den gespeicherten Tag zurueck, und zwar ohne Blick auf die Uhr.
@@ -264,6 +265,22 @@ func (z *zustand) sichern() {
 	if os.WriteFile(tmp, roh, 0644) == nil {
 		os.Rename(tmp, z.pfad)
 	}
+}
+
+// stundenPV gibt die gemessenen Stundenmittel der Erzeugung von heute.
+func (z *zustand) stundenPV() map[int]float64 {
+	z.Lock()
+	defer z.Unlock()
+	m := map[int]float64{}
+	if z.tag.Tag != heute() {
+		return m
+	}
+	for k, s := range z.tag.Stunden {
+		if h, err := strconv.Atoi(k); err == nil && s.N > 0 {
+			m[h] = s.PV / float64(s.N)
+		}
+	}
+	return m
 }
 
 func heute() string { return time.Now().In(ort).Format("2006-01-02") }
@@ -305,7 +322,6 @@ type ausgabe struct {
 	Jetzt    map[string]float64            `json:"jetzt"`
 	HeuteKwh float64                       `json:"heute_kwh"`
 	Stunden  map[string]map[string]float64 `json:"stunden"`
-	Entf     map[string]any                `json:"entfeuchter,omitempty"`
 }
 
 func rund(v float64, stellen int) float64 {
@@ -349,9 +365,6 @@ func (z *zustand) json() []byte {
 			"akku": rund(s.Akku/n, 3), "netz": rund(s.Netz/n, 3),
 		}
 	}
-	if z.ef != nil {
-		a.Entf = z.ef.status()
-	}
 	roh, _ := json.Marshal(a)
 	return roh
 }
@@ -381,21 +394,6 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 		}
 		mux.Handle("/velux/", p)
 	}
-	// Die Wetterseite schickt ihre Prognose fuer heute, damit der
-	// Entfeuchter seinen Pflichtlauf in die Sonne legen kann.
-	mux.HandleFunc("/prognose", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || z.ef == nil {
-			http.Error(w, "nein", 405)
-			return
-		}
-		var p efPrognose
-		if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&p); err != nil || len(p.PV) != 24 || len(p.Ein) != 24 {
-			http.Error(w, "unbrauchbar", 400)
-			return
-		}
-		z.ef.setzePrognose(p)
-		w.WriteHeader(204)
-	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
 			http.NotFound(w, r)
@@ -437,11 +435,7 @@ func main() {
 		prot  = flag.String("log", "", "Protokolldatei, leer heisst Standardfehler")
 		vlx   = flag.String("velux", "http://127.0.0.1:8098", "Steuerdienst in hapwatch, leer schaltet ihn ab")
 		einm  = flag.Bool("einmal", false, "einmal messen und beenden")
-		shIP  = flag.String("shelly", "192.168.2.160", "Shelly am Luftentfeuchter, leer schaltet die Regelung ab")
-		shMAC = flag.String("shelly-mac", "089272568D2C", "MAC des Shelly, zum Wiederfinden nach IP-Wechsel")
-		efKW  = flag.Float64("entfeuchter-kw", 0.4, "Leistung des Entfeuchters bis zur ersten Messung")
-		efDat = flag.String("entfeuchter-daten", "/data/local/tmp/wand/entfeuchter.json", "Stand der Regelung")
-		efSch = flag.String("entfeuchter-scharf", "/data/local/tmp/entfeuchter.scharf", "existiert sie, wird wirklich geschaltet")
+		lan   = flag.String("lan", ":8090", "Zugang aus dem WLAN fuer die Steuerung, leer schaltet ihn ab")
 	)
 	flag.Parse()
 
@@ -482,17 +476,23 @@ func main() {
 		}
 	}
 	z.laden()
-	if *shIP != "" {
-		z.ef = neuerEntfeuchter(*efDat, *efSch, *shIP, *shMAC, *efKW, sag)
-		if z.ef.scharf {
-			sag("Entfeuchter: scharf")
-		} else {
-			sag("Entfeuchter: Probebetrieb")
+	dir := filepath.Dir(*seite)
+	z.st = neueSteuerung(filepath.Join(dir, "steuerung.json"), filepath.Join(dir, "steuerung-stand.json"), sag)
+	z.st.stundenPV = z.stundenPV
+	// Uebergang vom 03.10.2026: vorher schaltete die Datei entfeuchter.scharf.
+	if _, err := os.Stat(filepath.Join(dir, "steuerung.json")); err != nil {
+		if _, err := os.Stat("/data/local/tmp/entfeuchter.scharf"); err == nil {
+			for _, g := range z.st.geraete {
+				g.cfg.Modus, g.modusAlt = "scharf", "scharf"
+			}
 		}
+		z.st.sichereCfg()
 	}
+	zu := neuerZugang(dir)
 
 	mux := http.NewServeMux()
 	z.bediene(mux)
+	z.st.bediene(mux, filepath.Dir(*seite))
 	srv := &http.Server{
 		Addr:         *hoere,
 		Handler:      mux,
@@ -506,6 +506,18 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+
+	if *lan != "" {
+		mux.HandleFunc("/api/anmelden", zu.anmelden)
+		lanSrv := &http.Server{Addr: *lan, Handler: zu.schuetze(mux),
+			ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second}
+		go func() {
+			sag("Steuerung im WLAN auf %s", *lan)
+			if err := lanSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				sag("WLAN-Zugang beendet: %v", err)
+			}
+		}()
+	}
 
 	schluss := make(chan os.Signal, 1)
 	signal.Notify(schluss, syscall.SIGINT, syscall.SIGTERM)
@@ -521,9 +533,7 @@ func main() {
 			if fehler == 1 || fehler%40 == 0 {
 				sag("keine Antwort vom Wechselrichter (%d): %v", fehler, err)
 			}
-			if z.ef != nil {
-				z.ef.veraltet(time.Now().In(ort))
-			}
+			z.st.veraltet(time.Now().In(ort))
 			return
 		}
 		if fehler > 0 {
@@ -531,9 +541,7 @@ func main() {
 			fehler = 0
 		}
 		z.nimm(m)
-		if z.ef != nil {
-			z.ef.pruefe(m)
-		}
+		z.st.pruefe(m)
 	}
 	messen()
 

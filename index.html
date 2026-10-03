@@ -180,6 +180,13 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 }
 .sdetail.on{display:block}
 .sdetail .schliessen{float:right;font-size:11px;color:#7d8896}
+.sdetail .zursteuerung{float:right;clear:right;margin-top:8px;background:#1a2431;color:#e8eef5;
+  border:1px solid #2c3a4d;border-radius:8px;padding:7px 14px;font:inherit;font-size:13px}
+/* Die Steuerung als Ebene ueber der Wand. Ein zweiter Tab waere die
+   Tab-Falle aus dem September, deshalb ein iframe. */
+.steuerebene{position:fixed;inset:0;z-index:2000;background:#0d131b;display:none}
+.steuerebene.on{display:block}
+.steuerebene iframe{width:100%;height:100%;border:0;display:block}
 .sdetail h4{margin:0 0 2px;font-size:21px;font-weight:750;color:#fff}
 .sdetail .unter{color:#8b97a6;font-size:12.5px;margin-bottom:12px}
 .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
@@ -2249,7 +2256,7 @@ const SOLAR=(()=>{
     const heute=isoDay(new Date());
     const morgen=isoDay(new Date(Date.now()+864e5));
     const ueber=isoDay(new Date(Date.now()+1728e5));
-    const neu=new Array(24).fill(0), neuM=new Array(24).fill(0);
+    const neu=new Array(24).fill(0), neuM=new Array(24).fill(0), alle=[];
     let sM=0, sU=0;
     for(let i=0;i<H.time.length;i++){
       /* Strahlung ist bei Open-Meteo das Mittel der Stunde davor: der Wert
@@ -2263,11 +2270,13 @@ const SOLAR=(()=>{
       const kwv=Math.min(10, schraeg
         ? (H.global_tilted_irradiance[i]||0)*FAKTOR
         : (H.shortwave_radiation[i]||0)*FAKTOR_WAAGERECHT);
+      alle.push([Math.round(beginn.getTime()/1000),+kwv.toFixed(3)]);
       if(tag===heute) neu[std]=kwv;
       else if(tag===morgen){ neuM[std]=kwv; sM+=kwv; }
       else if(tag===ueber) sU+=kwv;
     }
     prog=neu; progM=neuM; progMorgen=sM; progUeber=sU;
+    progStunden=alle; gemeldet=0;
     if(sonne&&sonne[heute]) sonnenunter=sonne[heute].set;
   }
 
@@ -2734,16 +2743,15 @@ const SOLAR=(()=>{
      des Luftentfeuchters in die sonnigste Stunde legt. Nur auf dem Tablet
      sinnvoll; anderswo laeuft die Anfrage ins Leere und stoert nicht.
      Hoechstens alle fuenf Minuten. */
-  let gemeldet=0;
+  /* Die ganze Woche, je Stunde Beginn und kW. Den Akku rechnet wandsolar
+     selbst, mit dem jetzigen Ladestand. */
+  let gemeldet=0, progStunden=[];
   function meldePrognose(){
     if(Date.now()-gemeldet<5*60*1000) return;
-    if(!prog.some(v=>v>0)) return;
+    if(!progStunden.length) return;
     gemeldet=Date.now();
-    const ST=tag();
     fetch("prognose",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({tag:isoDay(new Date()),
-        pv:ST.map(e=>+(+e.pv||0).toFixed(3)),ein:ST.map(e=>+(+e.ein||0).toFixed(3))})})
-      .catch(()=>{});
+      body:JSON.stringify({stunden:progStunden})}).catch(()=>{});
   }
 
   /* --- Der Block in der Kopfzeile ---------------------------------- */
@@ -2794,6 +2802,7 @@ const SOLAR=(()=>{
       <div class="z"${fa?` style="color:${fa}"`:""}>${gr}</div><div class="n">${kl}</div></div>`;
     const eh=`<span style='font-size:14px;color:#8b97a6'>`;
     return `<span class="schliessen">antippen zum Schließen</span>
+      ${location.hostname==="127.0.0.1"?`<button class="zursteuerung" onclick="event.stopPropagation();oeffneSteuerung()">Steuerung</button>`:""}
       <h4>Solar heute</h4>
       <div class="unter">${new Date().toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"long"})}
         · ${z1(WP)} kWp · SUN2000-10KTL-M1 mit 10 kWh Speicher${(()=>{
@@ -3944,6 +3953,28 @@ loadWeather();
    derselben runden Sekunde liegt wie bei allen anderen. */
 setInterval(ladeWennFaellig,REFRESH_MS+Math.floor(Math.random()*60000));
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)ladeWennFaellig()});
+</script>
+<div class="steuerebene" id="steuerebene"></div>
+<script>
+/* Steuerung auf der Wand: dieselbe Seite wie vom Mac, ohne PIN, weil sie
+   von 127.0.0.1 kommt. Zwei Minuten ohne Beruehrung, dann zurueck zur Wand,
+   damit das Tablet die Seite nicht laenger laedt als noetig. */
+let steuerUhr=0;
+function schliesseSteuerung(){
+  const e=document.getElementById("steuerebene");
+  e.classList.remove("on"); e.innerHTML=""; clearTimeout(steuerUhr);
+}
+function steuerAktiv(){ clearTimeout(steuerUhr); steuerUhr=setTimeout(schliesseSteuerung,120000); }
+function oeffneSteuerung(){
+  document.getElementById("sdetail").classList.remove("on");
+  const e=document.getElementById("steuerebene");
+  e.innerHTML='<iframe src="steuerung?wand=1"></iframe>';
+  e.classList.add("on"); steuerAktiv();
+}
+addEventListener("message",ev=>{
+  if(ev.data==="steuerung-zu") schliesseSteuerung();
+  else if(ev.data==="steuerung-aktiv") steuerAktiv();
+});
 </script>
 </body>
 </html>

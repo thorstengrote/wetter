@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Haussteuerung</title>
+<style>
+:root{
+  --bg:#0d131b; --flaeche:#141c27; --flaeche2:#1a2431; --linie:#253244;
+  --text:#e8eef5; --leise:#8b97a6; --sehrleise:#5b6b7d;
+  --pv:#ffd166; --haus:#63b3ff; --akku:#4fd6c9; --ein:#3ddc97; --netz:#ff7b6b; --akzent:#63b3ff;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+nav{background:#0a1018;border-right:1px solid var(--linie);padding:18px 12px}
+nav .marke{font-weight:750;font-size:16px;padding:0 10px 16px}
+nav .marke small{display:block;color:var(--leise);font-weight:400;font-size:12px}
+nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;
+  color:var(--leise);text-decoration:none;margin-bottom:2px;cursor:pointer}
+nav a.an{background:var(--flaeche2);color:var(--text)}
+nav .gruppe{margin:18px 10px 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--sehrleise)}
+.punkt{width:8px;height:8px;border-radius:50%;flex:0 0 auto;display:inline-block}
+main{padding:22px 28px 40px;max-width:1240px;min-width:0}
+h1{font-size:24px;margin:0 0 4px}
+.unter{color:var(--leise);margin-bottom:18px}
+.karte{background:var(--flaeche);border:1px solid var(--linie);border-radius:12px;padding:16px 18px;min-width:0}
+.karte h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--leise);margin:0 0 12px;font-weight:650}
+.raster{display:grid;gap:14px}
+.zahl{font-size:26px;font-weight:750;line-height:1.1}
+.zahl small{font-size:13px;color:var(--leise);font-weight:500}
+.klein{font-size:12px;color:var(--leise)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 9px;border-radius:99px;
+  background:var(--flaeche2);border:1px solid var(--linie);color:var(--leise)}
+.chip.gruen{color:var(--ein);border-color:#245c45}
+.chip.gelb{color:var(--pv);border-color:#6b5a28}
+.chip.blau{color:var(--haus);border-color:#28496b}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--linie);margin:4px 0 18px}
+.tabs a{padding:8px 14px;color:var(--leise);border-bottom:2px solid transparent;cursor:pointer}
+.tabs a.an{color:var(--text);border-color:var(--akzent)}
+button{background:var(--flaeche2);color:var(--text);border:1px solid var(--linie);border-radius:8px;
+  padding:7px 13px;font:inherit;cursor:pointer}
+button.haupt{background:var(--akzent);color:#08111c;border-color:var(--akzent);font-weight:650}
+button:disabled{opacity:.5}
+table{border-collapse:collapse;width:100%}
+td,th{padding:7px 8px;border-bottom:1px solid var(--linie);text-align:left;vertical-align:top}
+th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--sehrleise);font-weight:600}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+.jetzt{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:14px}
+.jetzt .t{font-size:12px;color:var(--leise);margin-bottom:6px;display:flex;gap:6px;align-items:center}
+.geraete{grid-template-columns:repeat(3,1fr)}
+.geraet{display:flex;flex-direction:column;gap:9px}
+.geraet .kopf{display:flex;justify-content:space-between;align-items:flex-start}
+.geraet .name{font-weight:700;font-size:16px}
+.knoepfe{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.plan svg{display:block;width:100%;height:auto}
+.legende{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--leise);margin-top:10px}
+.legende i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.feld{display:grid;grid-template-columns:1fr auto;gap:4px 14px;align-items:center;padding:10px 0;border-bottom:1px solid var(--linie)}
+.feld:last-child{border-bottom:0}
+.feld .n{font-weight:600}
+.feld .e{grid-column:1/-1;font-size:12px;color:var(--leise)}
+.eing{display:inline-flex;align-items:center;gap:6px}
+input,select{background:#0b1119;color:var(--text);border:1px solid var(--linie);border-radius:7px;padding:6px 8px;font:inherit}
+input[type=number],input.z{width:74px;text-align:right}
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--ein)}
+.segment{display:inline-flex;border:1px solid var(--linie);border-radius:8px;overflow:hidden}
+.segment a{padding:6px 12px;color:var(--leise);cursor:pointer}
+.segment a.an{background:var(--ein);color:#08111c;font-weight:650}
+.meldung{position:fixed;bottom:18px;right:18px;background:var(--flaeche2);border:1px solid var(--linie);
+  border-radius:10px;padding:10px 14px;display:none}
+.pin{min-height:100vh;display:flex;align-items:center;justify-content:center}
+.pin .kasten{width:300px;text-align:center}
+.pin .stellen{display:flex;gap:12px;justify-content:center;margin:22px 0}
+.pin .stellen i{width:14px;height:14px;border-radius:50%;border:2px solid var(--leise)}
+.pin .stellen i.v{background:var(--text);border-color:var(--text)}
+.pin .tasten{display:grid;grid-template-columns:repeat(3,72px);gap:12px;justify-content:center}
+.pin .tasten button{height:72px;border-radius:50%;font-size:24px}
+.zu{position:fixed;top:14px;right:18px;z-index:5;display:none}
+body.wand .zu{display:block}
+@media (max-width:900px){
+  .app{grid-template-columns:1fr} nav{display:none}
+  .jetzt{grid-template-columns:repeat(2,1fr)} .geraete,.form{grid-template-columns:1fr}
+  main{padding:16px}
+}
+</style>
+</head>
+<body>
+<button class="zu" id="zu">Schließen</button>
+<div id="wurzel"></div>
+<div class="meldung" id="meldung"></div>
+<script>
+"use strict";
+const WAND=new URLSearchParams(location.search).has("wand");
+if(WAND) document.body.classList.add("wand");
+document.getElementById("zu").onclick=()=>parent.postMessage("steuerung-zu","*");
+
+const Q={sonne:"var(--ein)",akku:"var(--akku)",netz:"var(--netz)"};
+const QT={sonne:"Sonne",akku:"Akku",netz:"Netz"};
+const TAGE=["Mo","Di","Mi","Do","Fr","Sa","So"];
+const z=(v,n=1)=>Number(v||0).toFixed(n).replace(".",",");
+const uhr=d=>new Date(d).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+const tag=d=>new Date(d).toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit"});
+const hm=h=>`${String(Math.floor(h)).padStart(2,"0")}:${String(Math.round((h%1)*60)).padStart(2,"0")}`;
+const dauerText=m=>m<60?`${Math.round(m)} min`:`${z(m/60)} h`;
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null;
+
+function meldung(t){const m=document.getElementById("meldung");m.textContent=t;m.style.display="block";
+  clearTimeout(meldung.u);meldung.u=setTimeout(()=>m.style.display="none",3500);}
+
+async function api(pfad,daten){
+  const o=daten===undefined?{cache:"no-store"}:{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(daten)};
+  const r=await fetch(pfad,o);
+  if(r.status===401){zeigePin();throw new Error("PIN");}
+  if(!r.ok) throw new Error(await r.text());
+  return r.status===204?null:r.json();
+}
+
+/* ---------- PIN ---------- */
+function zeigePin(){
+  ansicht="pin";
+  const w=document.getElementById("wurzel");
+  w.innerHTML=`<div class="pin"><div class="kasten">
+    <div style="font-size:20px;font-weight:700">Haussteuerung</div>
+    <div class="klein">Uedorf · Wandtablet</div>
+    <div class="stellen">${[0,1,2,3].map(i=>`<i class="${i<pin.length?"v":""}"></i>`).join("")}</div>
+    <div class="tasten">${[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map(k=>k===""?"<span></span>":`<button data-k="${k}">${k}</button>`).join("")}</div>
+    <div class="klein" id="pinfehler" style="margin-top:16px">Dieser Rechner bleibt 30 Tage angemeldet.</div></div></div>`;
+  w.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>taste(b.dataset.k));
+}
+async function taste(k){
+  if(k==="⌫") pin=pin.slice(0,-1); else if(pin.length<4) pin+=k;
+  zeigePin();
+  if(pin.length===4){
+    const r=await fetch("api/anmelden",{method:"POST",body:JSON.stringify({pin})});
+    pin="";
+    if(r.ok){ansicht="uebersicht";lade();}
+    else{zeigePin();document.getElementById("pinfehler").textContent=r.status===429?"Zu viele Versuche, eine Minute warten.":"Falsche PIN.";}
+  }
+}
+document.addEventListener("keydown",e=>{if(ansicht==="pin"&&/^[0-9]$|Backspace/.test(e.key))taste(e.key==="Backspace"?"⌫":e.key);});
+
+/* ---------- Laden ---------- */
+async function lade(){
+  try{
+    ST=await api("api/status");
+    for(const g of ST.geraete||[]) PLAN[g.cfg.id]=(await api("api/plan?id="+g.cfg.id));
+    if(!geraetId&&ST.geraete?.length) geraetId=ST.geraete[0].cfg.id;
+    if(ansicht!=="pin"&&!(ansicht==="geraet"&&reiter==="einst")) zeichne();
+  }catch(e){ if(e.message!=="PIN") meldung("Keine Verbindung zum Tablet"); }
+}
+
+/* ---------- Plan ---------- */
+function tageAus(plan){
+  const t=[];let akt=null;
+  for(const s of plan.slots||[]){
+    const d=new Date(s.zeit), k=d.toDateString();
+    if(!akt||akt.k!==k){akt={k,d,slots:[]};t.push(akt);}
+    akt.slots.push(s);
+  }
+  return t;
+}
+function planSvg(plan,kompakt){
+  const tage=tageAus(plan);
+  const b=1100,links=92,rechts=160,zeile=kompakt?30:46,oben=24;
+  const iw=b-links-rechts,h=oben+Math.max(1,tage.length)*zeile+6,x=t=>links+t/24*iw;
+  let s="";
+  for(let t=0;t<=24;t+=3) s+=`<line x1="${x(t)}" y1="${oben-4}" x2="${x(t)}" y2="${h-4}" stroke="#1f2a38"/>
+    <text x="${x(t)}" y="${oben-9}" fill="#5b6b7d" font-size="11" text-anchor="middle">${t}</text>`;
+  const jetzt=new Date();
+  tage.forEach((T,i)=>{
+    const y=oben+i*zeile,hh=zeile-8;let pv=0,lauf=0;let d="",soc="";
+    for(const sl of T.slots){
+      const d0=new Date(sl.zeit),t0=d0.getHours()+d0.getMinutes()/60,t1=t0+0.5;
+      if(sl.erlaubt) s+=`<rect x="${x(t0)}" y="${y}" width="${x(t1)-x(t0)+.3}" height="${hh}" fill="#1f2a38"/>`;
+      const ph=Math.min(1,sl.pv/8)*hh;
+      d+=`M${x(t0)} ${y+hh}V${y+hh-ph}H${x(t1)}V${y+hh}Z`;
+      soc+=(soc?"L":"M")+x(t1).toFixed(1)+" "+(y+hh-sl.soc/100*hh).toFixed(1);
+      pv+=sl.pv*0.5;
+      if(sl.an){lauf+=30;s+=`<rect x="${x(t0)}" y="${y+hh*0.32}" width="${x(t1)-x(t0)+.4}" height="${hh*0.36}" fill="${Q[sl.quelle]||"#888"}"/>`;}
+    }
+    s=`<path d="${d}" fill="#ffd166" opacity=".16"/>`+s+`<path d="${soc}" fill="none" stroke="#ffd166" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>`;
+    if(i===0){const t=jetzt.getHours()+jetzt.getMinutes()/60;s+=`<line x1="${x(t)}" y1="${y-2}" x2="${x(t)}" y2="${y+hh+2}" stroke="#e8eef5" stroke-opacity=".6"/>`;}
+    s+=`<text x="${links-12}" y="${y+hh/2+4}" fill="${i===0?"#e8eef5":"#8b97a6"}" font-size="12" text-anchor="end">${tag(T.d)}</text>
+        <text x="${b-rechts+12}" y="${y+hh/2+4}" fill="#c9d2dc" font-size="12">${lauf?dauerText(lauf):"–"}</text>
+        <text x="${b-rechts+76}" y="${y+hh/2+4}" fill="#8b97a6" font-size="12">${z(pv)} kWh</text>`;
+  });
+  s+=`<text x="${b-rechts+12}" y="${oben-9}" fill="#5b6b7d" font-size="11">Laufzeit</text>
+      <text x="${b-rechts+76}" y="${oben-9}" fill="#5b6b7d" font-size="11">PV</text>`;
+  return `<svg viewBox="0 0 ${b} ${h}">${s}</svg>`;
+}
+const legende=`<div class="legende"><span><i style="background:#1f2a38"></i>erlaubte Laufzeit</span>
+  <span><i style="background:#ffd166;opacity:.45"></i>erwartete Erzeugung</span>
+  <span><i style="background:none;border-top:1px dashed #ffd166;border-radius:0;height:0;width:14px"></i>Hausakku</span>
+  <span><i style="background:var(--ein)"></i>läuft mit Sonne</span><span><i style="background:var(--akku)"></i>aus dem Akku</span>
+  <span><i style="background:var(--netz)"></i>vom Netz</span></div>`;
+function planSumme(plan,leistung){
+  let m=0,netz=0;for(const s of plan.slots||[]) if(s.an){m+=30;if(s.quelle==="netz")netz+=30;}
+  return {m,netz,kwhNetz:netz/60*leistung};
+}
+
+/* ---------- Ansichten ---------- */
+function rahmen(inhalt){
+  const g=ST?.geraete||[];
+  const stand=ST?.jetzt?uhr(ST.jetzt.zeit):"–";
+  return `<div class="app"><nav>
+    <div class="marke">Haussteuerung<small>Messung ${stand}</small></div>
+    <a data-v="uebersicht" class="${ansicht==="uebersicht"?"an":""}">Übersicht</a>
+    <div class="gruppe">Geräte</div>
+    ${g.map(x=>`<a data-g="${x.cfg.id}" class="${ansicht==="geraet"&&geraetId===x.cfg.id?"an":""}">
+      <span class="punkt" style="background:${x.an?"var(--ein)":"var(--sehrleise)"}"></span>${esc(x.cfg.name)}</a>`).join("")}
+    <a data-v="tablet" class="${ansicht==="tablet"?"an":""}"><span class="punkt" style="background:var(--haus)"></span>Wandtablet</a>
+  </nav><main>${inhalt}</main></div>`;
+}
+function jetztLeiste(){
+  const j=ST.jetzt||{},t=ST.tablet||{};
+  const k=(n,f,w,u)=>`<div class="karte"><div class="t"><span class="punkt" style="background:${f}"></span>${n}</div><div class="zahl">${w}</div><div class="klein">${u}</div></div>`;
+  const netz=j.netz||0;
+  return `<div class="jetzt">
+    ${k("Erzeugung","var(--pv)",`${z(j.pv,2)} <small>kW</small>`,`heute ${z(j.heute_kwh)} kWh`)}
+    ${k("Haus","var(--haus)",`${z(j.haus,2)} <small>kW</small>`,"Verbrauch jetzt")}
+    ${k("Hausakku","var(--akku)",`${Math.round(j.soc||0)} <small>%</small>`,(j.akku||0)>0.05?`lädt mit ${z(j.akku,2)} kW`:(j.akku||0)<-0.05?`gibt ${z(-j.akku,2)} kW ab`:"ruht")}
+    ${k("Netz",netz>=0?"var(--ein)":"var(--netz)",`${z(Math.abs(netz),2)} <small>kW</small>`,netz>0.02?"Einspeisung":netz<-0.02?"Bezug":"ausgeglichen")}
+    ${k("Wandtablet","var(--leise)",`${t.akku??"–"} <small>%</small>`,`Helligkeit tags ${t.hell_tag??"–"}`)}
+  </div>`;
+}
+function geraetKarte(g){
+  const p=PLAN[g.cfg.id]?.plan||{},sm=planSumme(p,g.leistung_kw);
+  const modus={scharf:["scharf","gruen"],probe:["Probe","gelb"],aus:["aus",""]}[g.cfg.modus]||["?",""];
+  return `<div class="karte geraet">
+    <div class="kopf"><div><div class="name">${esc(g.cfg.name)}</div><div class="klein">Shelly ${esc(g.cfg.shelly_ip)} · ${z(g.leistung_kw,2)} kW</div></div>
+      <span class="chip ${modus[1]}">${modus[0]}</span></div>
+    <div><span class="zahl">${g.an?"läuft":"aus"}</span> <span class="klein">&nbsp;${esc(g.grund)}</span></div>
+    <div class="klein">Letzte 7 Tage ${dauerText(g.minuten_7t)} · geplant 7 Tage ${dauerText(sm.m)}${sm.netz?`, davon ${sm.netz} min vom Netz`:""}</div>
+    <div class="knoepfe"><button data-h="an1h" data-id="${g.cfg.id}">1 h jetzt</button>
+      <button data-h="heuteaus" data-id="${g.cfg.id}">Heute aus</button>
+      ${g.hand?`<button data-h="normal" data-id="${g.cfg.id}">Hand beenden</button>`:""}
+      <button class="haupt" data-g="${g.cfg.id}">Plan</button></div></div>`;
+}
+function uebersicht(){
+  const g=ST.geraete||[],t=ST.tablet||{};
+  return `<h1>Übersicht</h1><div class="unter">${new Date(ST.zeit).toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"})} · Prognose ${ST.prognose_stunden?"von "+uhr(ST.prognose_zeit):"fehlt noch"}</div>
+    ${jetztLeiste()}
+    <div class="raster geraete">${g.map(geraetKarte).join("")}
+      <div class="karte geraet"><div class="kopf"><div><div class="name">Wandtablet</div><div class="klein">MediaPad T5 · Wächter</div></div>
+        <span class="chip blau">läuft</span></div>
+        <div><span class="zahl">${t.akku??"–"} %</span> <span class="klein">&nbsp;${t.strom_ma>0?"lädt":"entlädt"} ${Math.abs(t.strom_ma||0)} mA</span></div>
+        <div class="klein">Helligkeit tags ${t.hell_tag}, nachts 51 · Sparstufe ab 20 %</div>
+        <div class="knoepfe"><button data-v="tablet">Einstellen</button></div></div>
+    </div>
+    ${g.map(x=>`<div class="karte plan" style="margin-top:14px"><h2>${esc(x.cfg.name)} · die nächsten 7 Tage</h2>${planSvg(PLAN[x.cfg.id]?.plan||{},true)}${legende}</div>`).join("")}`;
+}
+function geraetSicht(){
+  const g=(ST.geraete||[]).find(x=>x.cfg.id===geraetId);if(!g) return "";
+  const kopf=`<h1>${esc(g.cfg.name)}</h1><div class="unter">Shelly ${esc(g.cfg.shelly_ip)} · ${g.gemessen_kw>0.05?"gemessen "+z(g.gemessen_kw,2)+" kW":"Leistung "+z(g.leistung_kw,2)+" kW"} · ${esc(g.grund)}</div>
+    <div class="tabs"><a data-r="plan" class="${reiter==="plan"?"an":""}">Plan</a><a data-r="einst" class="${reiter==="einst"?"an":""}">Einstellungen</a><a data-r="verlauf" class="${reiter==="verlauf"?"an":""}">Verlauf</a></div>`;
+  if(reiter==="einst") return kopf+einstellungen(g);
+  if(reiter==="verlauf") return kopf+`<div id="verlauf" class="karte">lade…</div>`;
+  const pl=PLAN[g.cfg.id]?.plan||{},sm=planSumme(pl,g.leistung_kw),n=g.naechster;
+  return kopf+`<div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+      <div class="karte"><h2>Letzte 7 Tage</h2><div class="zahl">${z(g.minuten_7t/60)} <small>h</small></div><div class="klein">höchstens ${g.cfg.max_h_7t}, mindestens ${g.cfg.min_h_7t} h</div></div>
+      <div class="karte"><h2>Geplant, 7 Tage</h2><div class="zahl">${z(sm.m/60)} <small>h</small></div><div class="klein">ab jetzt</div></div>
+      <div class="karte"><h2>Davon vom Netz</h2><div class="zahl" style="color:${sm.netz?"var(--netz)":"var(--text)"}">${sm.netz} <small>min</small></div><div class="klein">etwa ${z(sm.kwhNetz,2)} kWh</div></div>
+      <div class="karte"><h2>Nächster Lauf</h2><div class="zahl" style="font-size:20px">${g.an?"läuft":n?tag(n)+" "+uhr(n):"keiner"}</div><div class="klein">${pl.faktor_heute&&Math.abs(pl.faktor_heute-1)>0.05?"heute "+Math.round(pl.faktor_heute*100)+" % der Prognose erreicht":"&nbsp;"}</div></div>
+    </div>
+    <div class="karte plan"><h2>Plan, gleitend 7 Tage</h2>${planSvg(pl,false)}${legende}
+      ${(pl.hinweise||[]).map(h=>`<div class="klein" style="color:var(--netz);margin-top:8px">${esc(h)}</div>`).join("")}
+      <div class="klein" style="margin-top:10px">Gerechnet vom Tablet mit derselben Regel, die schaltet, um ${pl.erstellt?uhr(pl.erstellt):"–"}.
+        Sonne zählt nur, soweit sie auch mit einem Drittel weniger Erzeugung reichen würde.</div></div>`;
+}
+function einstellungen(g){
+  const c=entwurf||(entwurf=JSON.parse(JSON.stringify(g.cfg)));
+  const zahl=(k,einh,schritt=1)=>`<span class="eing"><input type="number" step="${schritt}" data-c="${k}" value="${c[k]}"> ${einh}</span>`;
+  const haken=k=>`<input type="checkbox" data-c="${k}" ${c[k]?"checked":""}>`;
+  return `<div class="form">
+    <div class="karte"><h2>Betrieb</h2>
+      <div class="feld"><span class="n">Modus</span><span class="segment">${["aus","probe","scharf"].map(m=>`<a data-m="${m}" class="${c.modus===m?"an":""}">${{aus:"Aus",probe:"Probe",scharf:"Scharf"}[m]}</a>`).join("")}</span>
+        <span class="e">Probe rechnet und protokolliert, schaltet aber nicht.</span></div>
+      <div class="feld"><span class="n">Shelly</span><span class="eing"><input data-c="shelly_ip" value="${esc(c.shelly_ip)}" style="width:140px"></span>
+        <span class="e">Wird über die MAC ${esc(c.shelly_mac)} wiedergefunden, falls sich die Adresse ändert.</span></div>
+      <div class="feld"><span class="n">Leistung</span>${zahl("leistung_kw","kW",0.01)}
+        <span class="e"><label>${haken("leistung_fest")} fest, sonst misst der Shelly sie und dieser Wert gilt nur bis dahin</label></span></div>
+      <div class="feld"><span class="n">Selbstabschaltung am Shelly</span>${zahl("totmann_min","min")}<span class="e">Falls das Tablet ausfällt.</span></div>
+    </div>
+    <div class="karte"><h2>Erlaubte Laufzeit</h2><table>${TAGE.map((t,i)=>`<tr><td style="width:36px">${t}</td>
+      <td><span class="eing"><input class="z" data-zt="${i}" data-w="von" value="${hm(c.zeiten[i].von)}"> bis <input class="z" data-zt="${i}" data-w="bis" value="${hm(c.zeiten[i].bis)}"></span></td></tr>`).join("")}</table></div>
+    <div class="karte"><h2>Laufzeiten, gleitend über 7 Tage</h2>
+      <div class="feld"><span class="n">Höchstens</span>${zahl("max_h_7t","h",0.5)}</div>
+      <div class="feld"><span class="n">Mindestens</span>${zahl("min_h_7t","h",0.5)}<span class="e">Gegen Schimmel, auch ohne Sonne. Vorarbeit an Sonnentagen zählt.</span></div>
+      <div class="feld"><span class="n">Spätestens alle</span>${zahl("max_luecke_tage","Tage")}<span class="e">ein Lauf von mindestens</span></div>
+      <div class="feld"><span class="n">Lauf zählt ab</span>${zahl("min_lauf_min","min")}</div>
+      <div class="feld"><span class="n">Kürzester Lauf</span>${zahl("min_an_min","min")}</div>
+      <div class="feld"><span class="n">Kürzeste Pause</span>${zahl("min_aus_min","min")}<span class="e">Schont den Kompressor.</span></div>
+    </div>
+    <div class="karte"><h2>Strom</h2>
+      <div class="feld"><span class="n">Vor vollem Akku anlaufen</span>${haken("vorziehen")}<span class="e">Wenn die Prognose für den Rest des Tages genug Einspeisung erwartet.</span></div>
+      <div class="feld"><span class="n">Ein bei Einspeisung über</span><span class="eing">Leistung + <input type="number" data-c="ein_reserve_w" value="${c.ein_reserve_w}"> W</span><span class="e">fünf Minuten lang, auch ohne Plan</span></div>
+      <div class="feld"><span class="n">Aus bei Bezug über</span>${zahl("aus_bezug_w","W")}<span class="e">drei Minuten lang. Bei geplanten Sonnenläufen zählt nur Netzbezug, Akkustrom ist dann gewollt.</span></div>
+      <div class="feld"><span class="n">Pflichtlauf vom Netz als letzte Möglichkeit</span>${haken("netz_erlaubt")}<span class="e">Aus heißt: lieber eine Pflicht verfehlen als Netzstrom.</span></div>
+    </div></div>
+    <div class="knoepfe" style="justify-content:flex-end;margin-top:16px"><button id="verwerfen">Verwerfen</button><button class="haupt" id="speichern">Speichern</button></div>`;
+}
+function tabletSicht(){
+  const t=ST.tablet||{};
+  return `<h1>Wandtablet</h1><div class="unter">MediaPad T5 · Wächter wandwacht</div>
+    <div class="raster" style="grid-template-columns:1fr 1fr">
+      <div class="karte"><h2>Akku</h2><div class="zahl">${t.akku??"–"} <small>%</small></div><div class="klein">${t.strom_ma>0?"lädt":"entlädt"} mit ${Math.abs(t.strom_ma||0)} mA</div></div>
+      <div class="karte"><h2>Helligkeit tagsüber</h2>
+        <div class="feld"><span class="n">5:00 bis 23:30</span><span class="eing"><input type="number" id="hell" min="20" max="255" value="${t.hell_tag}"> von 255</span>
+          <span class="e">Nachts 51. Unter 20 % Akku dimmt der Wächter auf 51, unter 8 % auf 20. Gilt binnen einer Minute.</span></div>
+        <div class="knoepfe" style="justify-content:flex-end"><button class="haupt" id="hellsetzen">Übernehmen</button></div></div>
+    </div>`;
+}
+async function verlaufLaden(){
+  const v=await api("api/verlauf?id="+geraetId),el=document.getElementById("verlauf");if(!el)return;
+  const l=(v.laeufe||[]).slice().reverse();
+  el.innerHTML=l.length?`<table><tr><th>Tag</th><th>Zeit</th><th class="r">Dauer</th><th>Strom</th><th>Grund</th></tr>
+    ${l.map(x=>{const bis=x.bis&&!x.bis.startsWith("0001")?new Date(x.bis):null,m=((bis||new Date())-new Date(x.von))/60000;
+      const q=Object.entries(x.min||{}).filter(e=>e[1]>0.5).map(([k,v])=>`<span style="color:${Q[k]}">${QT[k]} ${Math.round(v)}</span>`).join(" · ");
+      return `<tr><td>${tag(x.von)}${x.probe?' <span class="chip gelb">Probe</span>':""}</td><td>${uhr(x.von)} bis ${bis?uhr(bis):"jetzt"}</td>
+        <td class="r">${dauerText(m)}</td><td class="klein">${q||"–"}</td><td class="klein">${esc(x.grund)}</td></tr>`;}).join("")}</table>`
+    :`<div class="klein">Noch kein Lauf.</div>`;
+}
+
+function zeichne(){
+  if(!ST) return;
+  const inhalt=ansicht==="geraet"?geraetSicht():ansicht==="tablet"?tabletSicht():uebersicht();
+  const w=document.getElementById("wurzel");w.innerHTML=rahmen(inhalt);
+  w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;zeichne();});
+  w.querySelectorAll("[data-g]").forEach(a=>a.onclick=()=>{ansicht="geraet";geraetId=a.dataset.g;reiter="plan";entwurf=null;zeichne();});
+  w.querySelectorAll("[data-r]").forEach(a=>a.onclick=()=>{reiter=a.dataset.r;entwurf=null;zeichne();});
+  w.querySelectorAll("[data-h]").forEach(b=>b.onclick=async()=>{b.disabled=true;
+    try{await api("api/hand",{id:b.dataset.id,aktion:b.dataset.h});meldung("Erledigt");await lade();}catch(e){meldung(e.message);}});
+  w.querySelectorAll("[data-m]").forEach(a=>a.onclick=()=>{entwurf.modus=a.dataset.m;zeichne();});
+  w.querySelectorAll("[data-c]").forEach(i=>i.onchange=()=>{const k=i.dataset.c;
+    entwurf[k]=i.type==="checkbox"?i.checked:i.type==="number"?Number(i.value):i.value;});
+  w.querySelectorAll("[data-zt]").forEach(i=>i.onchange=()=>{const m=i.value.match(/^(\d{1,2}):?(\d{2})?$/);
+    if(m) entwurf.zeiten[i.dataset.zt][i.dataset.w]=Number(m[1])+Number(m[2]||0)/60; else meldung("Uhrzeit wie 11:00");});
+  const sp=document.getElementById("speichern");
+  if(sp) sp.onclick=async()=>{try{await api("api/einstellungen",entwurf);entwurf=null;meldung("Gespeichert, gilt ab der nächsten Messung");reiter="plan";await lade();}catch(e){meldung(e.message);}};
+  const vw=document.getElementById("verwerfen");if(vw) vw.onclick=()=>{entwurf=null;zeichne();};
+  const hs=document.getElementById("hellsetzen");
+  if(hs) hs.onclick=async()=>{try{await api("api/tablet",{hell_tag:Number(document.getElementById("hell").value)});meldung("Gilt binnen einer Minute");await lade();}catch(e){meldung(e.message);}};
+  if(ansicht==="geraet"&&reiter==="verlauf") verlaufLaden();
+}
+
+lade();
+setInterval(lade,30000);
+/* Auf der Wand meldet jede Beruehrung, dass noch jemand davor steht. */
+if(WAND) ["pointerdown","keydown"].forEach(e=>document.addEventListener(e,()=>parent.postMessage("steuerung-aktiv","*")));
+</script>
+</body>
+</html>
