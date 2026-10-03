@@ -384,6 +384,7 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 		}
 		var a struct {
 			Stunden [][2]float64 `json:"stunden"`
+			Temp    [][2]float64 `json:"temp"` // Aussentemperatur je Stunde
 			Tag     string       `json:"tag"`
 			PV      []float64    `json:"pv"`
 		}
@@ -405,6 +406,15 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 		if len(p) == 0 {
 			http.Error(w, "leer", 400)
 			return
+		}
+		if len(a.Temp) > 0 {
+			tp := map[int64]float64{}
+			for _, x := range a.Temp {
+				tp[int64(x[0])] = x[1]
+			}
+			s.Lock()
+			s.aussen = tp
+			s.Unlock()
 		}
 		s.setzePrognose(p)
 		w.WriteHeader(204)

@@ -110,7 +110,7 @@ const dauerText=m=>m<60?`${Math.round(m)} min`:`${z(m/60)} h`;
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 const FENSTER={"3":"Ben","5":"Wohnzimmer unten","15":"Wohnzimmer oben"};
-let SENSOREN=null, FEUCHTE={};
+let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0;
 let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null;
 
 function meldung(t){const m=document.getElementById("meldung");m.textContent=t;m.style.display="block";
@@ -157,6 +157,11 @@ async function lade(){
       if(g.cfg.sensor_id) FEUCHTE[g.cfg.id]=await api("api/feuchte?sensor="+encodeURIComponent(g.cfg.sensor_id));
     }
     if(!geraetId&&ST.geraete?.length) geraetId=ST.geraete[0].cfg.id;
+    HZ=await api("api/heizung");
+    if(ansicht==="heizung"&&Date.now()-HZZEIT>5*60e3){
+      HZZEIT=Date.now();
+      for(const r of HZ.raeume||[]) HZK[r.ventil.ain]=await api("api/heizung/verlauf?h=48&ain="+r.ventil.ain);
+    }
     if(ansicht!=="pin"&&!(ansicht==="geraet"&&reiter==="einst")) zeichne();
   }catch(e){ if(e.message!=="PIN") meldung("Keine Verbindung zum Tablet"); }
 }
@@ -221,6 +226,8 @@ function rahmen(inhalt){
     ${g.map(x=>`<a data-g="${x.cfg.id}" class="${ansicht==="geraet"&&geraetId===x.cfg.id?"an":""}">
       <span class="punkt" style="background:${x.an?"var(--ein)":"var(--sehrleise)"}"></span>${esc(x.cfg.name)}</a>`).join("")}
     <a data-v="tablet" class="${ansicht==="tablet"?"an":""}"><span class="punkt" style="background:var(--haus)"></span>Wandtablet</a>
+    <div class="gruppe">Haus</div>
+    <a data-v="heizung" class="${ansicht==="heizung"?"an":""}"><span class="punkt" style="background:#ff9f6b"></span>Heizung</a>
   </nav><main>${inhalt}</main></div>`;
 }
 function jetztLeiste(){
@@ -282,6 +289,11 @@ function uebersicht(){
         <div><span class="zahl">${t.akku??"–"} %</span> <span class="klein">&nbsp;${t.strom_ma>0?"lädt":"entlädt"} ${Math.abs(t.strom_ma||0)} mA</span></div>
         <div class="klein">Helligkeit tags ${t.hell_tag}, nachts 51 · Sparstufe ab 20 %</div>
         <div class="knoepfe"><button data-v="tablet">Einstellen</button></div></div>
+      ${HZ&&HZ.raeume?.length?`<div class="karte geraet"><div class="kopf"><div><div class="name">Heizung</div><div class="klein">${HZ.raeume.length} Ventile · nur lesend</div></div>
+        <span class="chip">${HZ.aussen!=null?"außen "+z(HZ.aussen)+" °C":"FRITZ!Box"}</span></div>
+        <div><span class="zahl">${HZ.raeume.filter(x=>x.ventil.fordert).length}</span> <span class="klein">&nbsp;Räume fordern Wärme</span></div>
+        <div class="klein">${HZ.raeume.filter(x=>x.ventil.fordert).map(x=>esc(x.ventil.name)).join(", ")||"alle zufrieden"}${HZ.raeume.some(x=>x.ventil.warm_ohne_heizung)?" · warm ohne Heizung: "+HZ.raeume.filter(x=>x.ventil.warm_ohne_heizung).map(x=>esc(x.ventil.name)).join(", "):""}</div>
+        <div class="knoepfe"><button data-v="heizung">Ansehen</button></div></div>`:""}
     </div>
     ${g.map(x=>`<div class="karte plan" style="margin-top:14px"><h2>${esc(x.cfg.name)} · die nächsten 7 Tage</h2>${planSvg(PLAN[x.cfg.id]?.plan||{},true)}${legende}</div>`).join("")}`;
 }
@@ -350,6 +362,52 @@ function einstellungen(g){
     </div></div>
     <div class="knoepfe" style="justify-content:flex-end;margin-top:16px"><button id="verwerfen">Verwerfen</button><button class="haupt" id="speichern">Speichern</button></div>`;
 }
+function hzStatus(v){
+  if(v.fenster_offen) return ["Fenster offen","blau"];
+  if(v.boost) return ["Boost","rot"];
+  if(v.sommer) return ["Sommerbetrieb",""];
+  if(v.urlaub) return ["Urlaub",""];
+  if(v.soll<0) return ["aus",""];
+  if(v.fordert) return ["fordert Wärme","rot"];
+  if(v.warm_ohne_heizung) return ["warm ohne Heizung","gelb"];
+  return ["zufrieden","gruen"];
+}
+const sollText=v=>v<0?"aus":v>=99?"voll":z(v)+" °C";
+function hzKurve(ain){
+  const d=HZK[ain]||[];if(d.length<2) return `<div class="klein" style="height:70px">Verlauf füllt sich alle 5 Minuten.</div>`;
+  const b=320,h=80,jetzt=Date.now()/1000,von=jetzt-48*3600,x=t=>(t-von)/(jetzt-von)*b;
+  const werte=d.flatMap(p=>[p.i,p.s>0&&p.s<99?p.s:p.i]);const lo=Math.floor(Math.min(...werte)-1),hi=Math.ceil(Math.max(...werte)+1);
+  const y=v=>4+(1-(v-lo)/(hi-lo))*(h-8);
+  let f="";for(let i=1;i<d.length;i++) if(d[i-1].f) f+=`<rect x="${x(d[i-1].z)}" y="0" width="${Math.max(1,x(d[i].z)-x(d[i-1].z))}" height="${h}" fill="#ff7b6b" opacity=".16"/>`;
+  const ist=d.map((p,i)=>(i?"L":"M")+x(p.z).toFixed(1)+" "+y(p.i).toFixed(1)).join("");
+  const soll=d.filter(p=>p.s>0&&p.s<99).map((p,i)=>(i?"L":"M")+x(p.z).toFixed(1)+" "+y(p.s).toFixed(1)).join("");
+  return `<svg viewBox="0 0 ${b} ${h}" style="display:block;width:100%;height:auto">${f}
+    <path d="${soll}" fill="none" stroke="#8b97a6" stroke-dasharray="3 3"/><path d="${ist}" fill="none" stroke="#ffb38a" stroke-width="1.6"/>
+    <text x="2" y="12" fill="#5b6b7d" font-size="10">${hi}°</text><text x="2" y="${h-3}" fill="#5b6b7d" font-size="10">${lo}°</text></svg>`;
+}
+function heizungSicht(){
+  if(!HZ) return "<h1>Heizung</h1><div class='unter'>lade…</div>";
+  const r=HZ.raeume||[],ford=r.filter(x=>x.ventil.fordert),fremd=r.filter(x=>x.ventil.warm_ohne_heizung),schwach=r.filter(x=>x.ventil.batterie_schwach);
+  const sum24=r.reduce((a,x)=>a+x.bedarf_24h,0),sum7=r.reduce((a,x)=>a+x.bedarf_7t,0);
+  return `<h1>Heizung</h1><div class="unter">FRITZ!DECT-Ventile, nur lesend · Stand ${HZ.zeit&&!HZ.zeit.startsWith("0001")?uhr(HZ.zeit):"–"}${HZ.fehler?` · <span style="color:var(--netz)">${esc(HZ.fehler)}</span>`:""}</div>
+    <div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+      <div class="karte"><h2>Fordern Wärme</h2><div class="zahl">${ford.length} <small>von ${r.length}</small></div><div class="klein">${ford.map(x=>esc(x.ventil.name)).join(", ")||"kein Raum"}</div></div>
+      <div class="karte"><h2>Außen</h2><div class="zahl">${HZ.aussen!=null?z(HZ.aussen)+" <small>°C</small>":"–"}</div><div class="klein">laut Prognose, laufende Stunde</div></div>
+      <div class="karte"><h2>Wärmebedarf</h2><div class="zahl">${z(sum24)} <small>h in 24 h</small></div><div class="klein">${z(sum7)} h in 7 Tagen, alle Räume zusammen</div></div>
+      <div class="karte"><h2>Warm ohne Heizung</h2><div class="zahl">${fremd.length}</div><div class="klein">${fremd.map(x=>esc(x.ventil.name)).join(", ")||"Kamin oder Sonne heizen gerade keinen Raum"}</div></div>
+    </div>
+    ${schwach.length?`<div class="stoerung" style="margin-bottom:14px">Batterie schwach: ${schwach.map(x=>esc(x.ventil.name)).join(", ")}</div>`:""}
+    <div class="raster" style="grid-template-columns:repeat(3,1fr)">${r.map(x=>{const v=x.ventil,[t,k]=hzStatus(v);return `<div class="karte">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-weight:700;font-size:16px">${esc(v.name)}</div>
+        <div class="klein">soll ${sollText(v.soll)}${v.naechste_umschaltung&&!v.naechste_umschaltung.startsWith("0001")?` · ab ${tag(v.naechste_umschaltung)} ${uhr(v.naechste_umschaltung)} ${sollText(v.naechste_soll)}`:""}</div></div>
+        <span class="chip ${k}">${t}</span></div>
+      <div style="margin:8px 0 4px"><span class="zahl">${z(v.ist)}</span> <small class="klein">°C</small></div>
+      ${hzKurve(v.ain)}
+      <div class="klein" style="margin-top:6px">Wärmebedarf ${z(x.bedarf_24h)} h in 24 h · ${z(x.bedarf_7t)} h in 7 Tagen · Batterie ${v.batterie} %</div></div>`;}).join("")}</div>
+    <div class="legende"><span><i style="background:#ffb38a"></i>Ist</span><span><i style="background:none;border-top:1px dashed #8b97a6;border-radius:0;height:0;width:14px"></i>Soll</span><span><i style="background:#ff7b6b;opacity:.4"></i>fordert Wärme</span></div>
+    <div class="klein" style="margin-top:10px">"Fordert Wärme" heißt: Ist mehr als 0,3 Grad unter Soll. Die Ventilöffnung selbst gibt die FRITZ!Box nicht heraus.
+      "Warm ohne Heizung": in zwei Stunden mehr als ein Grad wärmer, ohne dass das Ventil gefordert hat, etwa durch den Kamin oder Sonne.</div>`;
+}
 function tabletSicht(){
   const t=ST.tablet||{};
   return `<h1>Wandtablet</h1><div class="unter">MediaPad T5 · Wächter wandwacht</div>
@@ -374,9 +432,10 @@ async function verlaufLaden(){
 
 function zeichne(){
   if(!ST) return;
-  const inhalt=ansicht==="geraet"?geraetSicht():ansicht==="tablet"?tabletSicht():uebersicht();
+  const inhalt=ansicht==="geraet"?geraetSicht():ansicht==="tablet"?tabletSicht():ansicht==="heizung"?heizungSicht():uebersicht();
   const w=document.getElementById("wurzel");w.innerHTML=rahmen(inhalt);
-  w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;zeichne();});
+  w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;
+    if(ansicht==="heizung"){HZZEIT=0;lade();} zeichne();});
   w.querySelectorAll("[data-g]").forEach(a=>a.onclick=()=>{ansicht="geraet";geraetId=a.dataset.g;reiter="plan";entwurf=null;zeichne();});
   w.querySelectorAll("[data-r]").forEach(a=>a.onclick=()=>{reiter=a.dataset.r;entwurf=null;zeichne();});
   w.querySelectorAll("[data-h]").forEach(b=>b.onclick=async()=>{b.disabled=true;

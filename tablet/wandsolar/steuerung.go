@@ -168,6 +168,17 @@ type steuerung struct {
 	veluxBasis         string
 	fenster            map[string]float64
 	fensterZeit        time.Time
+	aussen             map[int64]float64 // Aussentemperatur je Stunde, von der Wetterseite
+}
+
+// aussenJetzt: Aussentemperatur der laufenden Stunde, nil ohne Prognose.
+func (s *steuerung) aussenJetzt() any {
+	s.Lock()
+	defer s.Unlock()
+	if v, ok := s.aussen[time.Now().Truncate(time.Hour).Unix()]; ok {
+		return v
+	}
+	return nil
 }
 
 // sensorIDs fuer den Abruf.

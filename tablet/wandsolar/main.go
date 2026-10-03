@@ -233,6 +233,7 @@ type zustand struct {
 	seitPfd string
 	velux   *url.URL // Steuerdienst in hapwatch, nil heisst abgeschaltet
 	st      *steuerung
+	fr      *fritz
 }
 
 // laden holt den gespeicherten Tag zurueck, und zwar ohne Blick auf die Uhr.
@@ -387,6 +388,9 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 		if z.st != nil {
 			h = z.st.hinweise()
 		}
+		if z.fr != nil {
+			h = append(h, z.fr.hinweise()...)
+		}
 		w.Write(z.json(h))
 	})
 	// Die Velux-Steuerung laeuft als eigener Dienst in hapwatch auf 8098.
@@ -509,10 +513,24 @@ func main() {
 	z.st.sb = neuerSwitchbot(filepath.Join(dir, "switchbot.json"), sag)
 	z.st.veluxBasis = *vlx
 	go z.st.sb.laufe(z.st.sensorIDs)
+	z.fr = neueFritz(filepath.Join(dir, "fritz.json"), filepath.Join(dir, "heizung-verlauf.json"), sag)
+	go z.fr.laufe()
 
 	mux := http.NewServeMux()
 	z.bediene(mux)
 	z.st.bediene(mux, filepath.Dir(*seite))
+	mux.HandleFunc("/api/heizung", func(w http.ResponseWriter, r *http.Request) {
+		a := z.fr.stand()
+		a["aussen"] = z.st.aussenJetzt()
+		jsonAntwort(w, a)
+	})
+	mux.HandleFunc("/api/heizung/verlauf", func(w http.ResponseWriter, r *http.Request) {
+		h, _ := strconv.Atoi(r.URL.Query().Get("h"))
+		if h <= 0 || h > 168 {
+			h = 48
+		}
+		jsonAntwort(w, z.fr.kurve(r.URL.Query().Get("ain"), h))
+	})
 	srv := &http.Server{
 		Addr:         *hoere,
 		Handler:      mux,
