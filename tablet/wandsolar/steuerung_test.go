@@ -300,7 +300,7 @@ func TestTankVoll(t *testing.T) {
 	if !g.st.An {
 		t.Fatal("nicht an")
 	}
-	p.laufe(10, 1.0, 0, 100)
+	p.laufe(14, 1.0, 0, 100)
 	if !g.st.An || g.st.Stoerung != "" {
 		t.Fatal("zu frueh als Stoerung erkannt")
 	}
@@ -335,10 +335,10 @@ func TestKompressorAnlauf(t *testing.T) {
 			return 0, nil
 		}
 		n++
-		if n < 5 {
-			return 0.05, nil
+		if n < 7 { // drei Minuten Bereitschaft wie am Geraet gemessen
+			return 0.0012, nil
 		}
-		return 0.36, nil
+		return 0.28, nil
 	}
 	g := p.s.geraete[0]
 	p.laufe(60, 1.0, 0, 100)

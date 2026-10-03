@@ -284,6 +284,11 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 		if c.ShellyIP != g.cfg.ShellyIP {
 			g.st.ShellyIP = c.ShellyIP
 		}
+		// Neue Leistung von Hand ersetzt den gelernten Wert, gelernt wird
+		// danach von dort aus weiter.
+		if c.LeistungKW != g.cfg.LeistungKW {
+			g.st.LeistungKW = c.LeistungKW
+		}
 		g.cfg = c
 		g.planZeit = time.Time{}
 		s.sichereCfg()

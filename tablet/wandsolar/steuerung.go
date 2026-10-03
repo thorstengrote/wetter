@@ -77,7 +77,7 @@ func standardEntfeuchter() geraetCfg {
 	return geraetCfg{
 		ID: "entfeuchter", Name: "Luftentfeuchter", Typ: "schalter",
 		ShellyIP: "192.168.2.160", ShellyMAC: "089272568D2C", Modus: "probe",
-		LeistungKW: 0.4, Zeiten: [7]zeitraum{w, w, w, w, w, we, we},
+		LeistungKW: 0.29, Zeiten: [7]zeitraum{w, w, w, w, w, we, we},
 		MaxH7: 30, MinH7: 5, MaxLueckeTage: 3, MinLaufMin: 30,
 		MinAnMin: 10, MinAusMin: 10, EinReserveW: 100, AusBezugW: 100,
 		Vorziehen: true, NetzErlaubt: true, TotmannMin: 15,
@@ -522,7 +522,10 @@ func (g *geraet) kompSchwelle() float64 {
 }
 
 const (
-	kompAnlauf = 4 * time.Minute  // so lange darf nur der Luefter laufen
+	// Eingemessen am 03.10.2026: nach dem Einschalten 3 Minuten bei 1,2 W
+	// (Bereitschaft, das Geraet misst), dann Kompressor mit 265 W, nach
+	// 6 Minuten warm bei 290 W. Ein Luefter allein war nicht zu sehen.
+	kompAnlauf = 6 * time.Minute
 	kompFehlt  = 15 * time.Minute // danach so lange ohne Kompressor: Stoerung
 )
 
@@ -552,8 +555,8 @@ func (s *steuerung) kompressor(g *geraet, t time.Time, kw float64) {
 		return
 	}
 	text := "Wassertank vermutlich voll, nur Luefter"
-	if kw < 0.01 {
-		text = "Entfeuchter zieht keinen Strom, Tank voll oder am Geraet aus"
+	if kw < 0.02 {
+		text = "Wassertank vermutlich voll, Entfeuchter steht"
 	}
 	if g.st.Stoerung == "" {
 		g.st.StoerSeit = t
