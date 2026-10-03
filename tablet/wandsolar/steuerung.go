@@ -18,6 +18,16 @@ package main
 //   - Plan sagt "pflicht": an, auch mit Netzstrom.
 //   - Kein Plan, aber echte Einspeisung: an, wie bisher.
 //
+// Kompressor und Wassertank (Hinweis von Thorsten, 03.10.2026): Nach dem
+// Einschalten laeuft erst nur der Luefter, der Kompressor folgt nach etwa
+// zwei Minuten, und die Leistung springt. Nur dann wird entfeuchtet. Bleibt
+// der Sprung nach der Anlaufzeit eine Viertelstunde aus, ist mit hoher
+// Wahrscheinlichkeit der Wassertank voll. Dann wird abgeschaltet, auf der
+// Wand und in der Oberflaeche erscheint ein Hinweis, und eine Stunde spaeter
+// probiert die Regelung es erneut. Springt der Kompressor wieder an, ist der
+// Hinweis von selbst weg. "Tank geleert" in der Oberflaeche beendet die
+// Wartezeit sofort.
+//
 // Mindestens zehn Minuten an und zehn aus, wegen des Kompressors. Jedes
 // Einschalten geht mit toggle_after an den Shelly: faellt das Tablet aus,
 // schaltet er sich nach der Totmannzeit selbst ab.
@@ -97,21 +107,27 @@ type geraetStand struct {
 	Laeufe     []lauf    `json:"laeufe"`
 	Hand       string    `json:"hand,omitempty"` // an, aus
 	HandBis    time.Time `json:"hand_bis,omitempty"`
+	KompKW     float64   `json:"kompressor_kw"`      // gelernte Leistung mit Kompressor
+	Stoerung   string    `json:"stoerung,omitempty"` // z. B. Tank voll
+	StoerSeit  time.Time `json:"stoerung_seit,omitempty"`
+	Wiederholt time.Time `json:"wiederholt,omitempty"` // naechster Versuch nach Stoerung
 	Beginn     time.Time `json:"beginn"`
 	LetzteZeit time.Time `json:"letzte_zeit"`
 }
 
 type geraet struct {
-	cfg        geraetCfg
-	st         geraetStand
-	plan       plan
-	planZeit   time.Time
-	grund      string
-	ueberSeit  time.Time
-	mangelSeit time.Time
-	freiSperre time.Time // geplante freie Laeufe ausgesetzt bis
-	modusAlt   string
-	letzteKW   float64 // was der Shelly zuletzt gemessen hat
+	cfg         geraetCfg
+	st          geraetStand
+	plan        plan
+	planZeit    time.Time
+	grund       string
+	ueberSeit   time.Time
+	mangelSeit  time.Time
+	freiSperre  time.Time // geplante freie Laeufe ausgesetzt bis
+	modusAlt    string
+	letzteKW    float64 // was der Shelly zuletzt gemessen hat
+	komp        bool    // Kompressor lief bei der letzten Messung
+	kompZuletzt time.Time
 }
 
 type steuerung struct {
@@ -314,6 +330,9 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 				l.Min = map[string]float64{}
 			}
 			l.Min[q] += dt
+			if g.komp {
+				l.Min["kompressor"] += dt
+			}
 		}
 	}
 	g.st.LetzteZeit = t
@@ -369,7 +388,11 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 	handAus := g.st.Hand == "aus" && t.Before(g.st.HandBis)
 	mangelLang := !g.mangelSeit.IsZero() && t.Sub(g.mangelSeit) >= 3*time.Minute
 
+	stoerung := g.st.Stoerung != "" && t.Before(g.st.Wiederholt)
+
 	switch {
+	case g.st.An && stoerung:
+		s.setze(g, t, false, g.st.Stoerung)
 	case handAn:
 		s.setze(g, t, true, "von Hand bis "+g.st.HandBis.Format("15:04"))
 	case handAus:
@@ -390,6 +413,8 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 		}
 	case g.st.An:
 		s.setze(g, t, true, "")
+	case stoerung:
+		g.grund = g.st.Stoerung + ", neuer Versuch " + g.st.Wiederholt.Format("15:04")
 	case !cfg.erlaubt(t):
 		g.grund = "ausserhalb der erlaubten Laufzeit"
 	case cfg.MaxH7 > 0 && cfg.MaxH7*60-woche < 15:
@@ -482,10 +507,73 @@ func (s *steuerung) setze(g *geraet, t time.Time, an bool, grund string) {
 		return
 	}
 	kw, ok := s.befehl(g, an)
-	if ok && an && !wechsel && kw > 0.05 && !g.cfg.LeistungFest {
-		// Erst lernen, wenn er laeuft, nicht im Anlaufmoment.
-		g.st.LeistungKW = 0.8*g.st.LeistungKW + 0.2*kw
+	if ok && an && !wechsel {
+		s.kompressor(g, t, kw)
 	}
+}
+
+// Schwelle zwischen nur Luefter und Kompressor: die Haelfte der gelernten
+// Kompressorleistung, bis dahin 100 W.
+func (g *geraet) kompSchwelle() float64 {
+	if g.st.KompKW > 0.15 {
+		return g.st.KompKW / 2
+	}
+	return 0.1
+}
+
+const (
+	kompAnlauf = 4 * time.Minute  // so lange darf nur der Luefter laufen
+	kompFehlt  = 15 * time.Minute // danach so lange ohne Kompressor: Stoerung
+)
+
+func (s *steuerung) kompressor(g *geraet, t time.Time, kw float64) {
+	g.komp = kw >= g.kompSchwelle()
+	if g.komp {
+		g.kompZuletzt = t
+		if g.st.KompKW <= 0 {
+			g.st.KompKW = kw
+		}
+		g.st.KompKW = 0.9*g.st.KompKW + 0.1*kw
+		// Die Leistung fuer den Plan nur aus Messungen mit Kompressor.
+		if !g.cfg.LeistungFest {
+			g.st.LeistungKW = 0.8*g.st.LeistungKW + 0.2*kw
+		}
+		if g.st.Stoerung != "" {
+			s.sag("%s: Kompressor laeuft wieder, Hinweis erledigt", g.cfg.Name)
+			g.st.Stoerung, g.st.StoerSeit, g.st.Wiederholt = "", time.Time{}, time.Time{}
+		}
+		return
+	}
+	seit := g.st.Seit.Add(kompAnlauf)
+	if g.kompZuletzt.After(seit) {
+		seit = g.kompZuletzt
+	}
+	if t.Sub(g.st.Seit) < kompAnlauf || t.Sub(seit) < kompFehlt {
+		return
+	}
+	text := "Wassertank vermutlich voll, nur Luefter"
+	if kw < 0.01 {
+		text = "Entfeuchter zieht keinen Strom, Tank voll oder am Geraet aus"
+	}
+	if g.st.Stoerung == "" {
+		g.st.StoerSeit = t
+	}
+	g.st.Stoerung = text
+	g.st.Wiederholt = t.Add(time.Hour)
+	s.setze(g, t, false, text)
+}
+
+// hinweise fuer die Wetterseite.
+func (s *steuerung) hinweise() []string {
+	s.Lock()
+	defer s.Unlock()
+	var h []string
+	for _, g := range s.geraete {
+		if g.st.Stoerung != "" && g.cfg.Modus == "scharf" {
+			h = append(h, g.cfg.Name+": "+g.st.Stoerung)
+		}
+	}
+	return h
 }
 
 // befehl schickt den Schaltbefehl, sucht den Shelly notfalls neu.

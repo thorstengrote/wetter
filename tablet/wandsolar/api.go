@@ -208,7 +208,9 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 			e := map[string]any{"cfg": g.cfg, "an": g.st.An, "seit": g.st.Seit, "grund": g.grund,
 				"leistung_kw": g.leistung(), "gemessen_kw": g.letzteKW,
 				"minuten_7t": g.minuten7(t), "beginn": g.st.Beginn,
-				"hand": g.st.Hand, "hand_bis": g.st.HandBis}
+				"hand": g.st.Hand, "hand_bis": g.st.HandBis,
+				"stoerung": g.st.Stoerung, "stoerung_seit": g.st.StoerSeit, "wiederholt": g.st.Wiederholt,
+				"kompressor": g.komp, "kompressor_kw": g.st.KompKW}
 			if !n.IsZero() {
 				e["naechster"] = n
 			}
@@ -311,6 +313,9 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 			g.st.Hand, g.st.HandBis = "an", t.Add(time.Hour)
 		case "heuteaus":
 			g.st.Hand, g.st.HandBis = "aus", tagesAnfang(t).AddDate(0, 0, 1)
+		case "geleert":
+			g.st.Stoerung, g.st.StoerSeit, g.st.Wiederholt = "", time.Time{}, time.Time{}
+			g.st.Seit = time.Time{} // ohne Pause gleich wieder erlaubt
 		default:
 			g.st.Hand, g.st.HandBis = "", time.Time{}
 		}

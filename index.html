@@ -2317,6 +2317,7 @@ const SOLAR=(()=>{
         jetzt=d.jetzt;
         mess=d.stunden||{};
         heuteKwh=Number(d.heute_kwh||0);
+        zeigeHinweise(d.hinweise||[]);
         standZeit=d.zeit?new Date(d.zeit).getTime():Date.now();
         break;
       }catch(e){ /* naechste Quelle */ }
@@ -2324,6 +2325,18 @@ const SOLAR=(()=>{
     zeichne();
   }
 
+  /* Hinweise der Haussteuerung, etwa ein voller Wassertank am
+     Luftentfeuchter. Stehen rot in der Datumszeile, bis sie erledigt sind. */
+  function zeigeHinweise(h){
+    let el=document.getElementById("hausHinweis");
+    if(!el){
+      el=document.createElement("span"); el.id="hausHinweis";
+      el.style.cssText="color:#ff8a7a;font-weight:650";
+      const z=document.getElementById("stand"); if(!z) return;
+      z.after(el);
+    }
+    el.textContent=h.length?" · "+h.join(" · "):"";
+  }
   const frisch=()=>jetzt&&(Date.now()-standZeit)<ALT_MS;
 
   /* Der Mittelwert der letzten Messungen. Ohne Verlauf der Augenblick. */

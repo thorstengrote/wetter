@@ -266,3 +266,86 @@ func TestHandAus(t *testing.T) {
 		t.Fatal("trotz Hand aus eingeschaltet")
 	}
 }
+
+// Knappe Hoechstgrenze: gleichmaessig verteilen, kein freier Tag leer.
+func TestGleichmaessigBeiKnapperGrenze(t *testing.T) {
+	l := berlin()
+	jetzt := time.Date(2026, 10, 5, 9, 0, 0, 0, l)
+	c := standardEntfeuchter()
+	c.MaxH7 = 20
+	p := planFuer(jetzt, 60, pvWoche(jetzt, 9, 9, 6, 5, 9, 9, 9), c, nil, jetzt.AddDate(0, 0, -30))
+	for d := 0; d < 7; d++ {
+		m := minutenAm(p, jetzt.AddDate(0, 0, d), "")
+		// Tag +3 traegt mit 5 kW Spitze vorsichtig gerechnet nur eine Stunde.
+		if m < 60 || m > 240 {
+			t.Errorf("Tag +%d: %.0f min, erwartet 1 bis 4 h", d, m)
+		}
+	}
+}
+
+// Kompressor springt nicht an: nach Anlauf plus Viertelstunde aus, Hinweis,
+// eine Stunde spaeter neuer Versuch, mit Kompressor ist der Hinweis weg.
+func TestTankVoll(t *testing.T) {
+	l := berlin()
+	p := neueSt(t, "scharf", time.Date(2026, 10, 5, 12, 0, 0, 0, l))
+	kw := 0.05 // nur Luefter
+	p.s.schalte = func(ip string, an bool, tm int) (float64, error) {
+		if !an {
+			return 0, nil
+		}
+		return kw, nil
+	}
+	g := p.s.geraete[0]
+	p.laufe(6, 1.0, 0, 100) // an nach 5 min Einspeisung
+	if !g.st.An {
+		t.Fatal("nicht an")
+	}
+	p.laufe(10, 1.0, 0, 100)
+	if !g.st.An || g.st.Stoerung != "" {
+		t.Fatal("zu frueh als Stoerung erkannt")
+	}
+	p.laufe(12, 1.0, 0, 100)
+	if g.st.An || g.st.Stoerung == "" {
+		t.Fatalf("Tank voll nicht erkannt: an %v, %q", g.st.An, g.st.Stoerung)
+	}
+	if h := p.s.hinweise(); len(h) != 1 {
+		t.Fatalf("kein Hinweis fuer die Wand: %v", h)
+	}
+	p.laufe(30, 1.0, 0, 100)
+	if g.st.An {
+		t.Fatal("vor dem neuen Versuch wieder an")
+	}
+	kw = 0.38 // Tank geleert, Kompressor laeuft
+	p.laufe(45, 1.0, 0, 100)
+	if !g.st.An || g.st.Stoerung != "" {
+		t.Fatalf("nach dem Leeren nicht wieder normal: an %v, %q", g.st.An, g.st.Stoerung)
+	}
+	if g.st.KompKW < 0.2 {
+		t.Fatalf("Kompressorleistung nicht gelernt: %.2f", g.st.KompKW)
+	}
+}
+
+// Normaler Anlauf: zwei Minuten Luefter, dann Kompressor, keine Stoerung.
+func TestKompressorAnlauf(t *testing.T) {
+	l := berlin()
+	p := neueSt(t, "scharf", time.Date(2026, 10, 5, 12, 0, 0, 0, l))
+	n := 0
+	p.s.schalte = func(ip string, an bool, tm int) (float64, error) {
+		if !an {
+			return 0, nil
+		}
+		n++
+		if n < 5 {
+			return 0.05, nil
+		}
+		return 0.36, nil
+	}
+	g := p.s.geraete[0]
+	p.laufe(60, 1.0, 0, 100)
+	if !g.st.An || g.st.Stoerung != "" {
+		t.Fatalf("normaler Lauf gestoert: %q", g.st.Stoerung)
+	}
+	if l := g.offenerLauf(); l == nil || l.Min["kompressor"] < 40 {
+		t.Fatal("Kompressorminuten nicht gezaehlt")
+	}
+}

@@ -333,24 +333,35 @@ func (p *planer) rechne() plan {
 	cfg := p.in.Cfg
 	var hinweise []string
 
-	// 1. Freie Laeufe: so lange einer gefunden wird, den mit der meisten
-	// Einspeisung zuerst.
+	// 1. Freie Laeufe, gleichmaessig ueber die Tage: die naechste freie
+	// Halbstunde bekommt der Tag mit der bisher kleinsten Laufzeit, in ihm
+	// die mit der meisten Einspeisung. Vorher ging es nur nach Einspeisung,
+	// und bei knapper Hoechstgrenze ballte sich alles auf die sonnigsten
+	// Tage (03.10.2026: Mo und Di je 5 h, Do 0, obwohl Do auch frei war).
+	tagMin := map[string]float64{}
+	for i := range p.slots {
+		if p.on[i] {
+			tagMin[tagKey(p.slots[i].Zeit)] += 30
+		}
+	}
 	for runde := 0; runde < len(p.slots); runde++ {
 		soc := p.socVor()
-		best, bestEin := -1, -1.0
+		best, bestEin, bestTag := -1, -1.0, math.Inf(1)
 		for i := range p.slots {
 			if p.on[i] || !p.slots[i].Erlaub || !p.passtMax(i, 1) || !p.frei(i, soc) {
 				continue
 			}
 			_, ein, _ := simSchritt(p.pvV[i], p.slots[i].Haus, soc[i])
-			if ein > bestEin+1e-9 {
-				best, bestEin = i, ein
+			tm := tagMin[tagKey(p.slots[i].Zeit)]
+			if tm < bestTag-1e-9 || (tm < bestTag+1e-9 && ein > bestEin+1e-9) {
+				best, bestEin, bestTag = i, ein, tm
 			}
 		}
 		if best < 0 {
 			break
 		}
 		p.on[best], p.art[best] = true, "frei"
+		tagMin[tagKey(p.slots[best].Zeit)] += 30
 	}
 
 	// 2. Pflichten, Tag fuer Tag.

@@ -36,6 +36,8 @@ h1{font-size:24px;margin:0 0 4px}
 .chip.gruen{color:var(--ein);border-color:#245c45}
 .chip.gelb{color:var(--pv);border-color:#6b5a28}
 .chip.blau{color:var(--haus);border-color:#28496b}
+.chip.rot{color:var(--netz);border-color:#6a3330}
+.stoerung{background:#2a1517;border:1px solid #6a3330;color:#ffb3aa;border-radius:10px;padding:10px 12px}
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--linie);margin:4px 0 18px}
 .tabs a{padding:8px 14px;color:var(--leise);border-bottom:2px solid transparent;cursor:pointer}
 .tabs a.an{color:var(--text);border-color:var(--akzent)}
@@ -97,8 +99,8 @@ const WAND=new URLSearchParams(location.search).has("wand");
 if(WAND) document.body.classList.add("wand");
 document.getElementById("zu").onclick=()=>parent.postMessage("steuerung-zu","*");
 
-const Q={sonne:"var(--ein)",akku:"var(--akku)",netz:"var(--netz)"};
-const QT={sonne:"Sonne",akku:"Akku",netz:"Netz"};
+const Q={sonne:"var(--ein)",akku:"var(--akku)",netz:"var(--netz)",kompressor:"var(--text)"};
+const QT={sonne:"Sonne",akku:"Akku",netz:"Netz",kompressor:"Kompressor"};
 const TAGE=["Mo","Di","Mi","Do","Fr","Sa","So"];
 const z=(v,n=1)=>Number(v||0).toFixed(n).replace(".",",");
 const uhr=d=>new Date(d).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
@@ -234,7 +236,9 @@ function geraetKarte(g){
   return `<div class="karte geraet">
     <div class="kopf"><div><div class="name">${esc(g.cfg.name)}</div><div class="klein">Shelly ${esc(g.cfg.shelly_ip)} · ${z(g.leistung_kw,2)} kW</div></div>
       <span class="chip ${modus[1]}">${modus[0]}</span></div>
-    <div><span class="zahl">${g.an?"läuft":"aus"}</span> <span class="klein">&nbsp;${esc(g.grund)}</span></div>
+    ${g.stoerung?`<div class="stoerung"><b>${esc(g.stoerung)}</b><div class="klein" style="color:#ffb3aa">seit ${uhr(g.stoerung_seit)}, neuer Versuch ${uhr(g.wiederholt)}</div>
+      <div class="knoepfe"><button data-h="geleert" data-id="${g.cfg.id}">Tank geleert</button></div></div>`:""}
+    <div><span class="zahl">${g.an?(g.kompressor?"entfeuchtet":"läuft"):"aus"}</span> <span class="klein">&nbsp;${g.an&&!g.kompressor?"nur Lüfter · ":""}${esc(g.grund)}</span></div>
     <div class="klein">Letzte 7 Tage ${dauerText(g.minuten_7t)} · geplant 7 Tage ${dauerText(sm.m)}${sm.netz?`, davon ${sm.netz} min vom Netz`:""}</div>
     <div class="knoepfe"><button data-h="an1h" data-id="${g.cfg.id}">1 h jetzt</button>
       <button data-h="heuteaus" data-id="${g.cfg.id}">Heute aus</button>
@@ -256,7 +260,9 @@ function uebersicht(){
 }
 function geraetSicht(){
   const g=(ST.geraete||[]).find(x=>x.cfg.id===geraetId);if(!g) return "";
-  const kopf=`<h1>${esc(g.cfg.name)}</h1><div class="unter">Shelly ${esc(g.cfg.shelly_ip)} · ${g.gemessen_kw>0.05?"gemessen "+z(g.gemessen_kw,2)+" kW":"Leistung "+z(g.leistung_kw,2)+" kW"} · ${esc(g.grund)}</div>
+  const kopf=`<h1>${esc(g.cfg.name)}</h1>${g.stoerung?`<div class="stoerung" style="margin:8px 0 12px"><b>${esc(g.stoerung)}</b>
+      <span class="klein" style="color:#ffb3aa"> · seit ${uhr(g.stoerung_seit)}, neuer Versuch ${uhr(g.wiederholt)}</span>
+      <button data-h="geleert" data-id="${g.cfg.id}" style="margin-left:12px">Tank geleert</button></div>`:""}<div class="unter">Shelly ${esc(g.cfg.shelly_ip)} · ${g.gemessen_kw>0.05?"gemessen "+z(g.gemessen_kw,2)+" kW":"Leistung "+z(g.leistung_kw,2)+" kW"} · ${esc(g.grund)}</div>
     <div class="tabs"><a data-r="plan" class="${reiter==="plan"?"an":""}">Plan</a><a data-r="einst" class="${reiter==="einst"?"an":""}">Einstellungen</a><a data-r="verlauf" class="${reiter==="verlauf"?"an":""}">Verlauf</a></div>`;
   if(reiter==="einst") return kopf+einstellungen(g);
   if(reiter==="verlauf") return kopf+`<div id="verlauf" class="karte">lade…</div>`;

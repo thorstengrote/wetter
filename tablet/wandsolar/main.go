@@ -322,6 +322,7 @@ type ausgabe struct {
 	Jetzt    map[string]float64            `json:"jetzt"`
 	HeuteKwh float64                       `json:"heute_kwh"`
 	Stunden  map[string]map[string]float64 `json:"stunden"`
+	Hinweise []string                      `json:"hinweise,omitempty"`
 }
 
 func rund(v float64, stellen int) float64 {
@@ -338,7 +339,7 @@ func copysign(v, z float64) float64 {
 	return v
 }
 
-func (z *zustand) json() []byte {
+func (z *zustand) json(hinweise []string) []byte {
 	z.Lock()
 	defer z.Unlock()
 	if z.letzte == nil {
@@ -354,6 +355,7 @@ func (z *zustand) json() []byte {
 		},
 		HeuteKwh: rund(m.Heute, 2),
 		Stunden:  map[string]map[string]float64{},
+		Hinweise: hinweise,
 	}
 	for k, s := range z.tag.Stunden {
 		if s.N == 0 {
@@ -379,7 +381,13 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 	mux.HandleFunc("/solar.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Write(z.json())
+		// Hinweise vor dem eigenen Schloss holen: die Steuerung fragt
+		// ihrerseits zustand ab, andersherum gaebe es eine Verklemmung.
+		var h []string
+		if z.st != nil {
+			h = z.st.hinweise()
+		}
+		w.Write(z.json(h))
 	})
 	// Die Velux-Steuerung laeuft als eigener Dienst in hapwatch auf 8098.
 	// Sie hier durchzureichen kostet nichts und spart der Seite den zweiten
