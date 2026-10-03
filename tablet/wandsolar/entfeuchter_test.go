@@ -79,6 +79,9 @@ func TestEinErstNachFuenfMinuten(t *testing.T) {
 
 func TestAusBeiMangelErstNachMindestlaufzeit(t *testing.T) {
 	p := neueProbe(t, true, time.Date(2026, 10, 5, 12, 0, 0, 0, ort))
+	// Die Mindestlaufzeit ist heute schon erfuellt, sonst haelt sie ihn an.
+	p.e.st.Woche, p.e.st.Tag = efWochenKey(p.t), p.t.Format("2006-01-02")
+	p.e.st.Sekunden, p.e.st.TagSek = 6*3600, 3600
 	p.laufe(6, 1.0, 0)
 	if !p.e.st.An {
 		t.Fatal("nicht an")
@@ -157,5 +160,80 @@ func TestFalscheUhrNachNeustart(t *testing.T) {
 	p.e.pruefe(messwert{Zeit: time.Date(2026, 5, 23, 15, 20, 0, 0, ort), Netz: -2})
 	if !p.e.st.An || p.e.st.Sekunden != vorher {
 		t.Fatal("Messung mit falscher Uhr verarbeitet")
+	}
+}
+
+func prognose(t time.Time, pv, ein []float64) efPrognose {
+	return efPrognose{Tag: t.Format("2006-01-02"), PV: pv, Ein: ein}
+}
+
+func stunden(werte map[int]float64) []float64 {
+	a := make([]float64, 24)
+	for h, v := range werte {
+		a[h] = v
+	}
+	return a
+}
+
+// Grauer Tag ohne Prognose: Pflichtlauf startet so, dass er um 18 Uhr fertig ist.
+func TestMindestlaufOhnePrognose(t *testing.T) {
+	p := neueProbe(t, true, time.Date(2026, 10, 5, 11, 0, 0, 0, ort)) // Montag
+	p.laufe(6*60, -0.3, 0)                                            // bis 17:00
+	if p.e.st.An {
+		t.Fatal("ohne Prognose zu frueh gestartet")
+	}
+	p.laufe(60, -0.3, 0) // bis 18:00
+	// Montag: Wochenrest 5 h auf 7 Tage = 43 min, mehr als 30.
+	if m := p.e.st.TagSek / 60; m < 40 || m > 50 {
+		t.Fatalf("Montag %.0f min gelaufen, erwartet rund 43", m)
+	}
+	if p.e.st.An {
+		t.Fatal("nach 18 Uhr noch an")
+	}
+}
+
+// Grauer Tag mit Prognose: der Block liegt in der sonnigsten Stunde.
+func TestMindestlaufInDerSonne(t *testing.T) {
+	start := time.Date(2026, 10, 5, 11, 0, 0, 0, ort)
+	p := neueProbe(t, true, start)
+	p.e.setzePrognose(prognose(start, stunden(map[int]float64{11: 0.5, 12: 0.8, 13: 1.6, 14: 1.2, 15: 0.6}), make([]float64, 24)))
+	p.laufe(119, -0.3, 0) // bis 12:59
+	if p.e.st.An {
+		t.Fatal("vor 13 Uhr gestartet")
+	}
+	p.laufe(2, -0.3, 0)
+	if !p.e.st.An {
+		t.Fatal("um 13 Uhr nicht gestartet")
+	}
+	p.laufe(60, -0.3, 0)
+	if p.e.st.An {
+		t.Fatal("nach dem Pflichtlauf nicht wieder aus")
+	}
+}
+
+// Sonne erwartet: erst warten, dann aus Ueberschuss laufen, kein Pflichtlauf.
+func TestMindestlaufWartetAufSonne(t *testing.T) {
+	start := time.Date(2026, 10, 5, 11, 0, 0, 0, ort)
+	p := neueProbe(t, true, start)
+	p.e.setzePrognose(prognose(start, stunden(map[int]float64{13: 5, 14: 5}), stunden(map[int]float64{13: 2, 14: 2})))
+	p.laufe(120, -0.3, 0) // bis 13:00 grau
+	if p.e.st.An {
+		t.Fatal("trotz erwarteter Sonne Pflichtlauf gestartet")
+	}
+	p.laufe(70, 1.5, 0)
+	if !p.e.st.An {
+		t.Fatal("bei Ueberschuss nicht an")
+	}
+}
+
+// Pflichtlauf schaltet bei Bezug nicht vorzeitig ab.
+func TestPflichtlaufIgnoriertMangel(t *testing.T) {
+	p := neueProbe(t, true, time.Date(2026, 10, 5, 17, 0, 0, 0, ort))
+	p.laufe(20, -0.5, -0.3)
+	if !p.e.st.An {
+		t.Fatal("spaetester Start nicht eingehalten")
+	}
+	if m := p.e.st.TagSek / 60; m < 1 {
+		t.Fatal("keine Laufzeit")
 	}
 }

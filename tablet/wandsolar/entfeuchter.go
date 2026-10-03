@@ -21,6 +21,19 @@ package main
 // sich nach 15 Minuten selbst ab, wenn wandsolar ihn nicht vorher erneut
 // einschaltet. Das passiert bei jeder Messung.
 //
+// Dazu eine Mindestlaufzeit gegen Schimmel, auch ohne Sonne (Vorgabe vom
+// 03.10.2026): 30 Minuten je Tag und 5 Stunden je Woche, beides innerhalb
+// des Zeitfensters. Laufzeit aus Ueberschuss zaehlt mit. Das Tagesziel ist
+// das Groessere aus 30 Minuten und dem Wochenrest geteilt durch die
+// verbleibenden Tage.
+//
+// Wann der Pflichtlauf kommt, entscheidet die Prognose der Wetterseite, die
+// sie an /prognose schickt. Erwartet sie spaeter am Tag genug Einspeisung,
+// wird gewartet. Sonst laeuft der Block in den Stunden mit der meisten
+// erwarteten Sonne, damit die Anlage wenigstens einen Teil traegt. Ohne
+// Prognose, oder wenn die Sonne ausbleibt, startet er spaetestens so, dass
+// er vor Fensterende fertig wird.
+//
 // Scharf ist die Regelung nur, wenn die Datei /data/local/tmp/entfeuchter.scharf
 // existiert. Ohne sie laeuft ein Probebetrieb: er rechnet alles durch,
 // protokolliert, was er taete, und spricht den Shelly nicht an. Die Datei
@@ -49,7 +62,32 @@ const (
 	efTotmann    = 900              // Sekunden, nach denen der Shelly selbst abschaltet
 	efMaxSchritt = 2 * time.Minute  // laengere Luecken zaehlen nicht als Laufzeit
 	efVeraltet   = 3 * time.Minute
+	efTagMin     = 30 * time.Minute
+	efWocheMin   = 5 * time.Hour
+	efPuffer     = 5 * time.Minute // Abstand des spaetesten Starts zum Fensterende
 )
+
+// efFensterEnde gibt das Ende des heutigen Fensters.
+func efFensterEnde(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 18, 0, 0, 0, t.Location())
+}
+
+// efTageRest zaehlt die Tage bis Sonntag, heute eingeschlossen.
+func efTageRest(t time.Time) int {
+	w := int(t.Weekday())
+	if w == 0 {
+		w = 7
+	}
+	return 8 - w
+}
+
+// Was die Wetterseite fuer heute erwartet, je Stunde in kW: Erzeugung und
+// Einspeisung nach ihrem Akkumodell.
+type efPrognose struct {
+	Tag string    `json:"tag"`
+	PV  []float64 `json:"pv"`
+	Ein []float64 `json:"ein"`
+}
 
 func efFenster(t time.Time) bool {
 	h := t.Hour()
@@ -77,6 +115,9 @@ type efStand struct {
 	Leistung   float64   `json:"leistung_kw"`
 	ShellyIP   string    `json:"shelly_ip"`
 	LetzteZeit time.Time `json:"letzte_zeit"`
+	Tag        string    `json:"tag"`
+	TagSek     float64   `json:"tag_sekunden"`
+	ProbeTag   float64   `json:"probe_tag_sekunden"`
 }
 
 type entfeuchter struct {
@@ -92,6 +133,58 @@ type entfeuchter struct {
 	mangelSeit time.Time
 	grund      string
 	scharf     bool
+	prog       *efPrognose
+	fehlt      time.Duration // Rest der heutigen Mindestlaufzeit
+}
+
+func (e *entfeuchter) setzePrognose(p efPrognose) {
+	e.Lock()
+	defer e.Unlock()
+	e.prog = &p
+}
+
+// pflichtJetzt: muss der Mindestlauf jetzt beginnen?
+func (e *entfeuchter) pflichtJetzt(t time.Time, fehlt time.Duration) (bool, string) {
+	ende := efFensterEnde(t)
+	spaet := ende.Add(-fehlt - efPuffer)
+	if !t.Before(spaet) {
+		return true, "Mindestlaufzeit, spaetester Start"
+	}
+	p := e.prog
+	if p == nil || p.Tag != t.Format("2006-01-02") || len(p.PV) != 24 || len(p.Ein) != 24 {
+		return false, "Mindestlaufzeit, wartet auf spaetesten Start (keine Prognose)"
+	}
+	// Erwartete Einspeisung, die fuer den Entfeuchter reicht, ab jetzt.
+	var erw time.Duration
+	for h := t.Hour(); h < ende.Hour(); h++ {
+		if p.Ein[h] < e.st.Leistung+efReserve {
+			continue
+		}
+		if h == t.Hour() {
+			erw += time.Hour - time.Duration(t.Minute())*time.Minute
+		} else {
+			erw += time.Hour
+		}
+	}
+	if erw >= fehlt+30*time.Minute {
+		return false, "Mindestlaufzeit, Sonne erwartet"
+	}
+	// Den Block in die sonnigsten Stunden legen.
+	n := int((fehlt + time.Hour - 1) / time.Hour)
+	best, bestSum := t.Hour(), -1.0
+	for s := t.Hour(); s <= spaet.Hour(); s++ {
+		sum := 0.0
+		for h := s; h < s+n && h < ende.Hour(); h++ {
+			sum += p.PV[h]
+		}
+		if sum > bestSum+0.05 {
+			best, bestSum = s, sum
+		}
+	}
+	if t.Hour() >= best {
+		return true, fmt.Sprintf("Mindestlaufzeit in der sonnigsten Stunde (%d Uhr)", best)
+	}
+	return false, fmt.Sprintf("Mindestlaufzeit geplant ab %d Uhr", best)
 }
 
 func neuerEntfeuchter(pfad, scharfPfd, ip, mac string, leistung float64, sag func(string, ...any)) *entfeuchter {
@@ -165,6 +258,9 @@ func (e *entfeuchter) pruefe(m messwert) {
 	if w := efWochenKey(t); w != e.st.Woche {
 		e.st.Woche, e.st.Sekunden, e.st.ProbeSek = w, 0, 0
 	}
+	if d := t.Format("2006-01-02"); d != e.st.Tag {
+		e.st.Tag, e.st.TagSek, e.st.ProbeTag = d, 0, 0
+	}
 
 	// Laufzeit seit der letzten Messung verbuchen.
 	if e.st.An && !e.st.LetzteZeit.IsZero() {
@@ -174,14 +270,35 @@ func (e *entfeuchter) pruefe(m messwert) {
 		}
 		if e.scharf {
 			e.st.Sekunden += dt.Seconds()
+			e.st.TagSek += dt.Seconds()
 		} else {
 			e.st.ProbeSek += dt.Seconds()
+			e.st.ProbeTag += dt.Seconds()
 		}
 	}
 	e.st.LetzteZeit = t
-	genutzt := time.Duration(e.st.Sekunden * float64(time.Second))
+	sek := func(v float64) time.Duration { return time.Duration(v * float64(time.Second)) }
+	genutzt, heute := sek(e.st.Sekunden), sek(e.st.TagSek)
 	if !e.scharf {
-		genutzt = time.Duration(e.st.ProbeSek * float64(time.Second))
+		genutzt, heute = sek(e.st.ProbeSek), sek(e.st.ProbeTag)
+	}
+
+	// Mindestlaufzeit: was heute noch fehlt.
+	// Der Wochenrest zaehlt ab Tagesbeginn. Mit dem laufenden Stand
+	// schrumpfte das Tagesziel waehrend des Laufs, und Montag kamen 38 statt
+	// 43 Minuten heraus.
+	ziel := efTagMin
+	if rest := efWocheMin - (genutzt - heute); rest > 0 {
+		if je := rest / time.Duration(efTageRest(t)); je > ziel {
+			ziel = je
+		}
+	}
+	if ende := efFensterEnde(t); efFenster(t) && ziel-heute > ende.Sub(t) {
+		ziel = heute + ende.Sub(t) // mehr passt heute nicht mehr hinein
+	}
+	e.fehlt = ziel - heute
+	if e.fehlt < 0 {
+		e.fehlt = 0
 	}
 
 	// Ueberschuss und Mangel mit Dauer.
@@ -208,21 +325,31 @@ func (e *entfeuchter) pruefe(m messwert) {
 		e.setze(false, "Zeitfenster vorbei")
 	case e.st.An && genutzt >= efWoche:
 		e.setze(false, "30 Stunden der Woche verbraucht")
-	case e.st.An && !e.mangelSeit.IsZero() && t.Sub(e.mangelSeit) >= efAusNach && dauer >= efMinAn:
+	case e.st.An && e.fehlt == 0 && !e.mangelSeit.IsZero() && t.Sub(e.mangelSeit) >= efAusNach && dauer >= efMinAn:
 		e.setze(false, fmt.Sprintf("kein Ueberschuss mehr (Netz %+.2f kW, Akku %+.2f kW)", m.Netz, m.Akku))
 	case e.st.An:
 		e.setze(true, "") // Totmann erneuern
-		e.grund = "laeuft"
+		if e.fehlt > 0 {
+			e.grund = fmt.Sprintf("laeuft, Mindestlaufzeit noch %d min", int(e.fehlt.Minutes()+0.5))
+		} else {
+			e.grund = "laeuft"
+		}
 	case !efFenster(t):
 		e.grund = "ausserhalb des Zeitfensters"
 	case efWoche-genutzt < efRest:
 		e.grund = "Wochenbudget aufgebraucht"
+	case !e.st.Seit.IsZero() && dauer < efMinAus:
+		e.grund = "Pause nach dem Abschalten"
+	case e.fehlt > 0 && e.ueberSeit.IsZero():
+		if los, warum := e.pflichtJetzt(t, e.fehlt); los {
+			e.setze(true, fmt.Sprintf("%s, %d min", warum, int(e.fehlt.Minutes()+0.5)))
+		} else {
+			e.grund = warum
+		}
 	case e.ueberSeit.IsZero():
 		e.grund = fmt.Sprintf("zu wenig Ueberschuss (Netz %+.2f kW, gebraucht %.2f)", m.Netz, e.st.Leistung+efReserve)
 	case t.Sub(e.ueberSeit) < efEinNach:
 		e.grund = "Ueberschuss, wartet auf fuenf Minuten"
-	case !e.st.Seit.IsZero() && dauer < efMinAus:
-		e.grund = "Pause nach dem Abschalten"
 	default:
 		e.setze(true, fmt.Sprintf("Ueberschuss %.2f kW seit %s", m.Netz, e.ueberSeit.Format("15:04")))
 	}
@@ -358,12 +485,13 @@ func sucheShelly(netz, mac string) string {
 func (e *entfeuchter) status() map[string]any {
 	e.Lock()
 	defer e.Unlock()
-	h := e.st.Sekunden / 3600
+	h, tg := e.st.Sekunden/3600, e.st.TagSek/60
 	if !e.scharf {
-		h = e.st.ProbeSek / 3600
+		h, tg = e.st.ProbeSek/3600, e.st.ProbeTag/60
 	}
 	return map[string]any{
 		"scharf": e.scharf, "an": e.st.An, "woche_h": rund(h, 2),
+		"heute_min": rund(tg, 0), "mindest_fehlt_min": rund(e.fehlt.Minutes(), 0),
 		"leistung_kw": rund(e.st.Leistung, 3), "grund": e.grund,
 	}
 }

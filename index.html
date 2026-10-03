@@ -2730,6 +2730,22 @@ const SOLAR=(()=>{
     gs[flussPhase].setAttribute("visibility","visible");
   },1000);
 
+  /* Die Prognose fuer heute geht an wandsolar, der damit den Pflichtlauf
+     des Luftentfeuchters in die sonnigste Stunde legt. Nur auf dem Tablet
+     sinnvoll; anderswo laeuft die Anfrage ins Leere und stoert nicht.
+     Hoechstens alle fuenf Minuten. */
+  let gemeldet=0;
+  function meldePrognose(){
+    if(Date.now()-gemeldet<5*60*1000) return;
+    if(!prog.some(v=>v>0)) return;
+    gemeldet=Date.now();
+    const ST=tag();
+    fetch("prognose",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({tag:isoDay(new Date()),
+        pv:ST.map(e=>+(+e.pv||0).toFixed(3)),ein:ST.map(e=>+(+e.ein||0).toFixed(3))})})
+      .catch(()=>{});
+  }
+
   /* --- Der Block in der Kopfzeile ---------------------------------- */
   function zeichne(){
     const el=document.getElementById("solar");
@@ -2741,6 +2757,7 @@ const SOLAR=(()=>{
        wechselt abends auf den naechsten Tag. */
     const m=morgenModus();
     const ST=m?tagMorgen():tag();
+    meldePrognose();
     /* Oben der Fluss, unten der Streifen, siehe fluss() und streifenBreit() */
     el.innerHTML=`<svg width="${FB}" height="${FHOCH}" viewBox="0 0 ${FB} ${FHOCH}"
         style="display:block;overflow:visible;will-change:transform">${fluss()}<g class="solspitzen"></g><g class="sstreifen">${streifenBreit(ST,m)}</g></svg>`;

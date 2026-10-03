@@ -381,6 +381,21 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 		}
 		mux.Handle("/velux/", p)
 	}
+	// Die Wetterseite schickt ihre Prognose fuer heute, damit der
+	// Entfeuchter seinen Pflichtlauf in die Sonne legen kann.
+	mux.HandleFunc("/prognose", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || z.ef == nil {
+			http.Error(w, "nein", 405)
+			return
+		}
+		var p efPrognose
+		if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&p); err != nil || len(p.PV) != 24 || len(p.Ein) != 24 {
+			http.Error(w, "unbrauchbar", 400)
+			return
+		}
+		z.ef.setzePrognose(p)
+		w.WriteHeader(204)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
 			http.NotFound(w, r)
