@@ -43,6 +43,8 @@ import (
 
 var ort = time.UTC
 
+var nachtDienst *nacht
+
 // ---------------------------------------------------------------- Modbus
 
 // Der SDongle spricht Modbus TCP, der Wechselrichter hat die Adresse 1.
@@ -515,10 +517,18 @@ func main() {
 	go z.st.sb.laufe(z.st.sensorIDs)
 	z.fr = neueFritz(filepath.Join(dir, "fritz.json"), filepath.Join(dir, "heizung-verlauf.json"), sag)
 	go z.fr.laufe()
+	if *vlx != "" {
+		na := neueNacht(filepath.Join(dir, "nacht.json"), *vlx, sag)
+		go na.laufe()
+		nachtDienst = na
+	}
 
 	mux := http.NewServeMux()
 	z.bediene(mux)
 	z.st.bediene(mux, filepath.Dir(*seite))
+	if nachtDienst != nil {
+		nachtDienst.bediene(mux)
+	}
 	mux.HandleFunc("/api/heizung", func(w http.ResponseWriter, r *http.Request) {
 		a := z.fr.stand()
 		a["aussen"] = z.st.aussenJetzt()

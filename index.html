@@ -231,10 +231,10 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
   background:rgba(4,7,11,.72);cursor:pointer}
 .vdetail.on{display:block}
 .vflaeche{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  width:470px;max-height:92%;overflow:auto;cursor:default;
+  width:545px;max-height:92%;overflow:auto;cursor:default;
   background:rgba(7,11,17,.985);border:1px solid #5b6b81;border-radius:16px;
   padding:14px 18px}
-.vzeile{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;
+.vzeile{display:grid;grid-template-columns:1fr auto 58px;gap:14px;align-items:center;
   padding:9px 2px 9px 8px}
 .vzeile + .vzeile{border-top:1px solid #1d2734}
 .vzeile .n{font-size:16px;font-weight:650;white-space:nowrap;color:#e8eef5}
@@ -256,6 +256,26 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 .vkopf{display:flex;justify-content:flex-end;font-size:11px;color:#7d8896;
   margin-bottom:2px}
 .vfehler{font-size:12px;color:#ff9a8c;min-height:16px;margin-top:8px;padding:0 2px}
+/* Dritte Spalte: einmal heute Nacht zufahren. Nur ein Mond, scharf
+   gelb mit Uhrzeit. Nach dem Lauf ist der Auftrag weg. */
+.vnacht{width:58px;height:58px;border:1px solid #2a3542;border-radius:11px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  cursor:pointer;color:#5b6b7d;-webkit-user-select:none;user-select:none}
+.vnacht svg{width:20px;height:20px;display:block}
+.vnacht b{font-size:12px;font-weight:650;line-height:1}
+.vnacht[data-scharf=ja]{border-color:#ffd166;color:#ffd166;background:#22200f}
+.vwahl{text-align:center;padding:6px 0 4px}
+.vwahl .t{font-size:13px;color:#8b97a6;margin-bottom:10px}
+.vuhr{display:flex;justify-content:center;align-items:center;gap:6px;font-size:54px;
+  font-weight:750;color:#e8eef5;font-variant-numeric:tabular-nums}
+.vuhr .sp{display:flex;flex-direction:column;align-items:center;gap:4px}
+.vuhr button,.vwahl button{background:#1a2430;color:#e8eef5;border:1px solid #33404f;
+  border-radius:10px;font:inherit;font-size:15px;padding:8px 16px;cursor:pointer}
+.vuhr button{font-size:18px;padding:2px 18px}
+.vziel{display:flex;justify-content:center;gap:8px;margin:14px 0}
+.vziel button[data-an=ja]{border-color:#ffd166;color:#ffd166}
+.vknoepfe{display:flex;justify-content:center;gap:10px;margin-top:6px}
+.vknoepfe .haupt{background:#ffd166;color:#121212;border-color:#ffd166;font-weight:700}
 
 /* One label system for every secondary value on the page.
    Same size, same weight, same icon box, never wraps, never absent.
@@ -2063,7 +2083,9 @@ const VELUX=(()=>{
   /* Lueften ist zugleich Hitzeschutz: fast zu, aber ein Spalt bleibt. */
   const ZIEL=[["auf",100,F_AUF],["lueft",22,F_LUEFT],["zu",0,F_ZU]];
 
-  let da=false, stand={}, lueftWert=22, holt=null;
+  let da=false, stand={}, lueftWert=22, holt=null, nachtAuf={}, wahl=null;
+  const MOND=`<svg viewBox="0 0 20 20"><path d="M13.6 2.6a7.6 7.6 0 1 0 3.8 13.1A6.3 6.3 0 0 1 13.6 2.6z" fill="currentColor"/></svg>`;
+  const hm=d=>{const t=new Date(d);return t.getHours()+":"+String(t.getMinutes()).padStart(2,"0");};
 
   const hol=(weg,opt)=>fetch(weg,Object.assign({cache:"no-store"},opt||{}));
 
@@ -2094,7 +2116,8 @@ const VELUX=(()=>{
       if(!r.ok) return;
       const d=await r.json();
       stand=(d&&d.gruppen)||{};
-      if(document.getElementById("vdetail").classList.contains("on")) male();
+      try{ const n=await hol("/api/nacht"); if(n.ok) nachtAuf=await n.json()||{}; }catch(e){}
+      if(document.getElementById("vdetail").classList.contains("on")&&!wahl) male();
     }catch(e){ /* Stand bleibt, wie er war */ }
   }
 
@@ -2114,8 +2137,11 @@ const VELUX=(()=>{
       `<div class="vtaste" data-gruppe="${schluessel}" data-richtung="${art}"
             ${ist===art?'data-ist="ja"':""}>
          <div class="vzeichen">${zeichen(wert,farbe)}</div></div>`).join("");
+    const a=nachtAuf[schluessel];
+    const nacht=gruppe?"<div></div>":`<div class="vnacht" data-nacht="${schluessel}" ${a?'data-scharf="ja"':""}
+      title="einmal heute Nacht zufahren">${MOND}${a?`<b>${hm(a.zeit)}</b>`:""}</div>`;
     return `<div class="vzeile${gruppe?" gruppe":""}">
-      <div class="n">${name}</div><div class="vtasten">${t}</div></div>`;
+      <div class="n">${name}</div><div class="vtasten">${t}</div>${nacht}</div>`;
   }
 
   function male(){
@@ -2135,6 +2161,50 @@ const VELUX=(()=>{
       if(z) t.dataset.zustand=z;
       t.addEventListener("click",ev=>{ ev.stopPropagation(); fahre(t); });
     });
+    f.querySelectorAll(".vnacht").forEach(t=>t.addEventListener("click",ev=>{
+      ev.stopPropagation();
+      const g=t.dataset.nacht, a=nachtAuf[g];
+      const d=a?new Date(a.zeit):null;
+      wahl={gruppe:g,name:(ZEILEN.find(z=>z[0]===g)||[])[1]||g,h:d?d.getHours():2,m:d?d.getMinutes():0,
+            richtung:a?a.richtung:"zu",scharf:!!a};
+      maleWahl();
+    }));
+  }
+
+  /* Uhrzeit waehlen: Stunde und Minute mit Schrittknoepfen, Minuten in
+     Viertelstunden. Gilt einmal, fuer das naechste Auftreten der Uhrzeit. */
+  function maleWahl(){
+    const f=document.getElementById("vflaeche"), w=wahl;
+    const p2=n=>String(n).padStart(2,"0");
+    f.innerHTML=`<div class="vwahl">
+      <div class="t">${w.name} · einmal heute Nacht</div>
+      <div class="vuhr"><div class="sp"><button data-s="h+">▲</button>${p2(w.h)}<button data-s="h-">▼</button></div>:
+        <div class="sp"><button data-s="m+">▲</button>${p2(w.m)}<button data-s="m-">▼</button></div></div>
+      <div class="vziel"><button data-r="zu" ${w.richtung==="zu"?'data-an="ja"':""}>ganz zu</button>
+        <button data-r="lueft" ${w.richtung==="lueft"?'data-an="ja"':""}>Lüftung</button></div>
+      <div class="vknoepfe"><button data-k="zurueck">Zurück</button>
+        ${w.scharf?'<button data-k="weg">Aufheben</button>':""}
+        <button class="haupt" data-k="ok">${w.scharf?"Ändern":"Scharf"}</button></div>
+      <div class="vfehler" id="vfehler"></div></div>`;
+    f.querySelectorAll("button").forEach(b=>b.addEventListener("click",async ev=>{
+      ev.stopPropagation();
+      const s=b.dataset.s, r=b.dataset.r, k=b.dataset.k;
+      if(s==="h+") w.h=(w.h+1)%24; if(s==="h-") w.h=(w.h+23)%24;
+      if(s==="m+") w.m=(w.m+15)%60; if(s==="m-") w.m=(w.m+45)%60;
+      if(r) w.richtung=r;
+      if(k==="zurueck"){ wahl=null; male(); return; }
+      if(k==="ok"||k==="weg"){
+        try{
+          const res=await hol("/api/nacht",{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify(k==="weg"?{gruppe:w.gruppe,abbrechen:true}
+              :{gruppe:w.gruppe,uhrzeit:p2(w.h)+":"+p2(w.m),richtung:w.richtung})});
+          if(!res.ok) throw new Error(await res.text());
+          nachtAuf=await res.json()||{}; wahl=null; male();
+        }catch(e){ const fe=document.getElementById("vfehler"); if(fe) fe.textContent="Ging nicht: "+e.message; }
+        return;
+      }
+      maleWahl();
+    }));
   }
 
   async function fahre(t){
@@ -2165,7 +2235,7 @@ const VELUX=(()=>{
     document.getElementById("vdetail").classList.add("on");
     holeStand();
   }
-  const schliesse=()=>document.getElementById("vdetail").classList.remove("on");
+  const schliesse=()=>{ wahl=null; document.getElementById("vdetail").classList.remove("on"); };
 
   return {pruefe,oeffne,schliesse};
 })();
