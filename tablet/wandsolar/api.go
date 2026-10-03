@@ -210,7 +210,8 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 				"minuten_7t": g.minuten7(t), "beginn": g.st.Beginn,
 				"hand": g.st.Hand, "hand_bis": g.st.HandBis,
 				"stoerung": g.st.Stoerung, "stoerung_seit": g.st.StoerSeit, "wiederholt": g.st.Wiederholt,
-				"kompressor": g.komp, "kompressor_kw": g.st.KompKW}
+				"kompressor": g.komp, "kompressor_kw": g.st.KompKW,
+				"feuchte": g.feuchte, "nass": g.nass, "trocken": g.trocken, "fenster_auf": g.fensterAuf}
 			if !n.IsZero() {
 				e["naechster"] = n
 			}
@@ -237,6 +238,28 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 		}
 		return nil
 	}
+
+	mux.HandleFunc("/api/sensoren", func(w http.ResponseWriter, r *http.Request) {
+		if s.sb == nil {
+			jsonAntwort(w, []any{})
+			return
+		}
+		l, err := s.sb.sensoren()
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
+		jsonAntwort(w, l)
+	})
+
+	mux.HandleFunc("/api/feuchte", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("sensor")
+		if s.sb == nil || id == "" {
+			jsonAntwort(w, []any{})
+			return
+		}
+		jsonAntwort(w, s.sb.kurve(id))
+	})
 
 	mux.HandleFunc("/api/plan", func(w http.ResponseWriter, r *http.Request) {
 		s.Lock()
@@ -399,6 +422,9 @@ func pruefeCfg(c geraetCfg) string {
 		return "negative Zeiten"
 	case net.ParseIP(c.ShellyIP) == nil:
 		return "Shelly-Adresse ungueltig"
+	}
+	if c.SensorID != "" && (c.FeuchteUnten <= 0 || c.FeuchteOben > 100 || c.FeuchteUnten+5 > c.FeuchteOben) {
+		return "Feuchtegrenzen: unten mindestens 5 Punkte unter oben"
 	}
 	for _, z := range c.Zeiten {
 		if z.Von < 0 || z.Bis > 24 || z.Bis < z.Von {

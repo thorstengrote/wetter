@@ -447,6 +447,15 @@ func main() {
 	)
 	flag.Parse()
 
+	// Ein reines Linux-Binary sucht die Zertifikate der Zertifizierungsstellen
+	// unter /etc/ssl und findet auf Android nichts. Ohne diese Zeile scheitert
+	// jeder HTTPS-Abruf, zuerst gesehen bei der SwitchBot-Cloud am 03.10.2026.
+	if os.Getenv("SSL_CERT_DIR") == "" {
+		if _, err := os.Stat("/system/etc/security/cacerts"); err == nil {
+			os.Setenv("SSL_CERT_DIR", "/system/etc/security/cacerts")
+		}
+	}
+
 	if l, err := time.LoadLocation("Europe/Berlin"); err == nil {
 		ort = l
 	}
@@ -497,6 +506,9 @@ func main() {
 		z.st.sichereCfg()
 	}
 	zu := neuerZugang(dir)
+	z.st.sb = neuerSwitchbot(filepath.Join(dir, "switchbot.json"), sag)
+	z.st.veluxBasis = *vlx
+	go z.st.sb.laufe(z.st.sensorIDs)
 
 	mux := http.NewServeMux()
 	z.bediene(mux)

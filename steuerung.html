@@ -109,6 +109,8 @@ const hm=h=>`${String(Math.floor(h)).padStart(2,"0")}:${String(Math.round((h%1)*
 const dauerText=m=>m<60?`${Math.round(m)} min`:`${z(m/60)} h`;
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
+const FENSTER={"3":"Ben","5":"Wohnzimmer unten","15":"Wohnzimmer oben"};
+let SENSOREN=null, FEUCHTE={};
 let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null;
 
 function meldung(t){const m=document.getElementById("meldung");m.textContent=t;m.style.display="block";
@@ -150,7 +152,10 @@ document.addEventListener("keydown",e=>{if(ansicht==="pin"&&/^[0-9]$|Backspace/.
 async function lade(){
   try{
     ST=await api("api/status");
-    for(const g of ST.geraete||[]) PLAN[g.cfg.id]=(await api("api/plan?id="+g.cfg.id));
+    for(const g of ST.geraete||[]){
+      PLAN[g.cfg.id]=(await api("api/plan?id="+g.cfg.id));
+      if(g.cfg.sensor_id) FEUCHTE[g.cfg.id]=await api("api/feuchte?sensor="+encodeURIComponent(g.cfg.sensor_id));
+    }
     if(!geraetId&&ST.geraete?.length) geraetId=ST.geraete[0].cfg.id;
     if(ansicht!=="pin"&&!(ansicht==="geraet"&&reiter==="einst")) zeichne();
   }catch(e){ if(e.message!=="PIN") meldung("Keine Verbindung zum Tablet"); }
@@ -239,11 +244,33 @@ function geraetKarte(g){
     ${g.stoerung?`<div class="stoerung"><b>${esc(g.stoerung)}</b><div class="klein" style="color:#ffb3aa">seit ${uhr(g.stoerung_seit)}, neuer Versuch ${uhr(g.wiederholt)}</div>
       <div class="knoepfe"><button data-h="geleert" data-id="${g.cfg.id}">Tank geleert</button></div></div>`:""}
     <div><span class="zahl">${g.an?(g.kompressor?"entfeuchtet":"läuft"):"aus"}</span> <span class="klein">&nbsp;${g.an&&!g.kompressor?"nur Lüfter · ":""}${esc(g.grund)}</span></div>
+    ${raumluftZeile(g)}
     <div class="klein">Letzte 7 Tage ${dauerText(g.minuten_7t)} · geplant 7 Tage ${dauerText(sm.m)}${sm.netz?`, davon ${sm.netz} min vom Netz`:""}</div>
     <div class="knoepfe"><button data-h="an1h" data-id="${g.cfg.id}">1 h jetzt</button>
       <button data-h="heuteaus" data-id="${g.cfg.id}">Heute aus</button>
       ${g.hand?`<button data-h="normal" data-id="${g.cfg.id}">Hand beenden</button>`:""}
       <button class="haupt" data-g="${g.cfg.id}">Plan</button></div></div>`;
+}
+function raumluftZeile(g){
+  if(!g.cfg.sensor_id) return "";
+  if(!g.feuchte) return `<div class="klein">Raumluft: kein frischer Wert von ${esc(g.cfg.sensor_name)}, es gelten die Mindestregeln</div>`;
+  const f=g.feuchte, farbe=g.nass?"var(--netz)":g.trocken?"var(--haus)":"var(--text)";
+  return `<div class="klein">Raumluft <b style="color:${farbe}">${z(f.rh,0)} %</b> · ${z(f.temp)} °C · Grenzen ${g.cfg.feuchte_unten} bis ${g.cfg.feuchte_oben} %
+    ${g.nass?" · zu feucht":g.trocken?" · trocken genug":""}${g.fenster_auf?" · Fenster offen":""}</div>`;
+}
+function feuchteSvg(g){
+  const d=FEUCHTE[g.cfg.id]||[];if(d.length<2) return `<div class="klein">Noch keine Messwerte.</div>`;
+  const b=1100,h=150,l=40,r=20,o=10,u=22,jetzt=Date.now(),von=jetzt-48*3600e3;
+  const x=t=>l+(t-von)/(jetzt-von)*(b-l-r), y=v=>o+(1-(v-30)/50)*(h-o-u);
+  let s="";
+  for(const v of [40,50,60,70]) s+=`<line x1="${l}" x2="${b-r}" y1="${y(v)}" y2="${y(v)}" stroke="#1f2a38"/><text x="${l-6}" y="${y(v)+4}" fill="#5b6b7d" font-size="11" text-anchor="end">${v}</text>`;
+  s+=`<rect x="${l}" y="${y(g.cfg.feuchte_oben)}" width="${b-l-r}" height="${y(30)-y(30)+0}" fill="none"/>
+      <line x1="${l}" x2="${b-r}" y1="${y(g.cfg.feuchte_oben)}" y2="${y(g.cfg.feuchte_oben)}" stroke="var(--netz)" stroke-dasharray="4 4" opacity=".7"/>
+      <line x1="${l}" x2="${b-r}" y1="${y(g.cfg.feuchte_unten)}" y2="${y(g.cfg.feuchte_unten)}" stroke="var(--haus)" stroke-dasharray="4 4" opacity=".7"/>`;
+  for(let t=Math.ceil(von/21600e3)*21600e3;t<jetzt;t+=21600e3){const dt=new Date(t);
+    s+=`<text x="${x(t)}" y="${h-6}" fill="#5b6b7d" font-size="11" text-anchor="middle">${dt.getHours()===0?tag(dt):dt.getHours()+" Uhr"}</text>`;}
+  s+=`<path d="${d.map((p,i)=>(i?"L":"M")+x(new Date(p.zeit).getTime()).toFixed(1)+" "+y(Math.max(30,Math.min(80,p.rh))).toFixed(1)).join("")}" fill="none" stroke="var(--text)" stroke-width="1.6"/>`;
+  return `<svg viewBox="0 0 ${b} ${h}" style="display:block;width:100%;height:auto">${s}</svg>`;
 }
 function uebersicht(){
   const g=ST.geraete||[],t=ST.tablet||{};
@@ -273,6 +300,8 @@ function geraetSicht(){
       <div class="karte"><h2>Davon vom Netz</h2><div class="zahl" style="color:${sm.netz?"var(--netz)":"var(--text)"}">${sm.netz} <small>min</small></div><div class="klein">etwa ${z(sm.kwhNetz,2)} kWh</div></div>
       <div class="karte"><h2>Nächster Lauf</h2><div class="zahl" style="font-size:20px">${g.an?"läuft":n?tag(n)+" "+uhr(n):"keiner"}</div><div class="klein">${pl.faktor_heute&&Math.abs(pl.faktor_heute-1)>0.05?"heute "+Math.round(pl.faktor_heute*100)+" % der Prognose erreicht":"&nbsp;"}</div></div>
     </div>
+    ${g.cfg.sensor_id?`<div class="karte" style="margin-bottom:14px"><h2>Raumluft, letzte 48 Stunden · ${esc(g.cfg.sensor_name)}</h2>${raumluftZeile(g)}${feuchteSvg(g)}
+      <div class="legende"><span><i style="background:var(--netz)"></i>Obergrenze, darüber läuft er notfalls mit Netzstrom</span><span><i style="background:var(--haus)"></i>Untergrenze, darunter läuft er nicht</span></div></div>`:""}
     <div class="karte plan"><h2>Plan, gleitend 7 Tage</h2>${planSvg(pl,false)}${legende}
       ${(pl.hinweise||[]).map(h=>`<div class="klein" style="color:var(--netz);margin-top:8px">${esc(h)}</div>`).join("")}
       <div class="klein" style="margin-top:10px">Gerechnet vom Tablet mit derselben Regel, die schaltet, um ${pl.erstellt?uhr(pl.erstellt):"–"}.
@@ -301,6 +330,17 @@ function einstellungen(g){
       <div class="feld"><span class="n">Lauf zählt ab</span>${zahl("min_lauf_min","min")}</div>
       <div class="feld"><span class="n">Kürzester Lauf</span>${zahl("min_an_min","min")}</div>
       <div class="feld"><span class="n">Kürzeste Pause</span>${zahl("min_aus_min","min")}<span class="e">Schont den Kompressor.</span></div>
+    </div>
+    <div class="karte"><h2>Raumluft</h2>
+      <div class="feld"><span class="n">Feuchtesensor</span><span class="eing"><select id="sensorwahl">
+        <option value="">ohne Sensor</option>
+        ${(SENSOREN||[]).map(x=>`<option value="${esc(x.id)}" ${c.sensor_id===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}
+        ${c.sensor_id&&!(SENSOREN||[]).some(x=>x.id===c.sensor_id)?`<option value="${esc(c.sensor_id)}" selected>${esc(c.sensor_name||c.sensor_id)}</option>`:""}
+      </select></span><span class="e">${SENSOREN?"SwitchBot über den Hub Mini, alle 5 Minuten.":"Liste wird geladen…"} Ohne Sensor gelten die Mindestregeln.</span></div>
+      <div class="feld"><span class="n">Zu feucht ab</span>${zahl("feuchte_oben","%")}<span class="e">Läuft dann notfalls mit Netzstrom, bis 3 Punkte darunter.</span></div>
+      <div class="feld"><span class="n">Trocken genug unter</span>${zahl("feuchte_unten","%")}<span class="e">Läuft dann nicht, auch nicht mit Sonne.</span></div>
+      <div class="feld"><span class="n">Pause, wenn offen</span><span class="eing">${Object.entries(FENSTER).map(([id,n])=>`<label style="margin-left:10px"><input type="checkbox" data-fe="${id}" ${(c.fenster||[]).includes(id)?"checked":""}> ${n}</label>`).join("")}</span>
+        <span class="e">Velux-Fenster des Raums. Während gelüftet wird, entfeuchtet er nicht.</span></div>
     </div>
     <div class="karte"><h2>Strom</h2>
       <div class="feld"><span class="n">Vor vollem Akku anlaufen</span>${haken("vorziehen")}<span class="e">Wenn die Prognose für den Rest des Tages genug Einspeisung erwartet.</span></div>
@@ -344,6 +384,11 @@ function zeichne(){
   w.querySelectorAll("[data-m]").forEach(a=>a.onclick=()=>{entwurf.modus=a.dataset.m;zeichne();});
   w.querySelectorAll("[data-c]").forEach(i=>i.onchange=()=>{const k=i.dataset.c;
     entwurf[k]=i.type==="checkbox"?i.checked:i.type==="number"?Number(i.value):i.value;});
+  const sw=document.getElementById("sensorwahl");
+  if(sw) sw.onchange=()=>{entwurf.sensor_id=sw.value;entwurf.sensor_name=sw.value?sw.options[sw.selectedIndex].text:"";};
+  w.querySelectorAll("[data-fe]").forEach(i=>i.onchange=()=>{const f=new Set(entwurf.fenster||[]);
+    i.checked?f.add(i.dataset.fe):f.delete(i.dataset.fe);entwurf.fenster=[...f];});
+  if(ansicht==="geraet"&&reiter==="einst"&&SENSOREN===null){SENSOREN=[];api("api/sensoren").then(l=>{SENSOREN=l||[];zeichne();}).catch(()=>{});}
   w.querySelectorAll("[data-zt]").forEach(i=>i.onchange=()=>{const m=i.value.match(/^(\d{1,2}):?(\d{2})?$/);
     if(m) entwurf.zeiten[i.dataset.zt][i.dataset.w]=Number(m[1])+Number(m[2]||0)/60; else meldung("Uhrzeit wie 11:00");});
   const sp=document.getElementById("speichern");

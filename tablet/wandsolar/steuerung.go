@@ -28,6 +28,20 @@ package main
 // Hinweis von selbst weg. "Tank geleert" in der Oberflaeche beendet die
 // Wartezeit sofort.
 //
+// Raumluft (Vorgaben vom 03.10.2026, im Raum schlaeft nachts jemand, morgens
+// wird automatisch gelueftet): Mit einem Feuchtesensor gilt
+//
+//   - ueber der Obergrenze: laufen, notfalls mit Netzstrom, bis 3 Punkte
+//     darunter
+//   - unter der Untergrenze: nicht laufen, auch nicht mit freier Sonne, sonst
+//     wird die Luft nur ausgetrocknet
+//   - dazwischen: nur freie Laeufe
+//   - Fenster des Raums offen: Pause, waehrend gelueftet wird
+//
+// Die festen Mindestregeln (5 h in 7 Tagen, alle 3 Tage) sind ein Ersatz
+// fuer die fehlende Messung. Mit frischem Sensorwert ruhen sie, faellt der
+// Sensor aus, gelten sie wieder.
+//
 // Mindestens zehn Minuten an und zehn aus, wegen des Kompressors. Jedes
 // Einschalten geht mit toggle_after an den Shelly: faellt das Tablet aus,
 // schaltet er sich nach der Totmannzeit selbst ab.
@@ -70,6 +84,11 @@ type geraetCfg struct {
 	Vorziehen     bool        `json:"vorziehen"`
 	NetzErlaubt   bool        `json:"netz_erlaubt"`
 	TotmannMin    float64     `json:"totmann_min"`
+	SensorID      string      `json:"sensor_id"` // SwitchBot, leer heisst ohne
+	SensorName    string      `json:"sensor_name"`
+	FeuchteOben   float64     `json:"feuchte_oben"`
+	FeuchteUnten  float64     `json:"feuchte_unten"`
+	Fenster       []string    `json:"fenster"` // Velux-Geraete des Raums
 }
 
 func standardEntfeuchter() geraetCfg {
@@ -81,6 +100,7 @@ func standardEntfeuchter() geraetCfg {
 		MaxH7: 30, MinH7: 5, MaxLueckeTage: 3, MinLaufMin: 30,
 		MinAnMin: 10, MinAusMin: 10, EinReserveW: 100, AusBezugW: 100,
 		Vorziehen: true, NetzErlaubt: true, TotmannMin: 15,
+		FeuchteOben: 65, FeuchteUnten: 50,
 	}
 }
 
@@ -128,6 +148,10 @@ type geraet struct {
 	letzteKW    float64 // was der Shelly zuletzt gemessen hat
 	komp        bool    // Kompressor lief bei der letzten Messung
 	kompZuletzt time.Time
+	nass        bool // ueber der Obergrenze, bis 3 Punkte darunter
+	trocken     bool // unter der Untergrenze, bis 2 Punkte darueber
+	feuchte     *messFeuchte
+	fensterAuf  bool
 }
 
 type steuerung struct {
@@ -140,6 +164,63 @@ type steuerung struct {
 	prognoseZeit       time.Time
 	letzte             *messwert
 	stundenPV          func() map[int]float64 // gemessene Stundenmittel heute
+	sb                 *switchbot
+	veluxBasis         string
+	fenster            map[string]float64
+	fensterZeit        time.Time
+}
+
+// sensorIDs fuer den Abruf.
+func (s *steuerung) sensorIDs() []string {
+	s.Lock()
+	defer s.Unlock()
+	var ids []string
+	for _, g := range s.geraete {
+		if g.cfg.SensorID != "" {
+			ids = append(ids, g.cfg.SensorID)
+		}
+	}
+	return ids
+}
+
+// raumluft setzt Feuchte- und Fensterzustand des Geraets. Ohne frischen
+// Sensorwert bleibt feuchte nil.
+func (s *steuerung) raumluft(g *geraet, t time.Time) {
+	g.feuchte = nil
+	if g.cfg.SensorID != "" && s.sb != nil {
+		if w, ok := s.sb.wert(g.cfg.SensorID); ok {
+			g.feuchte = &w
+		}
+	}
+	if g.feuchte == nil {
+		g.nass, g.trocken = false, false
+	} else {
+		rh := g.feuchte.RH
+		if rh >= g.cfg.FeuchteOben {
+			g.nass = true
+		} else if rh <= g.cfg.FeuchteOben-3 {
+			g.nass = false
+		}
+		if rh <= g.cfg.FeuchteUnten {
+			g.trocken = true
+		} else if rh >= g.cfg.FeuchteUnten+2 {
+			g.trocken = false
+		}
+	}
+	g.fensterAuf = false
+	if len(g.cfg.Fenster) > 0 && s.veluxBasis != "" {
+		if t.Sub(s.fensterZeit) >= time.Minute {
+			if f, err := fensterStand(s.veluxBasis); err == nil {
+				s.fenster = f
+			}
+			s.fensterZeit = t
+		}
+		for _, id := range g.cfg.Fenster {
+			if s.fenster[id] > 0 {
+				g.fensterAuf = true
+			}
+		}
+	}
 }
 
 func neueSteuerung(cfgPfad, standPfad string, sag func(string, ...any)) *steuerung {
@@ -262,6 +343,10 @@ func (s *steuerung) faktorHeute(t time.Time) float64 {
 func (s *steuerung) planeFuer(g *geraet, t time.Time, soc float64) {
 	cfg := g.cfg
 	hand := g.st.Hand == "aus" && t.Before(g.st.HandBis)
+	if g.feuchte != nil {
+		// Mit Messung entscheidet die Feuchte, nicht die Stundenregel.
+		cfg.MinH7, cfg.MaxLueckeTage = 0, 0
+	}
 	in := planEingabe{
 		Jetzt: t, SOC: soc, PV: s.prognose, Faktor: s.faktorHeute(t),
 		Leistung: g.leistung(), Cfg: cfg,
@@ -341,7 +426,9 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 		g.grund = "abgeschaltet"
 		return
 	}
-	if g.planZeit.IsZero() || t.Sub(g.planZeit) >= 5*time.Minute {
+	hatteSensor := g.feuchte != nil
+	s.raumluft(g, t)
+	if g.planZeit.IsZero() || t.Sub(g.planZeit) >= 5*time.Minute || hatteSensor != (g.feuchte != nil) {
 		s.planeFuer(g, t, m.SOC)
 	}
 
@@ -389,6 +476,10 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 	mangelLang := !g.mangelSeit.IsZero() && t.Sub(g.mangelSeit) >= 3*time.Minute
 
 	stoerung := g.st.Stoerung != "" && t.Before(g.st.Wiederholt)
+	rh := ""
+	if g.feuchte != nil {
+		rh = fmt.Sprintf("%.0f %%", g.feuchte.RH)
+	}
 
 	switch {
 	case g.st.An && stoerung:
@@ -397,12 +488,18 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 		s.setze(g, t, true, "von Hand bis "+g.st.HandBis.Format("15:04"))
 	case handAus:
 		s.setze(g, t, false, "von Hand aus bis "+g.st.HandBis.Format("02.01. 15:04"))
+	case g.st.An && g.fensterAuf:
+		s.setze(g, t, false, "Fenster offen, Pause beim Lueften")
 	case g.st.An && !cfg.erlaubt(t):
 		s.setze(g, t, false, "erlaubte Laufzeit vorbei")
+	case g.st.An && g.trocken && dauer >= minAn:
+		s.setze(g, t, false, "Raumluft trocken genug ("+rh+")")
 	case g.st.An && cfg.MaxH7 > 0 && woche >= cfg.MaxH7*60:
 		s.setze(g, t, false, fmt.Sprintf("%.0f Stunden in 7 Tagen erreicht", cfg.MaxH7))
 	case g.st.An && art == "pflicht":
 		s.setze(g, t, true, "Pflichtlauf nach Plan")
+	case g.st.An && g.nass:
+		s.setze(g, t, true, "Raumluft zu feucht ("+rh+")")
 	case g.st.An && mangelLang && dauer >= minAn:
 		if art == "frei" {
 			g.freiSperre = g.plan.Slots[0].Zeit.Add(slotDauer)
@@ -415,12 +512,18 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 		s.setze(g, t, true, "")
 	case stoerung:
 		g.grund = g.st.Stoerung + ", neuer Versuch " + g.st.Wiederholt.Format("15:04")
+	case g.fensterAuf:
+		g.grund = "Fenster offen, Pause beim Lueften"
 	case !cfg.erlaubt(t):
 		g.grund = "ausserhalb der erlaubten Laufzeit"
 	case cfg.MaxH7 > 0 && cfg.MaxH7*60-woche < 15:
 		g.grund = fmt.Sprintf("%.0f Stunden in 7 Tagen erreicht", cfg.MaxH7)
 	case !g.st.Seit.IsZero() && dauer < minAus:
 		g.grund = "Pause nach dem Abschalten"
+	case g.trocken:
+		g.grund = "Raumluft trocken genug (" + rh + "), kein Lauf"
+	case g.nass:
+		s.setze(g, t, true, "Raumluft zu feucht ("+rh+"), laeuft notfalls mit Netzstrom")
 	case art == "pflicht":
 		s.setze(g, t, true, "Pflichtlauf nach Plan")
 	case art == "frei":

@@ -2,6 +2,8 @@ package main
 
 import (
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -347,5 +349,88 @@ func TestKompressorAnlauf(t *testing.T) {
 	}
 	if l := g.offenerLauf(); l == nil || l.Min["kompressor"] < 40 {
 		t.Fatal("Kompressorminuten nicht gezaehlt")
+	}
+}
+
+func mitSensor(p *probeSt, rh float64) {
+	g := p.s.geraete[0]
+	g.cfg.SensorID = "S1"
+	if p.s.sb == nil {
+		p.s.sb = neuerSwitchbot("/nicht/da", func(string, ...any) {})
+	}
+	p.s.sb.werte["S1"] = messFeuchte{RH: rh, Zeit: time.Now()}
+}
+
+func TestZuFeuchtLaeuftMitNetz(t *testing.T) {
+	l := berlin()
+	p := neueSt(t, "scharf", time.Date(2026, 10, 5, 12, 0, 0, 0, l))
+	mitSensor(p, 70)
+	p.laufe(20, -0.4, 0, 5) // kein Ueberschuss, Akku leer
+	g := p.s.geraete[0]
+	if !g.st.An {
+		t.Fatalf("bei 70 %% nicht an: %s", g.grund)
+	}
+	mitSensor(p, 63) // noch nicht 3 Punkte unter 65
+	p.laufe(5, -0.4, 0, 5)
+	if !g.st.An {
+		t.Fatal("zu frueh aus, Abstand von 3 Punkten nicht eingehalten")
+	}
+	mitSensor(p, 61)
+	p.laufe(5, -0.4, 0, 5)
+	if g.st.An {
+		t.Fatalf("bei 61 %% ohne Sonne noch an: %s", g.grund)
+	}
+}
+
+func TestTrockenTrotzSonne(t *testing.T) {
+	l := berlin()
+	p := neueSt(t, "scharf", time.Date(2026, 10, 5, 12, 0, 0, 0, l))
+	mitSensor(p, 45)
+	p.laufe(30, 2.0, 0, 100)
+	if p.s.geraete[0].st.An {
+		t.Fatal("bei 45 % trotz Sonne gelaufen")
+	}
+}
+
+func TestOhneSensorWiederMindestregeln(t *testing.T) {
+	l := berlin()
+	p := neueSt(t, "probe", time.Date(2026, 10, 5, 9, 0, 0, 0, l))
+	p.s.setzePrognose(pvWoche(p.t, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3))
+	mitSensor(p, 55)
+	p.laufe(1, 0, 0, 30)
+	g := p.s.geraete[0]
+	pflicht := func() int {
+		n := 0
+		for _, s := range g.plan.Slots {
+			if s.Art == "pflicht" {
+				n++
+			}
+		}
+		return n
+	}
+	if pflicht() != 0 {
+		t.Fatal("mit Sensor trotzdem Pflichtlaeufe geplant")
+	}
+	p.s.sb.werte["S1"] = messFeuchte{RH: 55, Zeit: time.Now().Add(-time.Hour)} // veraltet
+	p.laufe(1, 0, 0, 30)
+	if pflicht() == 0 {
+		t.Fatal("ohne frischen Sensorwert keine Mindestregeln")
+	}
+}
+
+func TestFensterOffenPause(t *testing.T) {
+	l := berlin()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"geraete":{"3":40,"5":0}}`))
+	}))
+	defer srv.Close()
+	p := neueSt(t, "scharf", time.Date(2026, 10, 5, 12, 0, 0, 0, l))
+	p.s.veluxBasis = srv.URL
+	g := p.s.geraete[0]
+	g.cfg.Fenster = []string{"3"}
+	mitSensor(p, 70)
+	p.laufe(20, 2.0, 0, 100)
+	if g.st.An || !g.fensterAuf {
+		t.Fatalf("bei offenem Fenster gelaufen: %s", g.grund)
 	}
 }
