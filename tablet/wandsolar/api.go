@@ -7,6 +7,10 @@ package main
 // Wetterseite. Die Datei liegt nur auf dem Tablet, nie im Repo. Fehlt sie,
 // ist der Zugang ueber das WLAN gesperrt. Nach der Anmeldung bleibt ein
 // Geraet 30 Tage angemeldet. Fuenf falsche Versuche sperren eine Minute.
+//
+// Geraete, deren MAC in der Datei freigabe steht (eine je Zeile), brauchen
+// keine PIN. Die MAC zur Absenderadresse kommt aus der ARP-Tabelle des
+// Tablets. Seit 03.10.2026 steht dort Thorstens MacBook.
 
 import (
 	"crypto/rand"
@@ -26,14 +30,15 @@ import (
 
 type zugang struct {
 	sync.Mutex
-	pinPfad, pfad string
-	sitzungen     map[string]time.Time
-	fehler        int
-	gesperrtBis   time.Time
+	pinPfad, pfad, freiPfad string
+	sitzungen               map[string]time.Time
+	fehler                  int
+	gesperrtBis             time.Time
 }
 
 func neuerZugang(dir string) *zugang {
 	z := &zugang{pinPfad: filepath.Join(dir, "pin"), pfad: filepath.Join(dir, "sitzungen.json"),
+		freiPfad:  filepath.Join(dir, "freigabe"),
 		sitzungen: map[string]time.Time{}}
 	if roh, err := os.ReadFile(z.pfad); err == nil {
 		json.Unmarshal(roh, &z.sitzungen)
@@ -46,8 +51,46 @@ func vomTablet(r *http.Request) bool {
 	return err == nil && (h == "127.0.0.1" || h == "::1")
 }
 
+// macVon sucht die MAC zu einer IP in der ARP-Tabelle.
+var arpPfad = "/proc/net/arp"
+
+func macVon(ip string) string {
+	roh, err := os.ReadFile(arpPfad)
+	if err != nil {
+		return ""
+	}
+	for _, z := range strings.Split(string(roh), "\n")[1:] {
+		f := strings.Fields(z)
+		if len(f) >= 4 && f[0] == ip {
+			return strings.ToLower(f[3])
+		}
+	}
+	return ""
+}
+
+func (z *zugang) freigegeben(r *http.Request) bool {
+	h, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	roh, err := os.ReadFile(z.freiPfad)
+	if err != nil {
+		return false
+	}
+	mac := macVon(h)
+	if mac == "" {
+		return false
+	}
+	for _, l := range strings.Split(string(roh), "\n") {
+		if strings.ToLower(strings.TrimSpace(l)) == mac {
+			return true
+		}
+	}
+	return false
+}
+
 func (z *zugang) erlaubt(r *http.Request) bool {
-	if vomTablet(r) {
+	if vomTablet(r) || z.freigegeben(r) {
 		return true
 	}
 	c, err := r.Cookie("sitzung")

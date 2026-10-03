@@ -37,6 +37,13 @@ func TestZugangUndAPI(t *testing.T) {
 	if w := ruf("GET", "/api/status", "", lan, nil); w.Code != 401 {
 		t.Fatalf("WLAN ohne PIN: %d", w.Code)
 	}
+	// Freigegebene MAC ohne PIN
+	arpPfad = filepath.Join(dir, "arp")
+	os.WriteFile(arpPfad, []byte("IP address HW type Flags HW address Mask Device\n192.168.2.44 0x1 0x2 60:3e:5f:4e:f7:b1 * wlan0\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "freigabe"), []byte("60:3E:5F:4E:F7:B1\n"), 0644)
+	if w := ruf("GET", "/api/status", "", "192.168.2.44:5000", nil); w.Code != 200 {
+		t.Fatalf("freigegebene MAC braucht PIN: %d", w.Code)
+	}
 	if w := ruf("GET", "/steuerung", "", lan, nil); w.Code != 200 {
 		t.Fatalf("Oberflaeche ohne PIN nicht erreichbar: %d", w.Code)
 	}
