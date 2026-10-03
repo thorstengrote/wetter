@@ -127,6 +127,7 @@ type efStand struct {
 	Tag        string    `json:"tag"`
 	TagSek     float64   `json:"tag_sekunden"`
 	ProbeTag   float64   `json:"probe_tag_sekunden"`
+	Beginn     string    `json:"beginn"` // Tag des ersten Laufs, fuer die angebrochene erste Woche
 }
 
 type entfeuchter struct {
@@ -301,8 +302,19 @@ func (e *entfeuchter) pruefe(m messwert) {
 	// Der Wochenrest zaehlt ab Tagesbeginn. Mit dem laufenden Stand
 	// schrumpfte das Tagesziel waehrend des Laufs, und Montag kamen 38 statt
 	// 43 Minuten heraus.
+	//
+	// In der Woche, in der die Regelung beginnt, gilt das Wochenziel nur
+	// anteilig. Sonst verlangte ein Start am Samstag die vollen 5 Stunden
+	// an zwei Tagen.
+	if e.st.Beginn == "" {
+		e.st.Beginn = t.Format("2006-01-02")
+	}
+	wocheMin := efWocheMin
+	if b, err := time.ParseInLocation("2006-01-02", e.st.Beginn, t.Location()); err == nil && efWochenKey(b) == efWochenKey(t) {
+		wocheMin = efWocheMin * time.Duration(efTageRest(b)) / 7
+	}
 	ziel := efTagMin
-	if rest := efWocheMin - (genutzt - heute); rest > 0 {
+	if rest := wocheMin - (genutzt - heute); rest > 0 {
 		if je := rest / time.Duration(efTageRest(t)); je > ziel {
 			ziel = je
 		}

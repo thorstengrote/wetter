@@ -179,7 +179,8 @@ func stunden(werte map[int]float64) []float64 {
 // Grauer Tag ohne Prognose: Pflichtlauf startet so, dass er um 18 Uhr fertig ist.
 func TestMindestlaufOhnePrognose(t *testing.T) {
 	p := neueProbe(t, true, time.Date(2026, 10, 5, 11, 0, 0, 0, ort)) // Montag
-	p.laufe(6*60, -0.3, 0)                                            // bis 17:00
+	p.e.st.Beginn = "2026-09-01"
+	p.laufe(6*60, -0.3, 0) // bis 17:00
 	if p.e.st.An {
 		t.Fatal("ohne Prognose zu frueh gestartet")
 	}
@@ -252,5 +253,14 @@ func TestMindestlaufNichtVomNetzWennVermeidbar(t *testing.T) {
 	p.laufe(3*60, -0.3, 0) // bis 18:00
 	if m := p.e.st.TagSek / 60; m < 40 {
 		t.Fatalf("Pflichtlauf fehlt: %.0f min", m)
+	}
+}
+
+// Start am Samstag: die erste Woche zaehlt nur zwei Siebtel.
+func TestAngebrocheneErsteWoche(t *testing.T) {
+	p := neueProbe(t, true, time.Date(2026, 10, 3, 13, 0, 0, 0, ort))
+	p.laufe(1, -0.3, 0)
+	if f := p.e.fehlt.Minutes(); f < 42 || f > 44 {
+		t.Fatalf("Samstag als erster Tag: %.0f min verlangt, erwartet 43", f)
 	}
 }
