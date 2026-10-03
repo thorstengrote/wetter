@@ -34,6 +34,12 @@ package main
 // Prognose, oder wenn die Sonne ausbleibt, startet er spaetestens so, dass
 // er vor Fensterende fertig wird.
 //
+// Netzstrom soll der Pflichtlauf moeglichst nicht ziehen (Vorgabe vom
+// 03.10.2026). Er beginnt deshalb vor dem spaetesten Start nur, wenn der
+// Hausakku den ganzen Block tragen kann. Ist der Akku leer, wartet er bis
+// zum spaetesten Start, weil die Anlage den Akku bis dahin noch fuellen
+// kann. Erst dann laeuft er notfalls vom Netz, Schimmelschutz geht vor.
+//
 // Scharf ist die Regelung nur, wenn die Datei /data/local/tmp/entfeuchter.scharf
 // existiert. Ohne sie laeuft ein Probebetrieb: er rechnet alles durch,
 // protokolliert, was er taete, und spricht den Shelly nicht an. Die Datei
@@ -51,20 +57,23 @@ import (
 )
 
 const (
-	efWoche      = 30 * time.Hour
-	efEinNach    = 5 * time.Minute
-	efAusNach    = 3 * time.Minute
-	efMinAn      = 10 * time.Minute
-	efMinAus     = 10 * time.Minute
-	efRest       = 15 * time.Minute // weniger Wochenrest lohnt kein Einschalten
-	efReserve    = 0.10             // kW Abstand zur Einspeisung beim Einschalten
-	efBezug      = 0.10             // kW Bezug oder Akkuentladung, die als Mangel zaehlt
-	efTotmann    = 900              // Sekunden, nach denen der Shelly selbst abschaltet
-	efMaxSchritt = 2 * time.Minute  // laengere Luecken zaehlen nicht als Laufzeit
-	efVeraltet   = 3 * time.Minute
-	efTagMin     = 30 * time.Minute
-	efWocheMin   = 5 * time.Hour
-	efPuffer     = 5 * time.Minute // Abstand des spaetesten Starts zum Fensterende
+	efWoche       = 30 * time.Hour
+	efEinNach     = 5 * time.Minute
+	efAusNach     = 3 * time.Minute
+	efMinAn       = 10 * time.Minute
+	efMinAus      = 10 * time.Minute
+	efRest        = 15 * time.Minute // weniger Wochenrest lohnt kein Einschalten
+	efReserve     = 0.10             // kW Abstand zur Einspeisung beim Einschalten
+	efBezug       = 0.10             // kW Bezug oder Akkuentladung, die als Mangel zaehlt
+	efTotmann     = 900              // Sekunden, nach denen der Shelly selbst abschaltet
+	efMaxSchritt  = 2 * time.Minute  // laengere Luecken zaehlen nicht als Laufzeit
+	efVeraltet    = 3 * time.Minute
+	efTagMin      = 30 * time.Minute
+	efWocheMin    = 5 * time.Hour
+	efPuffer      = 5 * time.Minute // Abstand des spaetesten Starts zum Fensterende
+	efAkkuKWh     = 10.0            // Hausakku
+	efAkkuUnten   = 5.0             // Prozent, darunter gibt der Akku nichts ab
+	efAkkuPolster = 3.0             // Prozent Sicherheit obendrauf
 )
 
 // efFensterEnde gibt das Ende des heutigen Fensters.
@@ -144,7 +153,7 @@ func (e *entfeuchter) setzePrognose(p efPrognose) {
 }
 
 // pflichtJetzt: muss der Mindestlauf jetzt beginnen?
-func (e *entfeuchter) pflichtJetzt(t time.Time, fehlt time.Duration) (bool, string) {
+func (e *entfeuchter) pflichtJetzt(t time.Time, fehlt time.Duration, soc float64) (bool, string) {
 	ende := efFensterEnde(t)
 	spaet := ende.Add(-fehlt - efPuffer)
 	if !t.Before(spaet) {
@@ -181,10 +190,15 @@ func (e *entfeuchter) pflichtJetzt(t time.Time, fehlt time.Duration) (bool, stri
 			best, bestSum = s, sum
 		}
 	}
-	if t.Hour() >= best {
-		return true, fmt.Sprintf("Mindestlaufzeit in der sonnigsten Stunde (%d Uhr)", best)
+	if t.Hour() < best {
+		return false, fmt.Sprintf("Mindestlaufzeit geplant ab %d Uhr", best)
 	}
-	return false, fmt.Sprintf("Mindestlaufzeit geplant ab %d Uhr", best)
+	// Reicht der Akku fuer den ganzen Block?
+	braucht := efAkkuUnten + fehlt.Hours()*e.st.Leistung/efAkkuKWh*100 + efAkkuPolster
+	if soc < braucht {
+		return false, fmt.Sprintf("Mindestlaufzeit, Akku %.0f %% reicht nicht (%.0f %%), wartet auf spaetesten Start", soc, braucht)
+	}
+	return true, fmt.Sprintf("Mindestlaufzeit aus dem Akku (%.0f %%), sonnigste Stunde %d Uhr", soc, best)
 }
 
 func neuerEntfeuchter(pfad, scharfPfd, ip, mac string, leistung float64, sag func(string, ...any)) *entfeuchter {
@@ -341,7 +355,7 @@ func (e *entfeuchter) pruefe(m messwert) {
 	case !e.st.Seit.IsZero() && dauer < efMinAus:
 		e.grund = "Pause nach dem Abschalten"
 	case e.fehlt > 0 && e.ueberSeit.IsZero():
-		if los, warum := e.pflichtJetzt(t, e.fehlt); los {
+		if los, warum := e.pflichtJetzt(t, e.fehlt, m.SOC); los {
 			e.setze(true, fmt.Sprintf("%s, %d min", warum, int(e.fehlt.Minutes()+0.5)))
 		} else {
 			e.grund = warum

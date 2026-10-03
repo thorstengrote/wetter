@@ -12,12 +12,13 @@ type efProbe struct {
 	rufe   []bool
 	t      time.Time
 	scharf string
+	soc    float64
 }
 
 func neueProbe(t *testing.T, scharf bool, start time.Time) *efProbe {
 	ort, _ = time.LoadLocation("Europe/Berlin")
 	dir := t.TempDir()
-	p := &efProbe{t: start, scharf: filepath.Join(dir, "scharf")}
+	p := &efProbe{t: start, scharf: filepath.Join(dir, "scharf"), soc: 60}
 	if scharf {
 		os.WriteFile(p.scharf, nil, 0644)
 	}
@@ -34,7 +35,7 @@ func neueProbe(t *testing.T, scharf bool, start time.Time) *efProbe {
 func (p *efProbe) laufe(min int, netz, akku float64) {
 	for i := 0; i < min*2; i++ {
 		p.t = p.t.Add(30 * time.Second)
-		p.e.pruefe(messwert{Zeit: p.t, Netz: netz, Akku: akku})
+		p.e.pruefe(messwert{Zeit: p.t, Netz: netz, Akku: akku, SOC: p.soc})
 	}
 }
 
@@ -235,5 +236,21 @@ func TestPflichtlaufIgnoriertMangel(t *testing.T) {
 	}
 	if m := p.e.st.TagSek / 60; m < 1 {
 		t.Fatal("keine Laufzeit")
+	}
+}
+
+// Akku leer: kein Pflichtlauf in der Sonnenstunde, erst zum spaetesten Start.
+func TestMindestlaufNichtVomNetzWennVermeidbar(t *testing.T) {
+	start := time.Date(2026, 10, 5, 11, 0, 0, 0, ort)
+	p := neueProbe(t, true, start)
+	p.soc = 5
+	p.e.setzePrognose(prognose(start, stunden(map[int]float64{13: 1.6}), make([]float64, 24)))
+	p.laufe(4*60, -0.3, 0) // bis 15:00
+	if p.e.st.An {
+		t.Fatal("mit leerem Akku vor dem spaetesten Start gelaufen")
+	}
+	p.laufe(3*60, -0.3, 0) // bis 18:00
+	if m := p.e.st.TagSek / 60; m < 40 {
+		t.Fatalf("Pflichtlauf fehlt: %.0f min", m)
 	}
 }
