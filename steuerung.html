@@ -458,6 +458,8 @@ function zeichne(){
   if(ansicht==="geraet"&&reiter==="verlauf") verlaufLaden();
 }
 
+/* Ansicht aus dem Adressanker, etwa steuerung#heizung, fuer Lesezeichen. */
+if(["heizung","tablet"].includes(location.hash.slice(1))) ansicht=location.hash.slice(1);
 lade();
 setInterval(lade,30000);
 /* Auf der Wand meldet jede Beruehrung, dass noch jemand davor steht. */
