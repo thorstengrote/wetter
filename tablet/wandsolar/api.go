@@ -312,6 +312,9 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 		if c.LeistungKW != g.cfg.LeistungKW {
 			g.st.LeistungKW = c.LeistungKW
 		}
+		if c.SensorID != "" && c.SensorID != g.cfg.SensorID && s.sb != nil {
+			go s.sb.lies(c.SensorID) // nicht bis zum naechsten 5-Minuten-Abruf warten
+		}
 		g.cfg = c
 		g.planZeit = time.Time{}
 		s.sichereCfg()

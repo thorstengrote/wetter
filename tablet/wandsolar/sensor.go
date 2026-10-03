@@ -177,6 +177,7 @@ func (b *switchbot) kurve(id string) []messFeuchte {
 
 // laufe fragt alle 5 Minuten die Sensoren ab, die eingestellt sind.
 func (b *switchbot) laufe(ids func() []string) {
+	time.Sleep(time.Minute) // erst das Netz und die Uhr nach dem Start
 	for {
 		for _, id := range ids() {
 			b.lies(id)
