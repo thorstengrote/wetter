@@ -231,10 +231,10 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
   background:rgba(4,7,11,.72);cursor:pointer}
 .vdetail.on{display:block}
 .vflaeche{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  width:545px;max-height:92%;overflow:auto;cursor:default;
+  width:620px;max-height:92%;overflow:auto;cursor:default;
   background:rgba(7,11,17,.985);border:1px solid #5b6b81;border-radius:16px;
   padding:14px 18px}
-.vzeile{display:grid;grid-template-columns:1fr auto 58px;gap:14px;align-items:center;
+.vzeile{display:grid;grid-template-columns:1fr auto 58px 58px;gap:14px;align-items:center;
   padding:9px 2px 9px 8px}
 .vzeile + .vzeile{border-top:1px solid #1d2734}
 .vzeile .n{font-size:16px;font-weight:650;white-space:nowrap;color:#e8eef5}
@@ -256,8 +256,8 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 .vkopf{display:flex;justify-content:flex-end;font-size:11px;color:#7d8896;
   margin-bottom:2px}
 .vfehler{font-size:12px;color:#ff9a8c;min-height:16px;margin-top:8px;padding:0 2px}
-/* Dritte Spalte: einmal heute Nacht zufahren. Nur ein Mond, scharf
-   gelb mit Uhrzeit. Nach dem Lauf ist der Auftrag weg. */
+/* Mond und Sonne: einmal heute Nacht zufahren, einmal morgen frueh
+   oeffnen. Scharf gelb mit Uhrzeit. Nach dem Lauf ist der Auftrag weg. */
 .vnacht{width:58px;height:58px;border:1px solid #2a3542;border-radius:11px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   cursor:pointer;color:#5b6b7d;-webkit-user-select:none;user-select:none}
@@ -2085,6 +2085,12 @@ const VELUX=(()=>{
 
   let da=false, stand={}, lueftWert=22, holt=null, nachtAuf={}, wahl=null;
   const MOND=`<svg viewBox="0 0 20 20"><path d="M13.6 2.6a7.6 7.6 0 1 0 3.8 13.1A6.3 6.3 0 0 1 13.6 2.6z" fill="currentColor"/></svg>`;
+  const SONNE=`<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.6" fill="currentColor"/><g stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+    <path d="M10 1.8v2.3M10 15.9v2.3M1.8 10h2.3M15.9 10h2.3M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></g></svg>`;
+  /* Welche Zeilen Mond und Sonne bekommen: jeder einzelne Raum und Ben. */
+  const EINMAL=new Set(["ben","levi","schlafzimmer","wohnzimmer","kueche"]);
+  const ART={nacht:{zeichen:MOND,text:"einmal heute Nacht",ziele:[["zu","ganz zu"],["lueft","Lüftung"]],std:[2,0],r:"zu"},
+             morgen:{zeichen:SONNE,text:"einmal morgen früh",ziele:[["auf","ganz auf"],["lueft","Lüftung"]],std:[7,0],r:"auf"}};
   const hm=d=>{const t=new Date(d);return t.getHours()+":"+String(t.getMinutes()).padStart(2,"0");};
 
   const hol=(weg,opt)=>fetch(weg,Object.assign({cache:"no-store"},opt||{}));
@@ -2137,11 +2143,13 @@ const VELUX=(()=>{
       `<div class="vtaste" data-gruppe="${schluessel}" data-richtung="${art}"
             ${ist===art?'data-ist="ja"':""}>
          <div class="vzeichen">${zeichen(wert,farbe)}</div></div>`).join("");
-    const a=nachtAuf[schluessel];
-    const nacht=gruppe?"<div></div>":`<div class="vnacht" data-nacht="${schluessel}" ${a?'data-scharf="ja"':""}
-      title="einmal heute Nacht zufahren">${MOND}${a?`<b>${hm(a.zeit)}</b>`:""}</div>`;
+    const knopf=art=>{
+      if(!EINMAL.has(schluessel)) return "<div></div>";
+      const a=nachtAuf[schluessel+":"+art];
+      return `<div class="vnacht" data-g="${schluessel}" data-art="${art}" ${a?'data-scharf="ja"':""}>${ART[art].zeichen}${a?`<b>${hm(a.zeit)}</b>`:""}</div>`;
+    };
     return `<div class="vzeile${gruppe?" gruppe":""}">
-      <div class="n">${name}</div><div class="vtasten">${t}</div>${nacht}</div>`;
+      <div class="n">${name}</div><div class="vtasten">${t}</div>${knopf("nacht")}${knopf("morgen")}</div>`;
   }
 
   function male(){
@@ -2163,10 +2171,10 @@ const VELUX=(()=>{
     });
     f.querySelectorAll(".vnacht").forEach(t=>t.addEventListener("click",ev=>{
       ev.stopPropagation();
-      const g=t.dataset.nacht, a=nachtAuf[g];
+      const g=t.dataset.g, art=t.dataset.art, a=nachtAuf[g+":"+art], A=ART[art];
       const d=a?new Date(a.zeit):null;
-      wahl={gruppe:g,name:(ZEILEN.find(z=>z[0]===g)||[])[1]||g,h:d?d.getHours():2,m:d?d.getMinutes():0,
-            richtung:a?a.richtung:"zu",scharf:!!a};
+      wahl={gruppe:g,art,name:(ZEILEN.find(z=>z[0]===g)||[])[1]||g,h:d?d.getHours():A.std[0],m:d?d.getMinutes():A.std[1],
+            richtung:a?a.richtung:A.r,scharf:!!a};
       maleWahl();
     }));
   }
@@ -2177,11 +2185,10 @@ const VELUX=(()=>{
     const f=document.getElementById("vflaeche"), w=wahl;
     const p2=n=>String(n).padStart(2,"0");
     f.innerHTML=`<div class="vwahl">
-      <div class="t">${w.name} · einmal heute Nacht</div>
+      <div class="t">${w.name} · ${ART[w.art].text}</div>
       <div class="vuhr"><div class="sp"><button data-s="h+">▲</button>${p2(w.h)}<button data-s="h-">▼</button></div>:
         <div class="sp"><button data-s="m+">▲</button>${p2(w.m)}<button data-s="m-">▼</button></div></div>
-      <div class="vziel"><button data-r="zu" ${w.richtung==="zu"?'data-an="ja"':""}>ganz zu</button>
-        <button data-r="lueft" ${w.richtung==="lueft"?'data-an="ja"':""}>Lüftung</button></div>
+      <div class="vziel">${ART[w.art].ziele.map(([r,n])=>`<button data-r="${r}" ${w.richtung===r?'data-an="ja"':""}>${n}</button>`).join("")}</div>
       <div class="vknoepfe"><button data-k="zurueck">Zurück</button>
         ${w.scharf?'<button data-k="weg">Aufheben</button>':""}
         <button class="haupt" data-k="ok">${w.scharf?"Ändern":"Scharf"}</button></div>
@@ -2196,8 +2203,8 @@ const VELUX=(()=>{
       if(k==="ok"||k==="weg"){
         try{
           const res=await hol("/api/nacht",{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify(k==="weg"?{gruppe:w.gruppe,abbrechen:true}
-              :{gruppe:w.gruppe,uhrzeit:p2(w.h)+":"+p2(w.m),richtung:w.richtung})});
+            body:JSON.stringify(k==="weg"?{gruppe:w.gruppe,art:w.art,abbrechen:true}
+              :{gruppe:w.gruppe,art:w.art,uhrzeit:p2(w.h)+":"+p2(w.m),richtung:w.richtung})});
           if(!res.ok) throw new Error(await res.text());
           nachtAuf=await res.json()||{}; wahl=null; male();
         }catch(e){ const fe=document.getElementById("vfehler"); if(fe) fe.textContent="Ging nicht: "+e.message; }

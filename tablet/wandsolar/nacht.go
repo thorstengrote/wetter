@@ -14,6 +14,11 @@ package main
 //     ueberfaellig (Tablet war aus), wird er verworfen statt mittags
 //     zuzufahren.
 //   - Der Dienst plant, nicht die Seite: nachts ist der Browser gedrosselt.
+//
+// Dazu das Gegenstueck fuer den Morgen (gleicher Tag): einmal zu einer
+// Uhrzeit oeffnen, auf ganz auf oder Lueftungsstellung, nur in
+// Oeffnungsrichtung. Je Rollladen gibt es hoechstens einen Nacht- und einen
+// Morgenauftrag; der Schluessel ist "gruppe:art".
 
 import (
 	"bytes"
@@ -29,7 +34,8 @@ import (
 
 type nachtAuftrag struct {
 	Gruppe   string    `json:"gruppe"`
-	Richtung string    `json:"richtung"` // zu, lueft
+	Art      string    `json:"art"`      // nacht (schliessen), morgen (oeffnen)
+	Richtung string    `json:"richtung"` // zu, lueft, auf
 	Zeit     time.Time `json:"zeit"`
 	Angelegt time.Time `json:"angelegt"`
 }
@@ -49,7 +55,14 @@ func neueNacht(pfad, basis string, sag func(string, ...any)) *nacht {
 		sag: sag, client: &http.Client{Timeout: 20 * time.Second},
 		jetzt: func() time.Time { return time.Now().In(ort) }}
 	if roh, err := os.ReadFile(pfad); err == nil {
-		json.Unmarshal(roh, &n.auftraege)
+		var alt map[string]nachtAuftrag
+		json.Unmarshal(roh, &alt)
+		for _, a := range alt {
+			if a.Art == "" {
+				a.Art = "nacht" // Auftraege vom 04.10.2026 kannten nur die Nacht
+			}
+			n.auftraege[a.Gruppe+":"+a.Art] = a
+		}
 	}
 	return n
 }
@@ -63,31 +76,34 @@ func naechstes(t time.Time, h, m int) time.Time {
 	return z
 }
 
-func (n *nacht) setze(gruppe, uhrzeit, richtung string) (nachtAuftrag, error) {
+func (n *nacht) setze(gruppe, art, uhrzeit, richtung string) (nachtAuftrag, error) {
 	var h, m int
 	if _, err := fmt.Sscanf(uhrzeit, "%d:%d", &h, &m); err != nil || h < 0 || h > 23 || m < 0 || m > 59 {
 		return nachtAuftrag{}, fmt.Errorf("Uhrzeit wie 02:00")
 	}
-	if richtung != "zu" && richtung != "lueft" {
-		return nachtAuftrag{}, fmt.Errorf("Richtung zu oder lueft")
+	switch {
+	case art == "nacht" && (richtung == "zu" || richtung == "lueft"):
+	case art == "morgen" && (richtung == "auf" || richtung == "lueft"):
+	default:
+		return nachtAuftrag{}, fmt.Errorf("nachts zu oder lueft, morgens auf oder lueft")
 	}
 	t := n.jetzt()
-	a := nachtAuftrag{Gruppe: gruppe, Richtung: richtung, Zeit: naechstes(t, h, m), Angelegt: t}
+	a := nachtAuftrag{Gruppe: gruppe, Art: art, Richtung: richtung, Zeit: naechstes(t, h, m), Angelegt: t}
 	n.Lock()
-	n.auftraege[gruppe] = a
+	n.auftraege[gruppe+":"+art] = a
 	schreibeJSON(n.pfad, n.auftraege)
 	n.Unlock()
-	n.sag("Nacht: %s um %s %s", gruppe, a.Zeit.Format("02.01. 15:04"), richtung)
+	n.sag("Einmal %s: %s um %s %s", art, gruppe, a.Zeit.Format("02.01. 15:04"), richtung)
 	return a, nil
 }
 
-func (n *nacht) loesche(gruppe string) {
+func (n *nacht) loesche(schluessel string) {
 	n.Lock()
 	defer n.Unlock()
-	if _, ok := n.auftraege[gruppe]; ok {
-		delete(n.auftraege, gruppe)
+	if _, ok := n.auftraege[schluessel]; ok {
+		delete(n.auftraege, schluessel)
 		schreibeJSON(n.pfad, n.auftraege)
-		n.sag("Nacht: %s abgebrochen", gruppe)
+		n.sag("Einmal: %s abgebrochen", schluessel)
 	}
 }
 
@@ -153,34 +169,37 @@ func (n *nacht) fahre(gruppe, richtung string) error {
 // pruefe laeuft jede Minute.
 func (n *nacht) pruefe() {
 	t := n.jetzt()
-	for g, a := range n.liste() {
+	for k, a := range n.liste() {
+		g := a.Gruppe
 		if t.Before(a.Zeit) {
 			continue
 		}
 		if t.Sub(a.Zeit) > 4*time.Hour {
-			n.sag("Nacht: %s verworfen, %s verpasst", g, a.Zeit.Format("15:04"))
-			n.loesche(g)
+			n.sag("Einmal %s: %s verworfen, %s verpasst", a.Art, g, a.Zeit.Format("15:04"))
+			n.loesche(k)
 			continue
 		}
 		pos, lueft, err := n.position(g)
 		if err != nil {
-			n.sag("Nacht: %s: %v, neuer Versuch in einer Minute", g, err)
+			n.sag("Einmal %s: %s: %v, neuer Versuch in einer Minute", a.Art, g, err)
 			continue
 		}
-		ziel := 0.0
-		if a.Richtung == "lueft" {
-			ziel = lueft
+		ziel := map[string]float64{"zu": 0, "lueft": lueft, "auf": 100}[a.Richtung]
+		// Nachts nur schliessen, morgens nur oeffnen.
+		schonDa := pos <= ziel+3
+		if a.Art == "morgen" {
+			schonDa = pos >= ziel-3
 		}
-		if pos <= ziel+3 {
-			n.sag("Nacht: %s steht schon bei %.0f, nichts zu tun", g, pos)
+		if schonDa {
+			n.sag("Einmal %s: %s steht schon bei %.0f, nichts zu tun", a.Art, g, pos)
 		} else if err := n.fahre(g, a.Richtung); err != nil {
-			n.sag("Nacht: %s: %v, neuer Versuch in einer Minute", g, err)
+			n.sag("Einmal %s: %s: %v, neuer Versuch in einer Minute", a.Art, g, err)
 			continue
 		} else {
-			n.sag("Nacht: %s von %.0f auf %s gefahren", g, pos, a.Richtung)
+			n.sag("Einmal %s: %s von %.0f auf %s gefahren", a.Art, g, pos, a.Richtung)
 		}
 		n.Lock()
-		delete(n.auftraege, g)
+		delete(n.auftraege, k)
 		schreibeJSON(n.pfad, n.auftraege)
 		n.Unlock()
 	}
@@ -200,19 +219,22 @@ func (n *nacht) bediene(mux *http.ServeMux) {
 			return
 		}
 		var a struct {
-			Gruppe, Uhrzeit, Richtung string
-			Abbrechen                 bool
+			Gruppe, Art, Uhrzeit, Richtung string
+			Abbrechen                      bool
 		}
 		if json.NewDecoder(io.LimitReader(r.Body, 512)).Decode(&a) != nil || a.Gruppe == "" {
 			http.Error(w, "Gruppe fehlt", 400)
 			return
 		}
+		if a.Art == "" {
+			a.Art = "nacht"
+		}
 		if a.Abbrechen {
-			n.loesche(a.Gruppe)
+			n.loesche(a.Gruppe + ":" + a.Art)
 			jsonAntwort(w, n.liste())
 			return
 		}
-		if _, err := n.setze(a.Gruppe, a.Uhrzeit, a.Richtung); err != nil {
+		if _, err := n.setze(a.Gruppe, a.Art, a.Uhrzeit, a.Richtung); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
