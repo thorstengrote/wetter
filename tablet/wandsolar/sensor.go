@@ -28,6 +28,7 @@ import (
 type messFeuchte struct {
 	RH   float64   `json:"rh"`
 	Temp float64   `json:"temp"`
+	Batt int       `json:"batterie,omitempty"` // Prozent, 0 heisst unbekannt
 	Zeit time.Time `json:"zeit"`
 }
 
@@ -138,6 +139,7 @@ func (b *switchbot) lies(id string) {
 	var st struct {
 		Humidity    float64 `json:"humidity"`
 		Temperature float64 `json:"temperature"`
+		Battery     int     `json:"battery"`
 	}
 	if err := b.rufe("/devices/"+id+"/status", &st); err != nil {
 		b.Lock()
@@ -148,7 +150,7 @@ func (b *switchbot) lies(id string) {
 		b.Unlock()
 		return
 	}
-	w := messFeuchte{RH: st.Humidity, Temp: st.Temperature, Zeit: time.Now().In(ort)}
+	w := messFeuchte{RH: st.Humidity, Temp: st.Temperature, Batt: st.Battery, Zeit: time.Now().In(ort)}
 	b.Lock()
 	defer b.Unlock()
 	b.fehler = ""
@@ -167,6 +169,14 @@ func (b *switchbot) wert(id string) (messFeuchte, bool) {
 	defer b.Unlock()
 	w, ok := b.werte[id]
 	return w, ok && time.Since(w.Zeit) < 30*time.Minute
+}
+
+// letzter: letzter Messwert, egal wie alt.
+func (b *switchbot) letzter(id string) (messFeuchte, bool) {
+	b.Lock()
+	defer b.Unlock()
+	w, ok := b.werte[id]
+	return w, ok
 }
 
 func (b *switchbot) kurve(id string) []messFeuchte {

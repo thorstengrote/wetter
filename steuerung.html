@@ -262,7 +262,8 @@ function raumluftZeile(g){
   if(!g.cfg.sensor_id) return "";
   if(!g.feuchte) return `<div class="klein">Raumluft: kein frischer Wert von ${esc(g.cfg.sensor_name)}, es gelten die Mindestregeln</div>`;
   const f=g.feuchte, farbe=g.nass?"var(--netz)":g.trocken?"var(--haus)":"var(--text)";
-  return `<div class="klein">Raumluft <b style="color:${farbe}">${z(f.rh,0)} %</b> · ${z(f.temp)} °C · Grenzen ${g.cfg.feuchte_unten} bis ${g.cfg.feuchte_oben} %
+  const batt=f.batterie?` · Batterie <span style="color:${f.batterie<=15?"var(--netz)":"inherit"}">${f.batterie} %</span>`:"";
+  return `<div class="klein">Raumluft <b style="color:${farbe}">${z(f.rh,0)} %</b> · ${z(f.temp)} °C${batt} · Grenzen ${g.cfg.feuchte_unten} bis ${g.cfg.feuchte_oben} %
     ${g.nass?" · zu feucht":g.trocken?" · trocken genug":""}${g.fenster_auf?" · Fenster offen":""}</div>`;
 }
 function feuchteSvg(g){

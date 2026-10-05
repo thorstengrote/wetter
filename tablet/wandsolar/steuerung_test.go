@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -432,5 +433,25 @@ func TestFensterOffenPause(t *testing.T) {
 	p.laufe(20, 2.0, 0, 100)
 	if g.st.An || !g.fensterAuf {
 		t.Fatalf("bei offenem Fenster gelaufen: %s", g.grund)
+	}
+}
+
+func TestSensorBatterieWarnung(t *testing.T) {
+	l := berlin()
+	p := neueSt(t, "scharf", time.Date(2026, 10, 5, 12, 0, 0, 0, l))
+	mitSensor(p, 55)
+	g := p.s.geraete[0]
+	g.cfg.SensorName = "Meter Plus Spielekeller"
+	p.s.sb.werte["S1"] = messFeuchte{RH: 55, Batt: 80, Zeit: time.Now()}
+	if len(p.s.hinweise()) != 0 {
+		t.Fatal("Warnung bei voller Batterie")
+	}
+	p.s.sb.werte["S1"] = messFeuchte{RH: 55, Batt: 12, Zeit: time.Now()}
+	if h := p.s.hinweise(); len(h) != 1 || !strings.Contains(h[0], "Batterie wechseln") {
+		t.Fatalf("keine Batteriewarnung: %v", h)
+	}
+	p.s.sb.werte["S1"] = messFeuchte{RH: 55, Batt: 50, Zeit: time.Now().Add(-3 * time.Hour)}
+	if h := p.s.hinweise(); len(h) != 1 || !strings.Contains(h[0], "keine Werte") {
+		t.Fatalf("Funkstille nicht gemeldet: %v", h)
 	}
 }

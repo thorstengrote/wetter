@@ -680,6 +680,9 @@ func (s *steuerung) kompressor(g *geraet, t time.Time, kw float64) {
 	s.setze(g, t, false, text)
 }
 
+// Ab diesem Batteriestand warnt die Wand.
+const sensorBattGrenze = 15
+
 // hinweise fuer die Wetterseite.
 func (s *steuerung) hinweise() []string {
 	s.Lock()
@@ -688,6 +691,19 @@ func (s *steuerung) hinweise() []string {
 	for _, g := range s.geraete {
 		if g.st.Stoerung != "" && g.cfg.Modus == "scharf" {
 			h = append(h, g.cfg.Name+": "+g.st.Stoerung)
+		}
+		// Feuchtesensor: Batterie und Funkstille. Der Meter Plus laeuft mit
+		// zwei AAA-Zellen; SwitchBot meldet den Stand in Prozent.
+		if g.cfg.SensorID != "" && s.sb != nil {
+			name := strings.TrimSpace(g.cfg.SensorName)
+			if w, ok := s.sb.letzter(g.cfg.SensorID); ok {
+				if w.Batt > 0 && w.Batt <= sensorBattGrenze {
+					h = append(h, fmt.Sprintf("%s: Batterie wechseln (%d %%)", name, w.Batt))
+				}
+				if time.Since(w.Zeit) > 2*time.Hour {
+					h = append(h, name+": seit "+w.Zeit.Format("15:04")+" keine Werte, Batterie oder Hub pruefen")
+				}
+			}
 		}
 	}
 	return h
