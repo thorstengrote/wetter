@@ -110,7 +110,7 @@ const dauerText=m=>m<60?`${Math.round(m)} min`:`${z(m/60)} h`;
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 const FENSTER={"3":"Ben","5":"Wohnzimmer unten","15":"Wohnzimmer oben"};
-let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0;
+let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null;
 let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null;
 
 function meldung(t){const m=document.getElementById("meldung");m.textContent=t;m.style.display="block";
@@ -158,6 +158,7 @@ async function lade(){
     }
     if(!geraetId&&ST.geraete?.length) geraetId=ST.geraete[0].cfg.id;
     HZ=await api("api/heizung");
+    KF=await api("api/kellerfenster");
     if(ansicht==="heizung"&&Date.now()-HZZEIT>5*60e3){
       HZZEIT=Date.now();
       for(const r of HZ.raeume||[]) HZK[r.ventil.ain]=await api("api/heizung/verlauf?h=48&ain="+r.ventil.ain);
@@ -280,6 +281,17 @@ function feuchteSvg(g){
   s+=`<path d="${d.map((p,i)=>(i?"L":"M")+x(new Date(p.zeit).getTime()).toFixed(1)+" "+y(Math.max(30,Math.min(80,p.rh))).toFixed(1)).join("")}" fill="none" stroke="var(--text)" stroke-width="1.6"/>`;
   return `<svg viewBox="0 0 ${b} ${h}" style="display:block;width:100%;height:auto">${s}</svg>`;
 }
+/* Kellerfenster: kein Rueckmelden der Antriebe, die Stellung ist der letzte Befehl. */
+function kellerKarte(){
+  if(!KF?.eingerichtet) return "";
+  const l=KF.letzter, von={uhr:"an der Zeitschaltuhr",netz:"von hier",seriell:"am D1 mini"};
+  const wann=l?(new Date(l.zeit).toDateString()===new Date().toDateString()?uhr(l.zeit):tag(l.zeit)+" "+uhr(l.zeit)):"";
+  return `<div class="karte geraet"><div class="kopf"><div><div class="name">Kellerfenster</div><div class="klein">Spielekeller · 2 Fenster · 433 MHz</div></div>
+      <span class="chip ${KF.erreichbar?"blau":"rot"}">${KF.erreichbar?"erreichbar":"nicht erreichbar"}</span></div>
+    <div><span class="zahl">${esc(KF.stellung||"unbekannt")}</span> <span class="klein">&nbsp;${l?`${esc(von[l.quelle]||l.quelle)} ${wann}`:"noch kein Befehl gesehen"}</span></div>
+    <div class="klein">Stellung nach dem letzten Befehl, die Antriebe melden nichts zurück</div>
+    <div class="knoepfe"><button data-kf="auf">▲ Auf</button><button data-kf="stop">■ Stop</button><button data-kf="ab">▼ Zu</button></div></div>`;
+}
 function uebersicht(){
   const g=ST.geraete||[],t=ST.tablet||{};
   return `<h1>Übersicht</h1><div class="unter">${new Date(ST.zeit).toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"})} · Prognose ${ST.prognose_stunden?"von "+uhr(ST.prognose_zeit):"fehlt noch"}</div>
@@ -295,6 +307,7 @@ function uebersicht(){
         <div><span class="zahl">${HZ.raeume.filter(x=>x.ventil.fordert).length}</span> <span class="klein">&nbsp;Räume fordern Wärme</span></div>
         <div class="klein">${HZ.raeume.filter(x=>x.ventil.fordert).map(x=>esc(x.ventil.name)).join(", ")||"alle zufrieden"}${HZ.raeume.some(x=>x.ventil.warm_ohne_heizung)?" · warm ohne Heizung: "+HZ.raeume.filter(x=>x.ventil.warm_ohne_heizung).map(x=>esc(x.ventil.name)).join(", "):""}</div>
         <div class="knoepfe"><button data-v="heizung">Ansehen</button></div></div>`:""}
+      ${kellerKarte()}
     </div>
     ${g.map(x=>`<div class="karte plan" style="margin-top:14px"><h2>${esc(x.cfg.name)} · die nächsten 7 Tage</h2>${planSvg(PLAN[x.cfg.id]?.plan||{},true)}${legende}</div>`).join("")}`;
 }
@@ -441,6 +454,8 @@ function zeichne(){
   w.querySelectorAll("[data-r]").forEach(a=>a.onclick=()=>{reiter=a.dataset.r;entwurf=null;zeichne();});
   w.querySelectorAll("[data-h]").forEach(b=>b.onclick=async()=>{b.disabled=true;
     try{await api("api/hand",{id:b.dataset.id,aktion:b.dataset.h});meldung("Erledigt");await lade();}catch(e){meldung(e.message);}});
+  w.querySelectorAll("[data-kf]").forEach(b=>b.onclick=async()=>{w.querySelectorAll("[data-kf]").forEach(x=>x.disabled=true);
+    try{await api("api/kellerfenster",{richtung:b.dataset.kf});meldung("Gesendet");await lade();}catch(e){meldung(e.message);zeichne();}});
   w.querySelectorAll("[data-m]").forEach(a=>a.onclick=()=>{entwurf.modus=a.dataset.m;zeichne();});
   w.querySelectorAll("[data-c]").forEach(i=>i.onchange=()=>{const k=i.dataset.c;
     entwurf[k]=i.type==="checkbox"?i.checked:i.type==="number"?Number(i.value):i.value;});

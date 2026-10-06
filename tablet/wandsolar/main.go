@@ -517,6 +517,8 @@ func main() {
 	go z.st.sb.laufe(z.st.sensorIDs)
 	z.fr = neueFritz(filepath.Join(dir, "fritz.json"), filepath.Join(dir, "heizung-verlauf.json"), sag)
 	go z.fr.laufe()
+	kf := neueKellerfenster(filepath.Join(dir, "kellerfenster.json"), filepath.Join(dir, "kellerfenster-verlauf.json"), sag)
+	go kf.laufe()
 	if *vlx != "" {
 		na := neueNacht(filepath.Join(dir, "nacht.json"), *vlx, sag)
 		go na.laufe()
@@ -529,6 +531,7 @@ func main() {
 	if nachtDienst != nil {
 		nachtDienst.bediene(mux)
 	}
+	kf.bediene(mux)
 	mux.HandleFunc("/api/heizung", func(w http.ResponseWriter, r *http.Request) {
 		a := z.fr.stand()
 		a["aussen"] = z.st.aussenJetzt()
