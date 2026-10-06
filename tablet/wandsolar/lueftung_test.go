@@ -311,3 +311,62 @@ func TestLueftungSonneHatVorrangBeiKaelte(t *testing.T) {
 		t.Fatalf("mild: %q %q", a, g)
 	}
 }
+
+func TestLueftungWochenplan(t *testing.T) {
+	l := testLueftung()
+	t0 := mittwoch(14, 20)
+	luft := map[int64]luftWert{}
+	for d := 0; d < 7; d++ {
+		tag := tagesAnfang(t0).AddDate(0, 0, d)
+		for h := 0; h < 24; h++ {
+			w := luftWert{Temp: 14, Taupunkt: 6}
+			if h == 16 {
+				w.Taupunkt = 2 // die beste Stunde jedes Tages
+			}
+			if d == 2 {
+				w.Regen = 1 // Freitag regnet es den ganzen Tag
+			}
+			luft[tag.Add(time.Duration(h)*time.Hour).Unix()] = w
+		}
+	}
+	p := l.planeWoche(eingang(t0, 20, 60, luft))
+	if len(p.Stunden) != 7*24 {
+		t.Fatalf("%d Stunden", len(p.Stunden))
+	}
+	je := map[int][]time.Time{}
+	for _, s := range p.Stunden {
+		if !s.Geplant {
+			continue
+		}
+		d := int(tagesAnfang(s.Zeit).Sub(tagesAnfang(t0)).Hours() / 24)
+		je[d] = append(je[d], s.Zeit)
+		if !l.cfg.erlaubt(s.Zeit) {
+			t.Errorf("in der Nachtruhe geplant: %v", s.Zeit)
+		}
+		if d == 0 && s.Zeit.Before(t0.Truncate(time.Hour)) {
+			t.Errorf("in der Vergangenheit geplant: %v", s.Zeit)
+		}
+	}
+	if len(je[2]) != 0 {
+		t.Errorf("am Regentag geplant: %v", je[2])
+	}
+	for _, d := range []int{0, 1, 3, 4, 5, 6} {
+		z := je[d]
+		if len(z) != 2 {
+			t.Errorf("Tag %d: %d Lueftungen %v", d, len(z), z)
+			continue
+		}
+		if z[0].Hour() != 16 && z[1].Hour() != 16 {
+			t.Errorf("Tag %d: beste Stunde 16 Uhr fehlt: %v", d, z)
+		}
+		if ab := z[1].Sub(z[0]); ab < 3*time.Hour && ab > -3*time.Hour {
+			t.Errorf("Tag %d: zu dicht: %v", d, z)
+		}
+	}
+	// Samstag nicht vor 10:30
+	for _, z := range append(je[3], je[4]...) {
+		if float64(z.Hour())+float64(z.Minute())/60 < 10.5 {
+			t.Errorf("Wochenende zu frueh: %v", z)
+		}
+	}
+}

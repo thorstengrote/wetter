@@ -586,6 +586,14 @@ func pruefeLueftCfg(c lueftCfg) string {
 }
 
 func (l *lueftung) bediene(mux *http.ServeMux) {
+	mux.HandleFunc("/api/lueftung/plan", func(w http.ResponseWriter, r *http.Request) {
+		e := l.eingang()
+		l.Lock()
+		l.ergaenze(&e)
+		p := l.planeWoche(e)
+		l.Unlock()
+		jsonAntwort(w, p)
+	})
 	mux.HandleFunc("/api/lueftung", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			jsonAntwort(w, l.stand(l.eingang()))

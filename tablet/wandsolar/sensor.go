@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -34,14 +35,16 @@ type messFeuchte struct {
 
 type switchbot struct {
 	sync.Mutex
-	pfad      string
-	client    *http.Client
-	liste     []map[string]string
-	listeZeit time.Time
-	werte     map[string]messFeuchte
-	verlauf   map[string][]messFeuchte // 48 Stunden je Sensor
-	fehler    string
-	sag       func(string, ...any)
+	pfad        string
+	client      *http.Client
+	liste       []map[string]string
+	listeZeit   time.Time
+	werte       map[string]messFeuchte
+	verlauf     map[string][]messFeuchte // 48 Stunden je Sensor
+	verlaufPfad string                   // gesichert, damit ein Neustart die Kurve nicht loescht
+	gesichert   time.Time
+	fehler      string
+	sag         func(string, ...any)
 }
 
 // Auf Android gibt es kein resolv.conf, ein reines Linux-Binary fragt dann
@@ -59,8 +62,18 @@ var namensDienst = &net.Resolver{PreferGo: true,
 func neuerSwitchbot(pfad string, sag func(string, ...any)) *switchbot {
 	d := &net.Dialer{Timeout: 10 * time.Second, Resolver: namensDienst}
 	tr := &http.Transport{DialContext: d.DialContext, TLSHandshakeTimeout: 10 * time.Second}
-	return &switchbot{pfad: pfad, client: &http.Client{Timeout: 15 * time.Second, Transport: tr},
-		werte: map[string]messFeuchte{}, verlauf: map[string][]messFeuchte{}, sag: sag}
+	b := &switchbot{pfad: pfad, client: &http.Client{Timeout: 15 * time.Second, Transport: tr},
+		werte: map[string]messFeuchte{}, verlauf: map[string][]messFeuchte{}, sag: sag,
+		verlaufPfad: filepath.Join(filepath.Dir(pfad), "sensor-verlauf.json")}
+	if roh, err := os.ReadFile(b.verlaufPfad); err == nil {
+		json.Unmarshal(roh, &b.verlauf)
+		for id, v := range b.verlauf {
+			if len(v) > 0 {
+				b.werte[id] = v[len(v)-1] // gilt nur, solange er juenger als 30 Minuten ist
+			}
+		}
+	}
+	return b
 }
 
 func (b *switchbot) rufe(pfad string, ziel any) error {
@@ -161,6 +174,10 @@ func (b *switchbot) lies(id string) {
 		v = v[1:]
 	}
 	b.verlauf[id] = v
+	if w.Zeit.Sub(b.gesichert) >= 15*time.Minute {
+		schreibeJSON(b.verlaufPfad, b.verlauf)
+		b.gesichert = w.Zeit
+	}
 }
 
 // wert: letzter Messwert, wenn juenger als 30 Minuten.
