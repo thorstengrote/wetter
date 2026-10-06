@@ -106,7 +106,7 @@ func standardEntfeuchter() geraetCfg {
 }
 
 func (c geraetCfg) erlaubt(t time.Time) bool {
-	i := (int(t.Weekday()) + 6) % 7 // Montag = 0
+	i := tagIndex(t) // Montag = 0, Feiertage und Ferien wie Sonntag
 	h := float64(t.Hour()) + float64(t.Minute())/60
 	z := c.Zeiten[i]
 	return h >= z.Von && h < z.Bis
@@ -172,6 +172,7 @@ type steuerung struct {
 	aussen             map[int64]float64  // Aussentemperatur je Stunde, von der Wetterseite
 	luft               map[int64]luftWert // Taupunkt, Regen, Boeen je Stunde, von der Wetterseite
 	lueftPause         atomic.Bool        // die Lueftung hat die Fenster offen
+	lueftBald          atomic.Int64       // Unix-Zeit der naechsten Lueftung heute, 0 ohne
 }
 
 // aussenJetzt: Aussentemperatur der laufenden Stunde, nil ohne Prognose.
@@ -498,6 +499,18 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 	if g.feuchte != nil {
 		rh = fmt.Sprintf("%.0f %%", g.feuchte.RH)
 	}
+	// Steht heute eine Lueftung an, trocknet der Entfeuchter vorher nicht mit
+	// Netzstrom, was die Lueftung umsonst erledigt. Mit Sonne laeuft er
+	// weiter, und ist die Luft sehr feucht, wartet er nicht.
+	wartet := ""
+	if b := s.lueftBald.Load(); b > 0 && g.feuchte != nil && g.feuchte.RH < cfg.FeuchteOben+5 {
+		if bt := time.Unix(b, 0); bt.Sub(t) < 8*time.Hour {
+			wartet = "wartet auf die Lüftung um " + bt.In(ort).Format("15:04")
+			if !bt.After(t) {
+				wartet = "die Lüftung beginnt gleich"
+			}
+		}
+	}
 
 	switch {
 	case g.st.An && stoerung:
@@ -516,7 +529,7 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 		s.setze(g, t, false, fmt.Sprintf("%.0f Stunden in 7 Tagen erreicht", cfg.MaxH7))
 	case g.st.An && art == "pflicht":
 		s.setze(g, t, true, "Pflichtlauf nach Plan")
-	case g.st.An && g.nass:
+	case g.st.An && g.nass && wartet == "":
 		s.setze(g, t, true, "Raumluft zu feucht ("+rh+")")
 	case g.st.An && mangelLang && dauer >= minAn:
 		if art == "frei" {
@@ -540,7 +553,7 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 		g.grund = "Pause nach dem Abschalten"
 	case g.trocken:
 		g.grund = "Raumluft trocken genug (" + rh + "), kein Lauf"
-	case g.nass:
+	case g.nass && wartet == "":
 		s.setze(g, t, true, "Raumluft zu feucht ("+rh+"), laeuft notfalls mit Netzstrom")
 	case art == "pflicht":
 		s.setze(g, t, true, "Pflichtlauf nach Plan")
@@ -550,6 +563,8 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 		s.setze(g, t, true, fmt.Sprintf("Einspeisung %.2f kW seit %s", m.Netz, g.ueberSeit.Format("15:04")))
 	case !g.ueberSeit.IsZero():
 		g.grund = "Einspeisung, wartet auf fuenf Minuten"
+	case g.nass:
+		g.grund = "Raumluft zu feucht (" + rh + "), " + wartet
 	default:
 		g.grund = "wartet"
 		if n := g.naechster(t); !n.IsZero() {

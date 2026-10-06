@@ -77,6 +77,7 @@ func TestLueftungNachtruheUndSperren(t *testing.T) {
 		soll string
 	}{
 		{mittwoch(8, 59), "Nachtruhe"},
+		{mittwoch(9, 15), "Nachtruhe"}, // werktags erst ab 9:30
 		{mittwoch(22, 31), "Nachtruhe"},
 		{mittwoch(22, 10), "zu spät"},
 		{time.Date(2026, 10, 10, 10, 0, 0, 0, ort), "Nachtruhe"}, // Samstag vor 10:30
@@ -129,7 +130,7 @@ func TestLueftungWartetAufBessereStunde(t *testing.T) {
 func TestLueftungKaelteZiehtAb(t *testing.T) {
 	l := testLueftung()
 	l.cfg.MaxJeTag = 1
-	t0 := mittwoch(9, 0)
+	t0 := mittwoch(9, 30)
 	// morgens 0 Grad und Taupunkt -3, nachmittags 10 Grad und Taupunkt -2:
 	// der Abstand ist morgens 1 K groesser, die Waerme wiegt mehr.
 	luft := luftTag(t0, luftWert{Temp: 0, Taupunkt: -3}, map[int]luftWert{14: {Temp: 10, Taupunkt: -2}})
@@ -232,5 +233,81 @@ func TestLueftungSchritt(t *testing.T) {
 	l.schritt()
 	if l.st.Phase != "offen" || len(befehle) != 0 || soll != 18 || pause {
 		t.Fatalf("Probe hat gehandelt: %v %v %v", befehle, soll, pause)
+	}
+}
+
+func TestFeiertageNRW(t *testing.T) {
+	if o := ostern(2026); o.Month() != 4 || o.Day() != 5 {
+		t.Fatalf("Ostern 2026: %v", o)
+	}
+	if o := ostern(2027); o.Month() != 3 || o.Day() != 28 {
+		t.Fatalf("Ostern 2027: %v", o)
+	}
+	for _, f := range []struct {
+		m, d int
+		ja   bool
+	}{{1, 1, true}, {4, 3, true}, {4, 6, true}, {5, 14, true}, {5, 25, true}, {6, 4, true},
+		{10, 3, true}, {11, 1, true}, {12, 24, false}, {12, 26, true}, {10, 7, false}} {
+		if feiertag(time.Date(2026, time.Month(f.m), f.d, 12, 0, 0, 0, ort)) != f.ja {
+			t.Errorf("%d.%d.: erwartet %v", f.d, f.m, f.ja)
+		}
+	}
+}
+
+func TestLueftungFeiertagUndFerien(t *testing.T) {
+	l := testLueftung()
+	luftAm := func(t time.Time) map[int64]luftWert { return luftTag(t, luftWert{Temp: 15, Taupunkt: 2}, nil) }
+	weihnacht := time.Date(2026, 12, 25, 10, 0, 0, 0, ort) // Freitag, Feiertag
+	if a, g, _ := l.entscheide(eingang(weihnacht, 20, 60, luftAm(weihnacht))); a != "" || g != "Nachtruhe" {
+		t.Errorf("Feiertag 10 Uhr: %q %q", a, g)
+	}
+	w2 := weihnacht.Add(30 * time.Minute)
+	if a, g, _ := l.entscheide(eingang(w2, 20, 60, luftAm(w2))); a != "auf" {
+		t.Errorf("Feiertag 10:30: %q %q", a, g)
+	}
+	setzeFerien("2026-10-09")
+	defer setzeFerien("")
+	t0 := mittwoch(10, 0)
+	if a, g, _ := l.entscheide(eingang(t0, 20, 60, luftAm(t0))); a != "" || g != "Nachtruhe" {
+		t.Errorf("Ferien 10 Uhr: %q %q", a, g)
+	}
+	nach := time.Date(2026, 10, 12, 10, 0, 0, 0, ort) // Montag nach den Ferien
+	if a, g, _ := l.entscheide(eingang(nach, 20, 60, luftAm(nach))); a != "auf" {
+		t.Errorf("nach den Ferien: %q %q", a, g)
+	}
+	// Der Entfeuchter haelt sich ebenso daran
+	if standardEntfeuchter().erlaubt(time.Date(2026, 10, 8, 12, 0, 0, 0, ort)) {
+		t.Error("Entfeuchter in den Ferien um 12 Uhr erlaubt, Sonntag gilt erst ab 13")
+	}
+}
+
+func TestLueftungMeldetNaechste(t *testing.T) {
+	l := testLueftung()
+	l.cfg.MaxJeTag = 1
+	t0 := mittwoch(10, 0)
+	luft := luftTag(t0, luftWert{Temp: 15, Taupunkt: 8}, map[int]luftWert{15: {Temp: 15, Taupunkt: 3}})
+	l.entscheide(eingang(t0, 20, 60, luft))
+	if !l.naechste.Equal(mittwoch(15, 0)) {
+		t.Fatalf("naechste %v", l.naechste)
+	}
+	// Ohne geeignete Stunde keine
+	l.entscheide(eingang(t0, 20, 60, luftTag(t0, luftWert{Temp: 15, Taupunkt: 13}, nil)))
+	if !l.naechste.IsZero() {
+		t.Fatalf("naechste trotz feuchter Luft: %v", l.naechste)
+	}
+}
+
+func TestLueftungSonneHatVorrangBeiKaelte(t *testing.T) {
+	l := testLueftung()
+	t0 := mittwoch(13, 0)
+	e := eingang(t0, 20, 60, luftTag(t0, luftWert{Temp: 8, Taupunkt: 0}, nil))
+	e.EntfeuchterSonne = true
+	if a, g, _ := l.entscheide(e); a != "" || !strings.Contains(g, "mit Sonne") {
+		t.Fatalf("kalt: %q %q", a, g)
+	}
+	e = eingang(t0, 20, 60, luftTag(t0, luftWert{Temp: 15, Taupunkt: 2}, nil))
+	e.EntfeuchterSonne = true
+	if a, g, _ := l.entscheide(e); a != "auf" {
+		t.Fatalf("mild: %q %q", a, g)
 	}
 }

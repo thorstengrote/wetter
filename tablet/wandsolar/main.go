@@ -527,6 +527,8 @@ func main() {
 		for _, g := range z.st.geraete {
 			if g.cfg.SensorID != "" {
 				id, e.ZielRH = g.cfg.SensorID, g.cfg.FeuchteUnten
+				m := z.st.letzte
+				e.EntfeuchterSonne = g.st.An && m != nil && m.Netz > -0.05 && m.Akku > -0.05
 				break
 			}
 		}
@@ -551,6 +553,13 @@ func main() {
 	}
 	lf.fahre, lf.setzeSoll = kf.fahre, z.fr.setzeSoll
 	lf.pause = func(an bool) { z.st.lueftPause.Store(an) }
+	lf.bald = func(t time.Time) {
+		if t.IsZero() {
+			z.st.lueftBald.Store(0)
+		} else {
+			z.st.lueftBald.Store(t.Unix())
+		}
+	}
 	go lf.laufe()
 	if *vlx != "" {
 		na := neueNacht(filepath.Join(dir, "nacht.json"), *vlx, sag)

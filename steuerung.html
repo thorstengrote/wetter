@@ -439,12 +439,14 @@ function lueftungSicht(){
       <div class="karte"><h2>Drinnen</h2><div class="zahl">${i?z(i.taupunkt)+" <small>°C Taupunkt</small>":"–"}</div><div class="klein">${i?`${z(i.temp)} °C · ${z(i.rh,0)} % · ${z(i.wasser)} g/m³`:"kein frischer Wert vom SwitchBot"}</div></div>
       <div class="karte"><h2>Draußen, diese Stunde</h2><div class="zahl">${a?z(a.taupunkt)+" <small>°C Taupunkt</small>":"–"}</div><div class="klein">${a?`${z(a.temp)} °C · Regen ${z(a.regen)} mm · Böen ${z(a.boeen,0)} km/h`:"keine Vorhersage"}</div></div>
       <div class="karte"><h2>Abstand</h2><div class="zahl" style="color:${ab!=null&&ab>=c.abstand_k?"var(--ein)":"var(--text)"}">${ab!=null?z(ab)+" <small>K</small>":"–"}</div><div class="klein">gelüftet wird ab ${z(c.abstand_k)} K</div></div>
-      <div class="karte"><h2>Heute</h2><div class="zahl">${LF.heute} <small>von ${LF.max_je_tag}</small></div><div class="klein">${LF.phase==="offen"?"lüftet gerade":LF.erlaubt_jetzt?"Lüftungszeit":"Nachtruhe"}</div></div>
+      <div class="karte"><h2>Heute</h2><div class="zahl">${LF.heute} <small>von ${LF.max_je_tag}</small></div><div class="klein">${LF.phase==="offen"?"lüftet gerade":LF.naechste?"geplant "+uhr(LF.naechste):LF.erlaubt_jetzt?"Lüftungszeit":"Nachtruhe"}${LF.feiertag?" · Feiertag":LF.ferien?" · Ferien":""}</div></div>
     </div>
     <div class="raster" style="grid-template-columns:1fr 2fr;margin-bottom:14px">${kellerKarte()}
       <div class="karte"><h2>So entscheidet die Automatik</h2><div class="klein" style="line-height:1.6">
         Gelüftet wird, wenn der Taupunkt draußen mindestens ${z(c.abstand_k)} K unter dem drinnen liegt, die Raumluft feuchter als ${c.ziel_rh>0?z(c.ziel_rh,0)+" %":"die Untergrenze des Entfeuchters"} ist,
         es nicht regnet, nicht stürmt und nicht friert. Von den erlaubten Stunden nimmt sie die besten, Kälte zählt dabei gegen eine Stunde.
+        Ist eine Lüftung geplant, trocknet der Entfeuchter vorher nicht mit Netzstrom, mit Sonne schon.
+        Läuft er mit Sonne und ist es draußen unter ${z(c.sonne_vorrang_unter,0)} °C, wird nicht gelüftet, das würde Heizwärme kosten.
         Während gelüftet wird, pausiert der Entfeuchter und das Ventil steht auf ${z(c.ventil_soll,0)} °C.
         Nach ${z(c.pruef_min,0)} Minuten muss der Taupunkt drinnen gefallen sein, sonst geht das Fenster zu und es ist zwei Stunden Ruhe.
         Zu geht es spätestens nach ${z(c.max_min,0)} Minuten, unter 10 °C draußen nach ${z(c.max_min_kalt,0)}, und immer vor der Nachtruhe.</div></div>
@@ -468,7 +470,9 @@ function lueftungEinst(){
     </div>
     <div class="karte"><h2>Erlaubte Zeit</h2><table>${TAGE.map((t,i)=>`<tr><td style="width:36px">${t}</td>
       <td><span class="eing"><input class="z" data-zt="${i}" data-w="von" value="${hm(c.zeiten[i].von)}"> bis <input class="z" data-zt="${i}" data-w="bis" value="${hm(c.zeiten[i].bis)}"></span></td></tr>`).join("")}</table>
-      <div class="klein" style="margin-top:8px">Außerhalb fährt die Automatik offene Kellerfenster zu, auch von Hand geöffnete.</div></div>
+      <div class="klein" style="margin-top:8px">Außerhalb fährt die Automatik offene Kellerfenster zu, auch von Hand geöffnete.</div>
+      <div class="feld"><span class="n">Ferien bis</span><span class="eing"><input type="date" data-c="ferien_bis" value="${esc(c.ferien_bis||"")}"></span>
+        <span class="e">Bis einschließlich diesem Tag gelten die Sonntagszeiten, auch für den Entfeuchter. Feiertage in NRW erkennt die Steuerung selbst. Leer heißt keine Ferien.</span></div></div>
     <div class="karte"><h2>Feuchte</h2>
       <div class="feld"><span class="n">Öffnen ab Taupunktabstand</span>${zahl("abstand_k","K",0.5)}<span class="e">Taupunkt draußen so weit unter drinnen. Die Vorhersage irrt beim Taupunkt um 1,5 bis 2 K.</span></div>
       <div class="feld"><span class="n">Schließen unter</span>${zahl("schluss_k","K",0.5)}</div>
@@ -479,6 +483,7 @@ function lueftungEinst(){
       <div class="feld"><span class="n">Raum nicht kälter als</span>${zahl("min_innen","°C",0.5)}</div>
       <div class="feld"><span class="n">Draußen mindestens</span>${zahl("min_aussen","°C",0.5)}</div>
       <div class="feld"><span class="n">Böen höchstens</span>${zahl("max_boeen","km/h",5)}<span class="e">Regen ab 0,2 mm in der Stunde sperrt immer.</span></div>
+      <div class="feld"><span class="n">Entfeuchter mit Sonne hat Vorrang unter</span>${zahl("sonne_vorrang_unter","°C",1)}<span class="e">Läuft er gerade mit Sonnenstrom, wird bei kälterer Luft nicht gelüftet, weil das Heizwärme kostet. -30 schaltet es ab.</span></div>
       <div class="feld"><span class="n">Kälte zählt gegen eine Stunde</span>${zahl("kaeltestrafe_k","K je Grad unter 12 °C",0.05)}<span class="e">Bevorzugt wärmere Stunden, damit der Raum weniger auskühlt.</span></div>
     </div>
     <div class="karte"><h2>Dauer</h2>

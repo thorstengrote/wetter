@@ -68,39 +68,41 @@ func wasser(temp, rh float64) float64 {
 type lueftCfg struct {
 	Modus        string      `json:"modus"` // aus, probe, scharf
 	Zeiten       [7]zeitraum `json:"zeiten"`
-	AbstandK     float64     `json:"abstand_k"`      // Taupunkt draussen so weit unter drinnen
-	SchlussK     float64     `json:"schluss_k"`      // darunter wieder zu
-	MinInnen     float64     `json:"min_innen"`      // Raum nicht kaelter als
-	MinAussen    float64     `json:"min_aussen"`     // kein Lueften unter
-	MaxMin       float64     `json:"max_min"`        // Hoechstdauer
-	MaxMinKalt   float64     `json:"max_min_kalt"`   // Hoechstdauer unter 10 Grad draussen
-	MaxJeTag     int         `json:"max_je_tag"`     // Lueftungen am Tag
-	AbstandStd   float64     `json:"abstand_std"`    // Pause zwischen zwei Lueftungen
-	PruefMin     float64     `json:"pruef_min"`      // dann muss der Taupunkt drinnen gefallen sein
-	MaxBoeen     float64     `json:"max_boeen"`      // km/h
-	ZielRH       float64     `json:"ziel_rh"`        // darunter nicht lueften, 0 heisst Untergrenze des Entfeuchters
-	VentilSoll   float64     `json:"ventil_soll"`    // Grad waehrend des Lueftens
-	VentilName   string      `json:"ventil_name"`    // Teil des Namens in der FRITZ!Box
-	Kaeltestrafe float64     `json:"kaeltestrafe_k"` // je Grad unter 12 draussen
+	AbstandK     float64     `json:"abstand_k"`           // Taupunkt draussen so weit unter drinnen
+	SchlussK     float64     `json:"schluss_k"`           // darunter wieder zu
+	MinInnen     float64     `json:"min_innen"`           // Raum nicht kaelter als
+	MinAussen    float64     `json:"min_aussen"`          // kein Lueften unter
+	MaxMin       float64     `json:"max_min"`             // Hoechstdauer
+	MaxMinKalt   float64     `json:"max_min_kalt"`        // Hoechstdauer unter 10 Grad draussen
+	MaxJeTag     int         `json:"max_je_tag"`          // Lueftungen am Tag
+	AbstandStd   float64     `json:"abstand_std"`         // Pause zwischen zwei Lueftungen
+	PruefMin     float64     `json:"pruef_min"`           // dann muss der Taupunkt drinnen gefallen sein
+	MaxBoeen     float64     `json:"max_boeen"`           // km/h
+	ZielRH       float64     `json:"ziel_rh"`             // darunter nicht lueften, 0 heisst Untergrenze des Entfeuchters
+	VentilSoll   float64     `json:"ventil_soll"`         // Grad waehrend des Lueftens
+	VentilName   string      `json:"ventil_name"`         // Teil des Namens in der FRITZ!Box
+	Kaeltestrafe float64     `json:"kaeltestrafe_k"`      // je Grad unter 12 draussen
+	SonneVorrang float64     `json:"sonne_vorrang_unter"` // darunter nicht lueften, solange der Entfeuchter mit Sonne laeuft
+	FerienBis    string      `json:"ferien_bis"`          // JJJJ-MM-TT, bis dahin Sonntagszeiten
 }
 
 func standardLueftung() lueftCfg {
-	w, we := zeitraum{9, 22.5}, zeitraum{10.5, 22.5}
+	w, we := zeitraum{9.5, 22.5}, zeitraum{10.5, 22.5}
 	return lueftCfg{Modus: "scharf", Zeiten: [7]zeitraum{w, w, w, w, w, we, we},
 		AbstandK: 3, SchlussK: 1, MinInnen: 16, MinAussen: 0, MaxMin: 30, MaxMinKalt: 15,
 		MaxJeTag: 2, AbstandStd: 3, PruefMin: 15, MaxBoeen: 50, VentilSoll: 8,
-		VentilName: "spielkeller", Kaeltestrafe: 0.15}
+		VentilName: "spielkeller", Kaeltestrafe: 0.15, SonneVorrang: 10}
 }
 
 func (c lueftCfg) erlaubt(t time.Time) bool {
-	z := c.Zeiten[(int(t.Weekday())+6)%7]
+	z := c.Zeiten[tagIndex(t)]
 	h := float64(t.Hour()) + float64(t.Minute())/60
 	return h >= z.Von && h < z.Bis
 }
 
 // ende der erlaubten Zeit an diesem Tag.
 func (c lueftCfg) ende(t time.Time) time.Time {
-	z := c.Zeiten[(int(t.Weekday())+6)%7]
+	z := c.Zeiten[tagIndex(t)]
 	return tagesAnfang(t).Add(time.Duration(z.Bis * float64(time.Hour)))
 }
 
@@ -134,13 +136,14 @@ type lueftStand struct {
 
 // lueftEingang: alles, was eine Entscheidung braucht, eingesammelt ohne Sperren.
 type lueftEingang struct {
-	Jetzt  time.Time
-	Innen  *messFeuchte
-	ZielRH float64
-	Luft   map[int64]luftWert
-	KF     string // Stellung der Kellerfenster
-	KFDa   bool   // D1 mini eingerichtet
-	Ventil *ventil
+	Jetzt            time.Time
+	Innen            *messFeuchte
+	ZielRH           float64
+	Luft             map[int64]luftWert
+	KF               string // Stellung der Kellerfenster
+	EntfeuchterSonne bool   // Entfeuchter laeuft gerade ohne Netz und Akku
+	KFDa             bool   // D1 mini eingerichtet
+	Ventil           *ventil
 }
 
 type lueftung struct {
@@ -149,6 +152,7 @@ type lueftung struct {
 	cfg                lueftCfg
 	st                 lueftStand
 	grund              string
+	naechste           time.Time // naechste geplante Lueftung heute, null ohne
 	sag                func(string, ...any)
 
 	// Verbindungen nach aussen, in Tests ersetzt
@@ -157,6 +161,7 @@ type lueftung struct {
 	fahre     func(richtung string) error
 	setzeSoll func(ain string, grad float64) error
 	pause     func(bool)
+	bald      func(time.Time) // naechste Lueftung an den Entfeuchter
 }
 
 // ergaenze: was nur mit den eigenen Einstellungen geht, unter l.Lock.
@@ -182,6 +187,7 @@ func neueLueftung(cfgPfad, standPfad string, sag func(string, ...any)) *lueftung
 	if l.st.Phase == "" {
 		l.st.Phase = "zu"
 	}
+	setzeFerien(l.cfg.FerienBis)
 	return l
 }
 
@@ -239,6 +245,7 @@ func luftZu(luft map[int64]luftWert, t time.Time) (luftWert, bool) {
 // entscheide: "auf", "zu" oder nichts, dazu der Grund. Reine Rechnung.
 func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time.Duration) {
 	c, t := l.cfg, e.Jetzt
+	l.naechste = time.Time{}
 	if c.Modus == "aus" {
 		if l.st.Phase != "zu" {
 			return "zu", "Automatik ausgeschaltet", 0
@@ -296,8 +303,6 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		return "", "Kellerfenster nicht eingerichtet", 0
 	case e.KF == "offen" || e.KF == "fährt auf":
 		return "", "Fenster von Hand geöffnet", 0
-	case t.Before(l.st.SperreBis):
-		return "", "gesperrt bis " + l.st.SperreBis.In(ort).Format("15:04"), 0
 	case e.Innen == nil:
 		return "", "kein frischer Messwert drinnen", 0
 	case !ausDa:
@@ -306,26 +311,31 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		return "", "zu spät für heute", 0
 	case l.heute(t) >= c.MaxJeTag:
 		return "", fmt.Sprintf("heute schon %d-mal gelüftet", c.MaxJeTag), 0
-	case t.Sub(l.letztesEnde()) < time.Duration(c.AbstandStd*float64(time.Hour)):
-		return "", "Pause nach der letzten Lüftung", 0
 	case e.Innen.RH <= e.ZielRH:
 		return "", fmt.Sprintf("Raumluft trocken genug (%.0f %%)", e.Innen.RH), 0
 	case e.Innen.Temp < c.MinInnen+1:
 		return "", fmt.Sprintf("Raum zu kühl (%.1f °C)", e.Innen.Temp), 0
 	}
 	tp := taupunkt(e.Innen.Temp, e.Innen.RH)
-	jetzt, warum := l.eignung(tp, aus, c.AbstandK)
-	if warum != "" {
-		return "", warum, 0
+	frei := l.st.SperreBis
+	if p := l.letztesEnde().Add(time.Duration(c.AbstandStd * float64(time.Hour))); p.After(frei) {
+		frei = p
 	}
+
 	// Die besten restlichen Stunden des Tages, so viele, wie Lueftungen uebrig
-	// sind. Die jetzige muss mithalten koennen, sonst wird gewartet.
+	// sind. Die jetzige muss mithalten koennen, sonst wird gewartet. Die
+	// frueheste davon erfaehrt der Entfeuchter, damit er nicht vorher mit
+	// Netzstrom trocknet, was die Lueftung umsonst erledigt.
 	type kand struct {
 		t time.Time
 		p float64
 	}
 	var k []kand
-	for h := t.Truncate(time.Hour).Add(time.Hour); h.Before(c.ende(t)); h = h.Add(time.Hour) {
+	letzte := c.ende(t).Add(-time.Duration(c.MaxMin * float64(time.Minute)))
+	for h := t.Truncate(time.Hour).Add(time.Hour); !h.After(letzte); h = h.Add(time.Hour) {
+		if h.Before(frei) {
+			continue
+		}
 		if w, ok := luftZu(e.Luft, h); ok {
 			if p, warum := l.eignung(tp, w, c.AbstandK); warum == "" {
 				k = append(k, kand{h, p})
@@ -334,7 +344,27 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 	}
 	sort.Slice(k, func(i, j int) bool { return k[i].p > k[j].p })
 	rest := c.MaxJeTag - l.heute(t)
-	if len(k) >= rest && jetzt < k[rest-1].p-0.3 {
+	jetzt, warum := l.eignung(tp, aus, c.AbstandK)
+	jetztGut := warum == "" && !t.Before(frei) && (len(k) < rest || jetzt >= k[rest-1].p-0.3)
+	if jetztGut {
+		l.naechste = t
+	} else {
+		for i := 0; i < rest && i < len(k); i++ {
+			if l.naechste.IsZero() || k[i].t.Before(l.naechste) {
+				l.naechste = k[i].t
+			}
+		}
+	}
+	switch {
+	case t.Before(l.st.SperreBis):
+		return "", "gesperrt bis " + l.st.SperreBis.In(ort).Format("15:04"), 0
+	case t.Before(frei):
+		return "", "Pause nach der letzten Lüftung", 0
+	case warum != "":
+		return "", warum, 0
+	case e.EntfeuchterSonne && aus.Temp < c.SonneVorrang:
+		return "", fmt.Sprintf("Entfeuchter läuft mit Sonne, Lüften kostet bei %.0f °C Heizwärme", aus.Temp), 0
+	case !jetztGut:
 		return "", fmt.Sprintf("um %s besser (%.1f gegen %.1f K)", k[0].t.In(ort).Format("15 Uhr"), k[0].p, jetzt), 0
 	}
 	return "auf", fmt.Sprintf("Taupunkt draußen %.1f °C, drinnen %.1f °C", aus.Taupunkt, tp), 0
@@ -349,6 +379,13 @@ func (l *lueftung) schritt() {
 	aktion, grund, sperre := l.entscheide(e)
 	l.grund = grund
 	scharf := l.cfg.Modus == "scharf"
+	if l.bald != nil {
+		if scharf {
+			l.bald(l.naechste)
+		} else {
+			l.bald(time.Time{}) // Probe haelt den Entfeuchter nicht auf
+		}
+	}
 	t := e.Jetzt
 
 	switch aktion {
@@ -482,7 +519,11 @@ func (l *lueftung) stand(e lueftEingang) map[string]any {
 	defer l.Unlock()
 	l.ergaenze(&e)
 	a := map[string]any{"cfg": l.cfg, "modus": l.cfg.Modus, "phase": l.st.Phase, "seit": l.st.Seit, "grund": l.grund,
-		"heute": l.heute(e.Jetzt), "max_je_tag": l.cfg.MaxJeTag, "erlaubt_jetzt": l.cfg.erlaubt(e.Jetzt)}
+		"heute": l.heute(e.Jetzt), "max_je_tag": l.cfg.MaxJeTag, "erlaubt_jetzt": l.cfg.erlaubt(e.Jetzt),
+		"feiertag": feiertag(e.Jetzt), "ferien": ferien(e.Jetzt)}
+	if !l.naechste.IsZero() {
+		a["naechste"] = l.naechste
+	}
 	if e.Innen != nil {
 		a["innen"] = map[string]float64{"temp": e.Innen.Temp, "rh": e.Innen.RH,
 			"taupunkt": math.Round(taupunkt(e.Innen.Temp, e.Innen.RH)*10) / 10,
@@ -533,6 +574,13 @@ func pruefeLueftCfg(c lueftCfg) string {
 		return "Ventil 8 bis 28 °C"
 	case c.Kaeltestrafe < 0 || c.Kaeltestrafe > 1:
 		return "Kältestrafe 0 bis 1 K je Grad"
+	case c.SonneVorrang < -30 || c.SonneVorrang > 30:
+		return "Vorrang des Entfeuchters -30 bis 30 °C"
+	}
+	if c.FerienBis != "" {
+		if _, err := time.Parse("2006-01-02", c.FerienBis); err != nil {
+			return "Ferienende als Datum, etwa 2026-10-24"
+		}
 	}
 	return ""
 }
@@ -555,6 +603,7 @@ func (l *lueftung) bediene(mux *http.ServeMux) {
 		l.Lock()
 		l.cfg = c
 		schreibeJSON(l.cfgPfad, l.cfg)
+		setzeFerien(c.FerienBis)
 		l.Unlock()
 		l.sag("Lüftung: Einstellungen geändert, Modus %s", c.Modus)
 		w.WriteHeader(204)

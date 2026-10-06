@@ -455,3 +455,26 @@ func TestSensorBatterieWarnung(t *testing.T) {
 		t.Fatalf("Funkstille nicht gemeldet: %v", h)
 	}
 }
+
+func TestWartetAufLueftung(t *testing.T) {
+	l := berlin()
+	p := neueSt(t, "scharf", time.Date(2026, 10, 5, 12, 0, 0, 0, l))
+	mitSensor(p, 68)
+	p.s.lueftBald.Store(p.t.Add(3 * time.Hour).Unix())
+	p.laufe(20, -0.4, 0, 5)
+	g := p.s.geraete[0]
+	if g.st.An || !strings.Contains(g.grund, "wartet auf die Lüftung") {
+		t.Fatalf("lief mit Netz trotz geplanter Lueftung: %v %s", g.st.An, g.grund)
+	}
+	p.laufe(20, 2.0, 0, 100) // Sonne: darf
+	if !g.st.An {
+		t.Fatalf("mit Sonne nicht gelaufen: %s", g.grund)
+	}
+	p2 := neueSt(t, "scharf", time.Date(2026, 10, 5, 12, 0, 0, 0, l))
+	mitSensor(p2, 72) // sehr feucht: wartet nicht
+	p2.s.lueftBald.Store(p2.t.Add(3 * time.Hour).Unix())
+	p2.laufe(20, -0.4, 0, 5)
+	if !p2.s.geraete[0].st.An {
+		t.Fatalf("bei 72 %% gewartet: %s", p2.s.geraete[0].grund)
+	}
+}
