@@ -2333,7 +2333,7 @@ const SOLAR=(()=>{
     const heute=isoDay(new Date());
     const morgen=isoDay(new Date(Date.now()+864e5));
     const ueber=isoDay(new Date(Date.now()+1728e5));
-    const neu=new Array(24).fill(0), neuM=new Array(24).fill(0), alle=[], temps=[];
+    const neu=new Array(24).fill(0), neuM=new Array(24).fill(0), alle=[], temps=[], luft=[];
     let sM=0, sU=0;
     for(let i=0;i<H.time.length;i++){
       /* Strahlung ist bei Open-Meteo das Mittel der Stunde davor: der Wert
@@ -2352,12 +2352,17 @@ const SOLAR=(()=>{
          nicht zur Vorstunde wie die Strahlung. */
       if(Array.isArray(H.temperature_2m)&&H.temperature_2m[i]!=null)
         temps.push([Math.round(new Date(H.time[i]).getTime()/1000),+H.temperature_2m[i]]);
+      /* Fuer die Kellerlueftung: Taupunkt und Boeen zum Zeitpunkt, Regen der
+         folgenden Stunde, denn precipitation ist die Summe der Vorstunde. */
+      if(H.dew_point_2m?.[i]!=null&&H.temperature_2m?.[i]!=null)
+        luft.push([Math.round(new Date(H.time[i]).getTime()/1000),+H.temperature_2m[i],+H.dew_point_2m[i],
+          +(H.precipitation?.[Math.min(i+1,H.time.length-1)]??0),+(H.wind_gusts_10m?.[i]??0)]);
       if(tag===heute) neu[std]=kwv;
       else if(tag===morgen){ neuM[std]=kwv; sM+=kwv; }
       else if(tag===ueber) sU+=kwv;
     }
     prog=neu; progM=neuM; progMorgen=sM; progUeber=sU;
-    progStunden=alle; progTemp=temps; gemeldet=0;
+    progStunden=alle; progTemp=temps; progLuft=luft; gemeldet=0;
     if(sonne&&sonne[heute]) sonnenunter=sonne[heute].set;
   }
 
@@ -2839,13 +2844,13 @@ const SOLAR=(()=>{
      Hoechstens alle fuenf Minuten. */
   /* Die ganze Woche, je Stunde Beginn und kW. Den Akku rechnet wandsolar
      selbst, mit dem jetzigen Ladestand. */
-  let gemeldet=0, progStunden=[], progTemp=[];
+  let gemeldet=0, progStunden=[], progTemp=[], progLuft=[];
   function meldePrognose(){
     if(Date.now()-gemeldet<5*60*1000) return;
     if(!progStunden.length) return;
     gemeldet=Date.now();
     fetch("prognose",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({stunden:progStunden,temp:progTemp})}).catch(()=>{});
+      body:JSON.stringify({stunden:progStunden,temp:progTemp,luft:progLuft})}).catch(()=>{});
   }
 
   /* --- Der Block in der Kopfzeile ---------------------------------- */

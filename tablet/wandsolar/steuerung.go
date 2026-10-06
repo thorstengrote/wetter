@@ -55,6 +55,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -168,7 +169,9 @@ type steuerung struct {
 	veluxBasis         string
 	fenster            map[string]float64
 	fensterZeit        time.Time
-	aussen             map[int64]float64 // Aussentemperatur je Stunde, von der Wetterseite
+	aussen             map[int64]float64  // Aussentemperatur je Stunde, von der Wetterseite
+	luft               map[int64]luftWert // Taupunkt, Regen, Boeen je Stunde, von der Wetterseite
+	lueftPause         atomic.Bool        // die Lueftung hat die Fenster offen
 }
 
 // aussenJetzt: Aussentemperatur der laufenden Stunde, nil ohne Prognose.
@@ -231,6 +234,10 @@ func (s *steuerung) raumluft(g *geraet, t time.Time) {
 				g.fensterAuf = true
 			}
 		}
+	}
+	// Die Kellerfenster melden keine Stellung, die Lueftung sagt es selbst.
+	if g.cfg.SensorID != "" && s.lueftPause.Load() {
+		g.fensterAuf = true
 	}
 }
 

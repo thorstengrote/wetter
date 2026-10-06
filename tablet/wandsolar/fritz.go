@@ -1,6 +1,7 @@
 package main
 
-// Heizkoerperventile an der FRITZ!Box (FRITZ!DECT), nur lesend.
+// Heizkoerperventile an der FRITZ!Box (FRITZ!DECT). Gelesen werden alle,
+// geschrieben wird seit 06.10.2026 nur fuer die Lueftung im Spielekeller.
 //
 // Die Box gibt je Ventil Ist- und Solltemperatur, offenes Fenster, Boost,
 // Sommer- und Urlaubsbetrieb und den Batteriestand aus. Wie weit das Ventil
@@ -24,6 +25,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -62,6 +64,7 @@ type fritz struct {
 	sync.Mutex
 	pfad, verlaufPfad string
 	client            *http.Client
+	sitzung           sync.Mutex // schuetzt sid, Lesen und Schreiben teilen sich die Sitzung
 	sid               string
 	ventile           []ventil
 	zeit              time.Time
@@ -204,9 +207,11 @@ func (f *fritz) lies() {
 		return
 	}
 	var txt string
+	f.sitzung.Lock()
 	for versuch := 0; versuch < 2; versuch++ {
 		if f.sid == "" {
 			if err := f.anmelden(z); err != nil {
+				f.sitzung.Unlock()
 				f.merkeFehler(err)
 				return
 			}
@@ -217,6 +222,7 @@ func (f *fritz) lies() {
 		}
 		f.sid = "" // abgelaufen, neu anmelden
 	}
+	f.sitzung.Unlock()
 	var l fritzListe
 	if err := xml.Unmarshal([]byte(txt), &l); err != nil {
 		f.merkeFehler(fmt.Errorf("Geraeteliste: %v", err))
@@ -272,6 +278,59 @@ func (f *fritz) lies() {
 		schreibeJSON(f.verlaufPfad, f.verlauf)
 		f.gesichert = jetzt
 	}
+}
+
+// setzeSoll stellt die Solltemperatur eines Ventils, fuer die Lueftung. Unter
+// null heisst aus. Die Box haelt den Wert bis zum naechsten Schaltpunkt ihres
+// Wochenplans. Danach wird der Stand neu gelesen, damit der Rest der
+// Steuerung den neuen Sollwert sieht.
+func (f *fritz) setzeSoll(ain string, grad float64) error {
+	z, err := f.zugang()
+	if err != nil {
+		return err
+	}
+	param := "253"
+	if grad >= 0 {
+		v := int(math.Round(grad * 2))
+		param = strconv.Itoa(min(56, max(16, v)))
+	}
+	var txt string
+	f.sitzung.Lock()
+	for versuch := 0; versuch < 2; versuch++ {
+		if f.sid == "" {
+			if err = f.anmelden(z); err != nil {
+				break
+			}
+		}
+		err = f.holeXML(z.Adresse+"/webservices/homeautoswitch.lua?switchcmd=sethkrtsoll&ain="+
+			url.QueryEscape(ain)+"&param="+param+"&sid="+f.sid, nil, &txt)
+		if err == nil && strings.TrimSpace(txt) == param {
+			break
+		}
+		if err == nil {
+			err = fmt.Errorf("Box antwortet %q", strings.TrimSpace(txt))
+		}
+		f.sid = ""
+	}
+	f.sitzung.Unlock()
+	if err != nil {
+		return err
+	}
+	f.sag("FRITZ!Box: Ventil %s auf %s gestellt", ain, param)
+	f.lies()
+	return nil
+}
+
+// ventilMit sucht ein Ventil, dessen Name den Text enthaelt.
+func (f *fritz) ventilMit(teil string) (ventil, bool) {
+	f.Lock()
+	defer f.Unlock()
+	for _, v := range f.ventile {
+		if strings.Contains(strings.ToLower(v.Name), strings.ToLower(teil)) {
+			return v, true
+		}
+	}
+	return ventil{}, false
 }
 
 func (f *fritz) merkeFehler(err error) {

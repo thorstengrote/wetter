@@ -385,6 +385,7 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 		var a struct {
 			Stunden [][2]float64 `json:"stunden"`
 			Temp    [][2]float64 `json:"temp"` // Aussentemperatur je Stunde
+			Luft    [][5]float64 `json:"luft"` // Beginn, Temperatur, Taupunkt, Regen mm, Boeen km/h
 			Tag     string       `json:"tag"`
 			PV      []float64    `json:"pv"`
 		}
@@ -414,6 +415,15 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 			}
 			s.Lock()
 			s.aussen = tp
+			s.Unlock()
+		}
+		if len(a.Luft) > 0 {
+			lp := map[int64]luftWert{}
+			for _, x := range a.Luft {
+				lp[int64(x[0])] = luftWert{Temp: x[1], Taupunkt: x[2], Regen: x[3], Boeen: x[4]}
+			}
+			s.Lock()
+			s.luft = lp
 			s.Unlock()
 		}
 		s.setzePrognose(p)

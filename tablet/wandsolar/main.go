@@ -519,6 +519,39 @@ func main() {
 	go z.fr.laufe()
 	kf := neueKellerfenster(filepath.Join(dir, "kellerfenster.json"), filepath.Join(dir, "kellerfenster-verlauf.json"), sag)
 	go kf.laufe()
+	lf := neueLueftung(filepath.Join(dir, "lueftung.json"), filepath.Join(dir, "lueftung-stand.json"), sag)
+	lf.eingang = func() lueftEingang {
+		e := lueftEingang{Jetzt: time.Now().In(ort)}
+		var id string
+		z.st.Lock()
+		for _, g := range z.st.geraete {
+			if g.cfg.SensorID != "" {
+				id, e.ZielRH = g.cfg.SensorID, g.cfg.FeuchteUnten
+				break
+			}
+		}
+		e.Luft = z.st.luft // wird bei jeder Prognose ganz ersetzt, nie veraendert
+		sb := z.st.sb
+		z.st.Unlock()
+		if id != "" && sb != nil {
+			if w, ok := sb.wert(id); ok {
+				e.Innen = &w
+			}
+		}
+		st := kf.stand()
+		e.KFDa, _ = st["eingerichtet"].(bool)
+		e.KF, _ = st["stellung"].(string)
+		return e
+	}
+	lf.ventil = func(name string) *ventil {
+		if v, ok := z.fr.ventilMit(name); ok {
+			return &v
+		}
+		return nil
+	}
+	lf.fahre, lf.setzeSoll = kf.fahre, z.fr.setzeSoll
+	lf.pause = func(an bool) { z.st.lueftPause.Store(an) }
+	go lf.laufe()
 	if *vlx != "" {
 		na := neueNacht(filepath.Join(dir, "nacht.json"), *vlx, sag)
 		go na.laufe()
@@ -532,6 +565,7 @@ func main() {
 		nachtDienst.bediene(mux)
 	}
 	kf.bediene(mux)
+	lf.bediene(mux)
 	mux.HandleFunc("/api/heizung", func(w http.ResponseWriter, r *http.Request) {
 		a := z.fr.stand()
 		a["aussen"] = z.st.aussenJetzt()
