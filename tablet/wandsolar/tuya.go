@@ -12,7 +12,7 @@ package main
 // paar Sekunden per UDP auf Port 6667 ihre ID aus, verschluesselt mit einem
 // festen, bei Tuya bekannten Schluessel.
 //
-// Datenpunkte: Rollladen dp 1 control (open, stop, close), dp 3 Fahrzeit;
+// Datenpunkte: Rollladen dp 1 control (lokal on, stop, off), dp 3 Fahrzeit;
 // Steckdose dp 1 switch_1, dp 9 countdown_1. Die Rollladenschalter melden
 // keine Position, nur den letzten Befehl.
 
@@ -318,7 +318,9 @@ func (t *tuya) schalte(id, was string) error {
 	var dps map[string]any
 	switch {
 	case g.Art == "clkg" && (was == "open" || was == "stop" || was == "close"):
-		dps = map[string]any{"1": was}
+		// Im Heimnetz heissen die Werte on, stop, off. Die Cloud zeigt sie
+		// als open, stop, close und uebersetzt selbst (gemessen 07.10.2026).
+		dps = map[string]any{"1": map[string]string{"open": "on", "stop": "stop", "close": "off"}[was]}
 	case g.Art == "cz" && (was == "an" || was == "aus"):
 		dps = map[string]any{"1": was == "an"}
 	default:
