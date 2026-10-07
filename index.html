@@ -2070,8 +2070,9 @@ const VELUX=(()=>{
       ${l}${mitWind?wind(zu):""}</svg>`;
   }
 
-  /* Die Zeilen der Flaeche. Alle heisst wirklich alle sieben, Rollladen und
-     Dachrollladen. Ben sind seine beiden. Die Reihenfolge ist gesetzt. */
+  /* Die Zeilen der Flaeche. Alle heisst wirklich alle: die sieben Velux,
+     Rollladen und Dachrollladen, und seit 07.10.2026 die beiden im Buero.
+     Ben sind seine beiden. Die Reihenfolge ist gesetzt. */
   const ZEILEN=[
     ["alle-rollladen","Alle",        true],
     ["ben",           "Ben",         true],
@@ -2151,7 +2152,9 @@ const VELUX=(()=>{
   function zeile([schluessel,name,gruppe]){
     if(schluessel==="buero"&&!buero.length) return "";
     const g=stand[schluessel]||{};
-    const ist=schluessel==="buero"?bueroIst():istStellung(g.position);
+    let ist=schluessel==="buero"?bueroIst():istStellung(g.position);
+    /* Alle ist nur dann in einer Stellung, wenn das Buero mitzieht. */
+    if(schluessel==="alle-rollladen"&&buero.length&&bueroIst()!==ist) ist=null;
     const t=ZIEL.map(([art,wert,farbe])=>
       `<div class="vtaste" data-gruppe="${schluessel}" data-richtung="${art}"
             ${ist===art?'data-ist="ja"':""}>
@@ -2227,19 +2230,29 @@ const VELUX=(()=>{
     }));
   }
 
+  async function bueroFahre(richtung){
+    const was={auf:"open",lueft:"lueften",zu:"close"}[richtung];
+    for(const g of buero){
+      const r=await hol("/api/tuya",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({id:g.id,was})});
+      if(!r.ok) throw new Error(await r.text());
+    }
+  }
+
   async function fahre(t){
     if(t.dataset.zustand==="faehrt") return;
     const f=document.getElementById("vfehler");
     if(f) f.textContent="";
     t.dataset.zustand="faehrt";
+    /* Alle faehrt das Buero mit. Zuerst, das geht im Heimnetz schnell. */
+    let bueroFehler="";
+    if(t.dataset.gruppe==="alle-rollladen"&&buero.length){
+      try{ await bueroFahre(t.dataset.richtung); setTimeout(holeStand,52000); }
+      catch(e){ bueroFehler="Büro: "+e.message; }
+    }
     if(t.dataset.gruppe==="buero"){
       try{
-        const was={auf:"open",lueft:"lueften",zu:"close"}[t.dataset.richtung];
-        for(const g of buero){
-          const r=await hol("/api/tuya",{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({id:g.id,was})});
-          if(!r.ok) throw new Error(await r.text());
-        }
+        await bueroFahre(t.dataset.richtung);
         t.dataset.zustand="fertig";
         setTimeout(()=>{ delete t.dataset.zustand; },2500);
         /* Die Lueftungsfahrt dauert bis zu 50 Sekunden, erst dann steht
@@ -2259,12 +2272,13 @@ const VELUX=(()=>{
       if(!r.ok) throw new Error(d.fehler||("Gateway antwortet "+r.status));
       t.dataset.zustand="fertig";
       setTimeout(()=>{ delete t.dataset.zustand; },2500);
+      if(bueroFehler&&f) f.textContent="Ging nicht: "+bueroFehler;
       /* Die Rollladen brauchen gut zwanzig Sekunden. Danach stimmt der
          gemeldete Stand wieder, vorher nicht. */
       setTimeout(holeStand,25000);
     }catch(e){
       delete t.dataset.zustand;
-      if(f) f.textContent="Ging nicht: "+e.message;
+      if(f) f.textContent="Ging nicht: "+e.message+(bueroFehler?" · "+bueroFehler:"");
     }
   }
 
