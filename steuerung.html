@@ -110,7 +110,7 @@ const dauerText=m=>m<60?`${Math.round(m)} min`:`${z(m/60)} h`;
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 const FENSTER={"3":"Ben","5":"Wohnzimmer unten","15":"Wohnzimmer oben"};
-let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null, LF=null, LP=null, RAUM=null, RAUMZEIT=0, KL=null;
+let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null, LF=null, LP=null, RAUM=null, RAUMZEIT=0, KL=null, HR=null;
 let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null;
 
 function meldung(t){const m=document.getElementById("meldung");m.textContent=t;m.style.display="block";
@@ -162,12 +162,13 @@ async function lade(){
     LF=await api("api/lueftung");
     LP=await api("api/lueftung/plan");
     KL=await api("api/klima");
+    HR=await api("api/heizregel");
     if(ansicht==="heizung"&&Date.now()-HZZEIT>5*60e3){
       HZZEIT=Date.now();
       for(const r of HZ.raeume||[]) HZK[r.ventil.ain]=await api("api/heizung/verlauf?h=48&ain="+r.ventil.ain);
     }
     if(ansicht==="raum"&&Date.now()-RAUMZEIT>5*60e3) await ladeRaum();
-    if(ansicht!=="pin"&&!((ansicht==="geraet"||ansicht==="lueftung")&&reiter==="einst")) zeichne();
+    if(ansicht!=="pin"&&!((ansicht==="geraet"||ansicht==="lueftung")&&reiter==="einst")&&!(ansicht==="raum"&&reiter==="heiz")) zeichne();
   }catch(e){ if(e.message!=="PIN") meldung("Keine Verbindung zum Tablet"); }
 }
 
@@ -203,7 +204,7 @@ function planSvg(plan,kompakt){
     s=`<path d="${d}" fill="#ffd166" opacity=".16"/>`+s+`<path d="${soc}" fill="none" stroke="#ffd166" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>`;
     for(const st of lueftGeplant()) if(new Date(st.zeit).toDateString()===T.d.toDateString()){
       const d=new Date(st.zeit),t0=d.getHours()+d.getMinutes()/60;
-      const dm=st.ruhe?LP.dauer_nacht_min:st.temp<10?LP.dauer_kalt_min:LP.dauer_min;
+      const dm=60;
       s+=`<rect x="${x(t0)}" y="${y+hh-4}" width="${Math.max(3,x(t0+dm/60)-x(t0))}" height="4" rx="1" fill="var(--luft)"><title>Lüftung geplant ${uhr(d)}</title></rect>`;}
     if(i===0){const t=jetzt.getHours()+jetzt.getMinutes()/60;s+=`<line x1="${x(t)}" y1="${y-2}" x2="${x(t)}" y2="${y+hh+2}" stroke="#e8eef5" stroke-opacity=".6"/>`;}
     s+=`<text x="${links-12}" y="${y+hh/2+4}" fill="${i===0?"#e8eef5":"#8b97a6"}" font-size="12" text-anchor="end">${tag(T.d)}</text>
@@ -218,7 +219,7 @@ const legende=`<div class="legende"><span><i style="background:#1f2a38"></i>erla
   <span><i style="background:#ffd166;opacity:.45"></i>erwartete Erzeugung</span>
   <span><i style="background:none;border-top:1px dashed #ffd166;border-radius:0;height:0;width:14px"></i>Hausakku</span>
   <span><i style="background:var(--ein)"></i>läuft mit Sonne</span><span><i style="background:var(--akku)"></i>aus dem Akku</span>
-  <span><i style="background:var(--netz)"></i>vom Netz</span><span><i style="background:var(--luft);height:4px"></i>Lüftung geplant</span></div>`;
+  <span><i style="background:var(--netz)"></i>vom Netz</span><span><i style="background:var(--luft);height:4px"></i>Lüftung erwartet</span></div>`;
 function planSumme(plan,leistung){
   let m=0,netz=0;for(const s of plan.slots||[]) if(s.an){m+=30;if(s.quelle==="netz")netz+=30;}
   return {m,netz,kwhNetz:netz/60*leistung};
@@ -466,28 +467,27 @@ async function ladeRaum(){
     kl:(await api("api/klima?tage=7&ort=spielekeller")).verlauf||[]};
 }
 function raumSicht(){
+  const kopf=`<h1>Spielekeller</h1><div class="unter">${reiter==="heiz"?"Heizung, eigene Regel statt FRITZ!Box-Zeitplan":"Wochenvorschau · bis jetzt gemessen, danach voraussichtlich"}</div>
+    <div class="tabs"><a data-r="vorschau" class="${reiter!=="heiz"?"an":""}">Vorschau</a><a data-r="heiz" class="${reiter==="heiz"?"an":""}">Heizung</a></div>`;
+  if(reiter==="heiz") return kopf+heizungEinst();
   const g=raumGeraet(),v=raumVentil();
-  const kopf=`<h1>Spielekeller</h1><div class="unter">Wochenvorschau · bis jetzt gemessen, danach voraussichtlich</div>`;
   if(!RAUM||!LP) return kopf+"<div class='klein'>lade…</div>";
   const T0=new Date();T0.setHours(0,0,0,0);const t0=T0.getTime(),t1=t0+7*864e5,jetzt=Date.now();
   const b=1100,links=118,rechts=14,iw=b-links-rechts,x=t=>links+(t-t0)/(t1-t0)*iw;
   const ms=d=>new Date(d).getTime(),gueltig=d=>d&&!String(d).startsWith("0001");
-  const dauer=c=>(c.ruhe?LP.dauer_nacht_min:c.temp<10?LP.dauer_kalt_min:LP.dauer_min)*60e3;
-  const geplant=lueftGeplant().map(c=>[ms(c.zeit),ms(c.zeit)+dauer(c)]);
+  const geplant=lueftGeplant().map(c=>[ms(c.zeit),ms(c.zeit)+36e5]);
   const vergangen=(LF?.laeufe||[]).filter(l=>!l.probe).map(l=>[ms(l.von),gueltig(l.bis)?ms(l.bis):jetzt]);
-  const inLueftung=t=>geplant.some(([a,e])=>t>=a&&t<e);
-  // Heizung: gemessen bis jetzt, danach der Wert von vor 7 Tagen
-  const hk=RAUM.hk||[],vorWoche=t=>{let best=null,bd=1e18;for(const p of hk){const d=Math.abs(p.z*1000-(t-7*864e5));if(d<bd){bd=d;best=p;}}return bd<20*60e3?best:null;};
-  /* Wo es noch keine Vorwoche gibt (Verlauf seit 03.10.2026), gilt der
-     jetzige Sollwert, ab dem naechsten Schaltpunkt der Box dessen Wert. */
-  const nUm=v&&gueltig(v.naechste_umschaltung)?ms(v.naechste_umschaltung):Infinity;
+  const inLueftung=t=>geplant.some(([a,e])=>t>=a&&t<e)||(LF?.phase==="offen"&&t<jetzt+36e5);
+  /* Heizung: gemessen bis jetzt, danach unsere eigene Regel aus Wach- und
+     Schlafzeit, waehrend erwarteter Lueftungen der Lueftungswert. */
+  const hk=RAUM.hk||[],hc=HR?.cfg,ruhe=t=>{const c=(LP.stunden||[])[Math.floor((t-t0)/36e5)];return c?c.ruhe:false;};
   const heiz=[];for(let t=t0;t<t1;t+=15*60e3){
     if(t<=jetzt){let best=null,bd=1e18;for(const p of hk){const d=Math.abs(p.z*1000-t);if(d<bd){bd=d;best=p;}}heiz.push(best&&bd<20*60e3?{t,s:best.s,f:best.f,mess:true}:{t,s:null});}
-    else if(inLueftung(t)) heiz.push({t,s:LF.cfg.ventil_soll,f:false});
-    else{const p=vorWoche(t);if(p)heiz.push({t,s:p.s,f:p.f});else if(v)heiz.push({t,s:t>=nUm?v.naechste_soll:v.soll,f:false,geraten:true});else heiz.push({t,s:null});}}
+    else if(!hc||hc.modus==="aus") heiz.push({t,s:null});
+    else heiz.push({t,s:inLueftung(t)?hc.lueften:ruhe(t)?hc.nacht:hc.komfort,f:false});}
   const fe=FEUCHTE[g?.cfg.id]||[];
   const innenT=fe.filter(p=>ms(p.zeit)>=t0).map(p=>({t:ms(p.zeit),temp:p.temp,tp:taupunktJs(p.temp,p.rh)}));
-  const aussen=(LP.stunden||[]).filter(c=>c.daten).map(c=>({t:ms(c.zeit),temp:c.temp,tp:c.taupunkt,regen:c.regen,geeignet:c.geeignet&&c.erlaubt}));
+  const aussen=(LP.stunden||[]).filter(c=>c.daten).map(c=>({t:ms(c.zeit),temp:c.temp,tp:c.taupunkt,regen:c.regen,geeignet:c.geeignet}));
   const slots=(PLAN[g?.cfg.id]?.plan?.slots||[]).map(s=>({t:ms(s.zeit),an:s.an,q:s.quelle,pv:s.pv}));
   const evVergangen=(RAUM.ev||[]).filter(l=>!l.probe&&(gueltig(l.bis)?ms(l.bis):jetzt)>t0).map(l=>{const m=l.min||{};const q=["netz","akku","sonne"].find(k=>(m[k]||0)>0.5)||"sonne";return [ms(l.von),gueltig(l.bis)?ms(l.bis):jetzt,q];});
 
@@ -496,7 +496,7 @@ function raumSicht(){
   const spur=[["Temperatur",96],["Taupunkt",96],...(kl.length?[["CO₂",60]]:[]),["Lüftung",22],["Entfeuchter",22],["Heizung",22],["Sonne",36]];
   let y=30,Y={};for(const [n,h] of spur){Y[n]=[y,h];y+=h+12;}const H=y+4;
   let s="";
-  // Ruhezeiten als Hintergrund
+  // Schlafzeiten als Hintergrund
   for(const c of LP.stunden||[]) if(c.ruhe){const a=ms(c.zeit);s+=`<rect x="${x(a)}" y="22" width="${x(a+36e5)-x(a)+.3}" height="${H-26}" fill="#0a1018"/>`;}
   // Tage
   for(let d=0;d<=7;d++){const t=t0+d*864e5;s+=`<line x1="${x(t)}" y1="14" x2="${x(t)}" y2="${H}" stroke="#253244"/>`;
@@ -528,10 +528,10 @@ function raumSicht(){
   // Balkenspuren
   const balken=(n,a,e,farbe,op=1,titel="")=>{const [yy,h]=Y[n];return `<rect x="${x(Math.max(a,t0))}" y="${yy+3}" width="${Math.max(2,x(Math.min(e,t1))-x(Math.max(a,t0)))}" height="${h-6}" rx="2" fill="${farbe}" opacity="${op}"><title>${titel}</title></rect>`;};
   for(const [a,e] of vergangen) s+=balken("Lüftung",a,e,"var(--luft)",1,"gelüftet "+uhr(a)+" bis "+uhr(e));
-  for(const [a,e] of geplant) if(e>jetzt) s+=balken("Lüftung",a,e,"var(--luft)",.55,"Lüftung geplant "+uhr(a));
+  for(const [a,e] of geplant) if(e>jetzt) s+=balken("Lüftung",Math.max(a,jetzt),e,"var(--luft)",.5,"Lüftung erwartet "+uhr(a));
   for(const [a,e,q] of evVergangen) s+=balken("Entfeuchter",a,e,Q[q],1,"lief "+uhr(a)+" bis "+uhr(e));
   for(const sl of slots) if(sl.an&&sl.t+18e5>jetzt) s+=balken("Entfeuchter",sl.t,sl.t+18e5,Q[sl.q]||"#888",.55,"geplant "+uhr(sl.t)+", "+(QT[sl.q]||""));
-  for(const p of heiz) if(p.f) s+=balken("Heizung",p.t,p.t+15*60e3,"#ff7b6b",p.mess?.9:.45,(p.mess?"forderte Wärme ":"fordert voraussichtlich Wärme ")+uhr(p.t));
+  for(const p of heiz) if(p.f) s+=balken("Heizung",p.t,p.t+15*60e3,"#ff7b6b",.9,"forderte Wärme "+uhr(p.t));
   // Sonne
   {const [yy,h]=Y.Sonne,mx=Math.max(1,...slots.map(s=>s.pv));let d="";for(const sl of slots){const yv=yy+h-sl.pv/mx*h;d+=`M${x(sl.t)} ${yy+h}V${yv}H${x(sl.t+18e5)}V${yy+h}Z`;}
    s+=`<path d="${d}" fill="#ffd166" opacity=".35"/><text x="${links+4}" y="${yy+10}" fill="#5b6b7d" font-size="10">${z(mx)} kW</text>`;}
@@ -540,21 +540,48 @@ function raumSicht(){
   const svg=`<svg viewBox="0 0 ${b} ${H}" style="display:block;width:100%;height:auto;min-width:900px">${s}</svg>`;
   const nG=geplant.filter(([a])=>a>jetzt).length,nE=slots.filter(s=>s.an&&s.t>jetzt).length/2;
   return kopf+`<div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
-      <div class="karte"><h2>Raumluft jetzt</h2><div class="zahl">${LF?.innen?z(LF.innen.rh,0)+" <small>%</small>":"–"}</div><div class="klein">${LF?.innen?z(LF.innen.temp)+" °C · Taupunkt "+z(LF.innen.taupunkt)+" °C":""}</div></div>
-      <div class="karte"><h2>Lüftungen geplant</h2><div class="zahl">${nG}</div><div class="klein">in den nächsten 7 Tagen</div></div>
+      <div class="karte"><h2>Raumluft jetzt</h2><div class="zahl">${LF?.innen?z(LF.innen.rh,0)+" <small>%</small>":"–"}</div><div class="klein">${LF?.innen?z(LF.innen.temp)+" °C · Taupunkt "+z(LF.innen.taupunkt)+" °C":""}${LF?.co2?" · CO₂ "+Math.round(LF.co2)+" ppm":""}</div></div>
+      <div class="karte"><h2>Lüften erwartet</h2><div class="zahl">${nG} <small>h</small></div><div class="klein">in den nächsten 7 Tagen, nach Vorhersage</div></div>
       <div class="karte"><h2>Entfeuchter geplant</h2><div class="zahl">${z(nE)} <small>h</small></div><div class="klein">in den nächsten 7 Tagen</div></div>
-      <div class="karte"><h2>Heizung</h2><div class="zahl" style="font-size:20px">${v?sollText(v.soll):"–"}</div><div class="klein">${v?`jetzt ${z(v.ist)} °C${gueltig(v.naechste_umschaltung)?" · ab "+tag(v.naechste_umschaltung)+" "+uhr(v.naechste_umschaltung)+" "+sollText(v.naechste_soll):""}`:"kein Ventil gefunden"}</div></div>
+      <div class="karte"><h2>Heizung</h2><div class="zahl" style="font-size:20px">${HR?z(HR.ziel)+" °C":"–"}</div><div class="klein">${esc(HR?.grund||"")}${v?` · Ventil ${sollText(v.soll)}, ${z(v.ist)} °C`:""}</div></div>
     </div>
     <div class="karte plan"><h2>Zeitleiste, 7 Tage</h2><div style="overflow-x:auto">${svg}</div>
       <div class="legende"><span><i style="background:#e8eef5"></i>drinnen, gemessen; gestrichelt angenommen</span><span><i style="background:#8b97a6"></i>draußen, Vorhersage</span>
         <span><i style="background:#ffb38a"></i>Heiz-Soll</span><span><i style="background:var(--haus)"></i>Taupunkt draußen, Regen</span><span><i style="background:var(--ein);opacity:.4"></i>gut zum Lüften</span>
         <span><i style="background:var(--luft)"></i>Lüftung</span><span><i style="background:var(--ein)"></i>Entfeuchter mit Sonne</span><span><i style="background:var(--akku)"></i>aus dem Akku</span><span><i style="background:var(--netz)"></i>vom Netz</span>
-        <span><i style="background:#ff7b6b"></i>Ventil fordert Wärme</span><span><i style="background:#0a1018;border:1px solid #253244"></i>Ruhezeit</span>
+        <span><i style="background:#ff7b6b"></i>Ventil forderte Wärme</span><span><i style="background:#0a1018;border:1px solid #253244"></i>Schlafzeit</span>
         ${RAUM.kl?.length?`<span><i style="background:var(--ein)"></i>CO₂ 1.000 ppm</span><span><i style="background:var(--netz)"></i>1.400 ppm</span>`:""}</div>
       <div class="klein" style="margin-top:10px">Kräftige Farben sind Gemessenes, blasse sind voraussichtlich. Die Vorschau ist eine Rechnung, keine Zusage:
-        Wetter aus der Vorhersage, Entfeuchter und Lüftung aus ihren Plänen, die jede Viertelstunde neu entstehen.
-        Die Heizung ist geschätzt wie in der Vorwoche, weil die FRITZ!Box ihren Wochenplan nicht herausgibt, und steht während geplanter Lüftungen auf ${z(LF.cfg.ventil_soll,0)} °C.
-        Den Taupunkt drinnen nimmt die Vorschau als gleichbleibend an.</div></div>`;
+        Wetter aus der Vorhersage, Entfeuchter aus seinem Plan, Lüftung in den Stunden, in denen die Vorhersage genug Taupunktabstand erwarten lässt.
+        Die Heizung folgt der eigenen Regel: Komfort in der Wachzeit, Nachtwert in der Schlafzeit, beim Lüften ${hc?z(hc.lueften,0):"8"} °C.
+        Den Taupunkt drinnen nimmt die Vorschau als gleichbleibend an, CO₂ lässt sich nicht vorhersagen.</div></div>`;
+}
+function heizungEinst(){
+  if(!HR) return "<div class='klein'>lade…</div>";
+  const c=entwurf||(entwurf=JSON.parse(JSON.stringify(HR.cfg)));
+  const zahl=(k,einh,schritt=1)=>`<span class="eing"><input type="number" step="${schritt}" data-c="${k}" value="${c[k]}"> ${einh}</span>`;
+  const v=raumVentil();
+  return `<div class="raster" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
+      <div class="karte"><h2>Sollwert jetzt</h2><div class="zahl">${z(HR.ziel)} <small>°C</small></div><div class="klein">${esc(HR.grund||"")}</div></div>
+      <div class="karte"><h2>Ventil</h2><div class="zahl">${v?z(v.ist)+" <small>°C</small>":"–"}</div><div class="klein">${v?"steht auf "+sollText(v.soll):"nicht gefunden"}</div></div>
+      <div class="karte"><h2>Zeit</h2><div class="zahl" style="font-size:20px">${HR.wach_jetzt?"Wachzeit":"Schlafzeit"}</div><div class="klein">${LF?.feiertag?"Feiertag":""}</div></div>
+    </div>
+    <div class="form">
+    <div class="karte"><h2>Betrieb</h2>
+      <div class="feld"><span class="n">Modus</span><span class="segment">${["aus","probe","scharf"].map(m=>`<a data-m="${m}" class="${c.modus===m?"an":""}">${{aus:"Aus",probe:"Probe",scharf:"Scharf"}[m]}</a>`).join("")}</span>
+        <span class="e">Probe rechnet, stellt das Ventil aber nicht. Aus überlässt das Ventil sich selbst.</span></div>
+      <div class="feld"><span class="n">Wachzeit</span>${zahl("komfort","°C",0.5)}</div>
+      <div class="feld"><span class="n">Schlafzeit</span>${zahl("nacht","°C",0.5)}</div>
+      <div class="feld"><span class="n">Beim Lüften</span>${zahl("lueften","°C",0.5)}<span class="e">Danach sofort wieder Wach- oder Schlafwert.</span></div>
+      <div class="feld"><span class="n">Ventil</span><span class="eing"><input data-c="ventil" value="${esc(c.ventil)}" style="width:140px"></span><span class="e">Teil des Namens in der FRITZ!Box.</span></div>
+    </div>
+    <div class="karte"><h2>Wachzeit</h2><table>${TAGE.map((t,i)=>`<tr><td style="width:36px">${t}</td>
+      <td><span class="eing"><input class="z" data-wz="${i}" data-w="von" value="${hm(c.wach[i].von)}"> bis <input class="z" data-wz="${i}" data-w="bis" value="${hm(c.wach[i].bis)}"></span></td></tr>`).join("")}</table>
+      <div class="klein" style="margin-top:8px">Außerhalb ist Schlafzeit. Feiertage in NRW zählen wie Sonntag.</div>
+      <div class="feld"><span class="n">Ferien bis</span><span class="eing"><input type="date" data-c="ferien_bis" value="${esc(c.ferien_bis||"")}"></span>
+        <span class="e">Bis einschließlich diesem Tag gelten die Sonntagszeiten, auch für den Entfeuchter. Leer heißt keine Ferien.</span></div></div>
+    </div>
+    <div class="knoepfe" style="justify-content:flex-end;margin-top:16px"><button id="verwerfen">Verwerfen</button><button class="haupt" id="hspeichern">Speichern</button></div>`;
 }
 function taupunktJs(t,rh){const a=17.62,b=243.12,g=Math.log(Math.max(rh,1)/100)+a*t/(b+t);return b*g/(a-g);}
 
@@ -571,20 +598,18 @@ function lueftPlanSvg(){
     const y=oben+d*zeile,hh=zeile-10,reihe=st.slice(d*24,d*24+24),tagD=new Date(reihe[0].zeit);
     let anz=0,best=null;
     reihe.forEach((c,i)=>{
-      if(c.erlaubt&&!c.ruhe) s+=`<rect x="${x(i)}" y="${y}" width="${cw+.3}" height="${hh}" fill="#1f2a38"/>`;
-      if(c.daten&&c.abstand>0&&c.erlaubt){
+      s+=`<rect x="${x(i)}" y="${y}" width="${cw+.3}" height="${hh}" fill="${c.ruhe?"#151d29":"#1f2a38"}"/>`;
+      if(c.daten&&c.abstand>0){
         const g=c.geeignet, op=g?Math.min(.75,.18+c.punkte/12):Math.min(.25,c.abstand/LP.abstand_k*.25);
         s+=`<rect x="${x(i)+1}" y="${y+1}" width="${cw-2}" height="${hh-2}" fill="${g?"var(--ein)":"#8b97a6"}" opacity="${op.toFixed(2)}"><title>${uhr(c.zeit)}: Abstand ${z(c.abstand)} K, draußen ${z(c.temp)} °C${c.warum?" · "+esc(c.warum):""}</title></rect>`;
-        if(c.erlaubt&&(best===null||c.abstand>best)) best=c.abstand;
+        if(best===null||c.abstand>best) best=c.abstand;
       }
       if(c.daten&&c.regen>=0.2) s+=`<rect x="${x(i)+2}" y="${y+hh-4}" width="${cw-4}" height="3" fill="var(--haus)" opacity=".8"/>`;
-      if(c.erlaubt&&c.ruhe) s+=`<rect x="${x(i)}" y="${y}" width="${cw+.3}" height="${hh}" fill="#151d29"/>`;
-      if(c.geplant){anz++;const dm=c.ruhe?LP.dauer_nacht_min:c.temp<10?LP.dauer_kalt_min:LP.dauer_min;
-        s+=`<rect x="${x(i)}" y="${y+hh*0.3}" width="${Math.max(4,dm/60*cw)}" height="${hh*0.4}" rx="2" fill="var(--luft)"/>`;}
+      if(c.geplant){anz++;s+=`<rect x="${x(i)}" y="${y+hh*0.3}" width="${cw+.3}" height="${hh*0.4}" fill="var(--luft)"/>`;}
     });
     if(d===0){const t=jetzt.getHours()+jetzt.getMinutes()/60;s+=`<line x1="${x(t)}" y1="${y-2}" x2="${x(t)}" y2="${y+hh+2}" stroke="#e8eef5" stroke-opacity=".6"/>`;}
     s+=`<text x="${links-12}" y="${y+hh/2+4}" fill="${d===0?"#e8eef5":"#8b97a6"}" font-size="12" text-anchor="end">${tag(tagD)}</text>
-      <text x="${b-rechts+12}" y="${y+hh/2+4}" fill="#c9d2dc" font-size="12">${anz?anz+"×":"–"}</text>
+      <text x="${b-rechts+12}" y="${y+hh/2+4}" fill="#c9d2dc" font-size="12">${anz?anz+" h":"–"}</text>
       <text x="${b-rechts+50}" y="${y+hh/2+4}" fill="#8b97a6" font-size="12">${best!==null?"bis "+z(best)+" K":""}</text>`;
   }
   s+=`<text x="${b-rechts+12}" y="${oben-9}" fill="#5b6b7d" font-size="11">Lüften</text><text x="${b-rechts+50}" y="${oben-9}" fill="#5b6b7d" font-size="11">bester Abstand</text>`;
@@ -601,30 +626,27 @@ function lueftungSicht(){
   return kopf+`<div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
       <div class="karte"><h2>Drinnen</h2><div class="zahl">${i?z(i.taupunkt)+" <small>°C Taupunkt</small>":"–"}</div><div class="klein">${i?`${z(i.temp)} °C · ${z(i.rh,0)} % · ${z(i.wasser)} g/m³`:"kein frischer Wert vom SwitchBot"}</div></div>
       <div class="karte"><h2>Draußen, diese Stunde</h2><div class="zahl">${a?z(a.taupunkt)+" <small>°C Taupunkt</small>":"–"}</div><div class="klein">${a?`${z(a.temp)} °C · Regen ${z(a.regen)} mm · Böen ${z(a.boeen,0)} km/h`:"keine Vorhersage"}</div></div>
-      <div class="karte"><h2>Abstand</h2><div class="zahl" style="color:${ab!=null&&ab>=c.abstand_k?"var(--ein)":"var(--text)"}">${ab!=null?z(ab)+" <small>K</small>":"–"}</div><div class="klein">gelüftet wird ab ${z(c.abstand_k)} K</div></div>
-      <div class="karte"><h2>Heute</h2><div class="zahl">${LF.heute} <small>von ${LF.max_je_tag}</small></div><div class="klein">${LF.phase==="offen"?"lüftet gerade":LF.naechste?"geplant "+uhr(LF.naechste):LF.erlaubt_jetzt?"Lüftungszeit":"Nachtruhe"}${LF.feiertag?" · Feiertag":LF.ferien?" · Ferien":""}</div></div>
+      <div class="karte"><h2>Abstand</h2><div class="zahl" style="color:${ab!=null&&ab>=c.abstand_k?"var(--ein)":"var(--text)"}">${ab!=null?z(ab)+" <small>K</small>":"–"}</div><div class="klein">auf ab ${z(c.abstand_k)} K, zu unter ${z(c.schluss_k)} K</div></div>
+      <div class="karte"><h2>CO₂</h2><div class="zahl" style="color:${LF.co2?co2Farbe(LF.co2):"var(--text)"}">${LF.co2?Math.round(LF.co2)+" <small>ppm</small>":"–"}</div><div class="klein">${LF.co2?`auf ab ${c.co2_auf}, zu unter ${c.co2_zu} ppm`:"nur mit dem Velux-Sensor im Keller"}</div></div>
     </div>
     <div class="raster" style="grid-template-columns:1fr 2fr;margin-bottom:14px">${kellerKarte()}
       <div class="karte"><h2>So entscheidet die Automatik</h2><div class="klein" style="line-height:1.6">
-        Gelüftet wird, wenn der Taupunkt draußen mindestens ${z(c.abstand_k)} K unter dem drinnen liegt, die Raumluft feuchter als ${c.ziel_rh>0?z(c.ziel_rh,0)+" %":"die Untergrenze des Entfeuchters"} ist,
-        es nicht regnet, nicht stürmt und nicht friert. Von den erlaubten Stunden nimmt sie die besten, Kälte zählt dabei gegen eine Stunde.
-        Ist eine Lüftung geplant, trocknet der Entfeuchter vorher nicht mit Netzstrom, mit Sonne schon.
-        Läuft er mit Sonne und ist es draußen unter ${z(c.sonne_vorrang_unter,0)} °C, wird nicht gelüftet, das würde Heizwärme kosten.
-        Während gelüftet wird, pausiert der Entfeuchter und das Ventil steht auf ${z(c.ventil_soll,0)} °C.
-        Nach ${z(c.pruef_min,0)} Minuten muss der Taupunkt drinnen gefallen sein, sonst geht das Fenster zu und es ist zwei Stunden Ruhe.
-        Steigt die relative Feuchte drinnen um ${z(c.rh_anstieg,0)} Punkte, kühlt der Raum aus und das Fenster geht ebenfalls zu.
-        Tagsüber lüftet sie höchstens ${z(c.max_min,0)} Minuten, unter 10 °C draußen ${z(c.max_min_kalt,0)}.
-        ${c.nacht_max_je>0?`Nachts höchstens ${c.nacht_max_je}-mal, dann bis zu ${z(c.nacht_max_min/60)} Stunden am Stück. Eine Lüftung vom Abend läuft als Nachtlüftung weiter.`:"Nachts bleiben die Fenster zu, offene fahren vor der Nachtruhe zu."}
-        Der Entfeuchter läuft nachts nie.</div></div>
+        Allein nach Messwerten, rund um die Uhr. Das Fenster geht auf, wenn der Taupunkt draußen mindestens ${z(c.abstand_k)} K unter dem drinnen liegt und die Raumluft feuchter als ${c.ziel_rh>0?z(c.ziel_rh,0)+" %":"die Untergrenze des Entfeuchters"} ist,
+        oder wenn das CO₂ über ${c.co2_auf} ppm steigt und die Außenluft nicht feuchter ist als drinnen, ab ${c.co2_max} ppm auch dann.
+        Es bleibt offen, solange es hilft, und geht zu, wenn der Abstand unter ${z(c.schluss_k)} K fällt, das CO₂ wieder unter ${c.co2_zu} ppm liegt,
+        der Taupunkt drinnen nach ${z(c.pruef_min,0)} Minuten nicht gefallen ist, die relative Feuchte um ${z(c.rh_anstieg,0)} Punkte steigt oder der Raum unter ${z(c.min_innen)} °C abkühlt.
+        Regen, Böen über ${z(c.max_boeen,0)} km/h und Frost schließen immer. Zwischen zwei Lüftungen liegen mindestens ${z(c.pause_min,0)} Minuten.
+        Ist eine Lüftung in Sicht, trocknet der Entfeuchter vorher nicht mit Netzstrom. Läuft er mit Sonne und ist es draußen unter ${z(c.sonne_vorrang_unter,0)} °C, wird nicht gelüftet.
+        Während gelüftet wird, pausiert der Entfeuchter und die Heizung geht herunter. Der Entfeuchter läuft nachts nie.</div></div>
     </div>
-    <div class="karte plan" style="margin-bottom:14px"><h2>Plan, 7 Tage, aus der Vorhersage</h2>${lueftPlanSvg()}
-      <div class="legende"><span><i style="background:#1f2a38"></i>Tageszeit</span><span><i style="background:#151d29;border:1px solid #253244"></i>Nacht, Lüften erlaubt</span><span><i style="background:var(--ein);opacity:.6"></i>geeignet, je kräftiger, desto besser</span>
-        <span><i style="background:#8b97a6;opacity:.35"></i>trockener draußen, aber zu wenig Abstand oder gesperrt</span><span><i style="background:var(--haus)"></i>Regen</span><span><i style="background:var(--luft)"></i>Lüftung geplant</span></div>
-      <div class="klein" style="margin-top:10px">Gerechnet mit dem Taupunkt drinnen von ${LP?z(LP.taupunkt_innen)+" °C":"–"}${LP?.ohne_innen?" (letzter bekannter Wert)":""}, als bliebe er so. Die Automatik entscheidet jede Minute neu mit dem echten Messwert, der Plan zeigt, worauf es hinausläuft.</div></div>
+    <div class="karte plan" style="margin-bottom:14px"><h2>Lüften erwartet, 7 Tage, aus der Vorhersage</h2>${lueftPlanSvg()}
+      <div class="legende"><span><i style="background:#1f2a38"></i>Wachzeit</span><span><i style="background:#151d29;border:1px solid #253244"></i>Schlafzeit</span><span><i style="background:var(--ein);opacity:.6"></i>geeignet, je kräftiger, desto besser</span>
+        <span><i style="background:#8b97a6;opacity:.35"></i>trockener draußen, aber zu wenig Abstand</span><span><i style="background:var(--haus)"></i>Regen</span><span><i style="background:var(--luft)"></i>Lüftung erwartet</span></div>
+      <div class="klein" style="margin-top:10px">Gerechnet mit dem Taupunkt drinnen von ${LP?z(LP.taupunkt_innen)+" °C":"–"}${LP?.ohne_innen?" (letzter bekannter Wert)":""}, als bliebe er so${LP?.trocken?". Die Raumluft ist gerade trocken genug, deshalb ist keine Lüftung wegen Feuchte erwartet":""}. Die Automatik entscheidet jede Minute neu mit dem echten Messwert.</div></div>
     <div class="karte"><h2>Letzte Lüftungen</h2>${l.length?`<table><tr><th>Tag</th><th>Zeit</th><th class="r">Dauer</th><th>Verlauf drinnen</th><th class="r">Taupunkt drinnen</th><th class="r">draußen</th><th class="r">Feuchte</th><th class="r">Raum</th><th>Ende</th></tr>
       ${l.map(x=>{const v=new Date(x.von),b=d(x.bis),m=((b||new Date())-v)/60000;
         const k=x.kurve||[],tpE=b?x.taupunkt_innen_ende:k.length?k[k.length-1].tp:null,rhE=b?x.rh_innen_ende:k.length?k[k.length-1].rh:null;
-        return `<tr><td>${tag(v)}${x.probe?' <span class="chip gelb">Probe</span>':""}${x.nacht?' <span class="chip blau">Nacht</span>':""}${x.bestaetigt?' <span class="chip gruen">bestätigt</span>':""}</td><td>${uhr(v)} bis ${b?uhr(b):"jetzt"}</td>
+        return `<tr><td>${tag(v)}${x.probe?' <span class="chip gelb">Probe</span>':""}${x.anlass==="co2"?' <span class="chip">CO₂</span>':""}${x.bestaetigt?' <span class="chip gruen">bestätigt</span>':""}</td><td>${uhr(v)} bis ${b?uhr(b):"jetzt"}</td>
           <td class="r">${dauerText(m)}</td><td>${kurveSvg(k)}</td><td class="r">${z(x.taupunkt_innen)}${tpE!=null?" → "+z(tpE):""} °C</td><td class="r">${z(x.taupunkt_aussen)} °C</td>
           <td class="r">${z(x.rh_innen,0)}${rhE!=null?" → "+z(rhE,0):""} %</td>
           <td class="r">${z(x.temp_innen)}${b?" → "+z(x.temp_innen_ende):""} °C</td><td class="klein">${esc(x.ende||x.grund)}</td></tr>`;}).join("")}</table>`
@@ -645,38 +667,31 @@ function lueftungEinst(){
   return `<div class="form">
     <div class="karte"><h2>Betrieb</h2>
       <div class="feld"><span class="n">Modus</span><span class="segment">${["aus","probe","scharf"].map(m=>`<a data-m="${m}" class="${c.modus===m?"an":""}">${{aus:"Aus",probe:"Probe",scharf:"Scharf"}[m]}</a>`).join("")}</span>
-        <span class="e">Probe rechnet und protokolliert, fährt aber weder Fenster noch Ventil.</span></div>
-      <div class="feld"><span class="n">Lüftungen am Tag</span>${zahl("max_je_tag","höchstens")}<span class="e">Jede heißt zweimal Motorlärm.</span></div>
-      <div class="feld"><span class="n">Pause dazwischen</span>${zahl("abstand_std","h",0.5)}</div>
-      <div class="feld"><span class="n">Lüftungen je Nacht</span>${zahl("nacht_max_je","höchstens")}<span class="e">0 heißt: nachts nie fahren, offene Fenster gehen vor der Nacht zu.</span></div>
-      <div class="feld"><span class="n">Nachtlüftung höchstens</span>${zahl("nacht_max_min","min",15)}<span class="e">Nachts lieber selten und lange als oft und kurz.</span></div>
+        <span class="e">Probe rechnet und protokolliert, fährt aber nichts.</span></div>
+      <div class="feld"><span class="n">Pause zwischen zwei Lüftungen</span>${zahl("pause_min","min",5)}<span class="e">Gegen Hin und Her.</span></div>
+      <div class="feld"><span class="n">Lüftungen am Tag</span>${zahl("max_je_tag","höchstens")}<span class="e">0 heißt unbegrenzt.</span></div>
+      <div class="feld"><span class="n">Notbremse nach</span>${zahl("max_std","h")}<span class="e">Beendet eine Lüftung, die aus irgendeinem Grund nie zu Ende käme.</span></div>
     </div>
-    <div class="karte"><h2>Tageszeit</h2><table>${TAGE.map((t,i)=>`<tr><td style="width:36px">${t}</td>
-      <td><span class="eing"><input class="z" data-zt="${i}" data-w="von" value="${hm(c.zeiten[i].von)}"> bis <input class="z" data-zt="${i}" data-w="bis" value="${hm(c.zeiten[i].bis)}"></span></td></tr>`).join("")}</table>
-      <div class="klein" style="margin-top:8px">Außerhalb ist Nacht: dann gelten die Regeln für die Nacht. Ohne Nachtlüftung fährt die Automatik offene Kellerfenster vorher zu, auch von Hand geöffnete.</div>
-      <div class="feld"><span class="n">Ferien bis</span><span class="eing"><input type="date" data-c="ferien_bis" value="${esc(c.ferien_bis||"")}"></span>
-        <span class="e">Bis einschließlich diesem Tag gelten die Sonntagszeiten, auch für den Entfeuchter. Feiertage in NRW erkennt die Steuerung selbst. Leer heißt keine Ferien.</span></div></div>
     <div class="karte"><h2>Feuchte</h2>
-      <div class="feld"><span class="n">Öffnen ab Taupunktabstand</span>${zahl("abstand_k","K",0.5)}<span class="e">Taupunkt draußen so weit unter drinnen. Die Vorhersage irrt beim Taupunkt um 1,5 bis 2 K.</span></div>
-      <div class="feld"><span class="n">Schließen unter</span>${zahl("schluss_k","K",0.5)}</div>
+      <div class="feld"><span class="n">Auf ab Taupunktabstand</span>${zahl("abstand_k","K",0.5)}<span class="e">Taupunkt draußen so weit unter drinnen. Die Vorhersage irrt beim Taupunkt um 1,5 bis 2 K.</span></div>
+      <div class="feld"><span class="n">Zu unter</span>${zahl("schluss_k","K",0.5)}</div>
       <div class="feld"><span class="n">Nur lüften über</span>${zahl("ziel_rh","%")}<span class="e">Raumluft. 0 heißt: Untergrenze des Entfeuchters.</span></div>
       <div class="feld"><span class="n">Prüfen nach</span>${zahl("pruef_min","min")}<span class="e">Dann muss der Taupunkt drinnen gefallen sein, sonst zu und zwei Stunden Ruhe.</span></div>
       <div class="feld"><span class="n">Zu, wenn die Feuchte steigt um</span>${zahl("rh_anstieg","Punkte")}<span class="e">Relative Feuchte drinnen gegenüber dem Start. Kalte Luft kühlt den Raum, die Wände werden klamm. 0 schaltet es ab.</span></div>
+    </div>
+    <div class="karte"><h2>CO₂</h2>
+      <div class="feld"><span class="n">Auf ab</span>${zahl("co2_auf","ppm",50)}<span class="e">Wenn die Außenluft nicht feuchter ist als drinnen.</span></div>
+      <div class="feld"><span class="n">Zu unter</span>${zahl("co2_zu","ppm",50)}</div>
+      <div class="feld"><span class="n">Auch bei feuchterer Außenluft ab</span>${zahl("co2_max","ppm",50)}</div>
+      <div class="klein">Gilt nur, solange der Velux-Sensor im Keller liegt und der Standort in der Übersicht auf Spielekeller steht.</div>
     </div>
     <div class="karte"><h2>Temperatur und Wetter</h2>
       <div class="feld"><span class="n">Raum nicht kälter als</span>${zahl("min_innen","°C",0.5)}</div>
       <div class="feld"><span class="n">Draußen mindestens</span>${zahl("min_aussen","°C",0.5)}</div>
       <div class="feld"><span class="n">Böen höchstens</span>${zahl("max_boeen","km/h",5)}<span class="e">Regen ab 0,2 mm in der Stunde sperrt immer.</span></div>
-      <div class="feld"><span class="n">Entfeuchter mit Sonne hat Vorrang unter</span>${zahl("sonne_vorrang_unter","°C",1)}<span class="e">Läuft er gerade mit Sonnenstrom, wird bei kälterer Luft nicht gelüftet, weil das Heizwärme kostet. -30 schaltet es ab.</span></div>
-      <div class="feld"><span class="n">Kälte zählt gegen eine Stunde</span>${zahl("kaeltestrafe_k","K je Grad unter 12 °C",0.05)}<span class="e">Bevorzugt wärmere Stunden, damit der Raum weniger auskühlt.</span></div>
-    </div>
-    <div class="karte"><h2>Dauer</h2>
-      <div class="feld"><span class="n">Höchstens</span>${zahl("max_min","min")}</div>
-      <div class="feld"><span class="n">Unter 10 °C draußen höchstens</span>${zahl("max_min_kalt","min")}<span class="e">Damit Wände und Möbel nicht auskühlen. Zwei alte Kellerschächte tauschen die Luft langsam, zu kurz bringt wenig.</span></div>
-    </div>
-    <div class="karte"><h2>Heizung</h2>
-      <div class="feld"><span class="n">Ventil beim Lüften auf</span>${zahl("ventil_soll","°C",0.5)}<span class="e">Danach zurück auf den alten Wert, außer die FRITZ!Box hat ihn inzwischen nach Wochenplan geändert.</span></div>
-      <div class="feld"><span class="n">Ventil</span><span class="eing"><input data-c="ventil_name" value="${esc(c.ventil_name)}" style="width:140px"></span><span class="e">Teil des Namens in der FRITZ!Box.</span></div>
+      <div class="feld"><span class="n">Entfeuchter mit Sonne hat Vorrang unter</span>${zahl("sonne_vorrang_unter","°C",1)}<span class="e">Läuft er gerade mit Sonnenstrom, wird bei kälterer Luft nicht wegen Feuchte gelüftet, weil das Heizwärme kostet. -30 schaltet es ab.</span></div>
+      <div class="feld"><span class="n">Kälte im Plan</span>${zahl("kaeltestrafe_k","K je Grad unter 12 °C",0.05)}<span class="e">Nur für die Farbe im Plan.</span></div>
+      <div class="feld"><span class="n">Ventil zur Bestätigung</span><span class="eing"><input data-c="ventil_name" value="${esc(c.ventil_name)}" style="width:140px"></span><span class="e">Kühlt es beim Lüften ab, ist das Fenster wirklich offen.</span></div>
     </div></div>
     <div class="knoepfe" style="justify-content:flex-end;margin-top:16px"><button id="verwerfen">Verwerfen</button><button class="haupt" id="lspeichern">Speichern</button></div>`;
 }
@@ -706,7 +721,7 @@ function zeichne(){
   if(!ST) return;
   const inhalt=ansicht==="raum"?raumSicht():ansicht==="geraet"?geraetSicht():ansicht==="tablet"?tabletSicht():ansicht==="heizung"?heizungSicht():ansicht==="lueftung"?lueftungSicht():uebersicht();
   const w=document.getElementById("wurzel");w.innerHTML=rahmen(inhalt);
-  w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;if(ansicht==="lueftung")reiter="stand";
+  w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;if(ansicht==="lueftung")reiter="stand";if(ansicht==="raum")reiter="vorschau";
     if(ansicht==="heizung"){HZZEIT=0;lade();} if(ansicht==="raum"){RAUMZEIT=0;lade();} zeichne();});
   w.querySelectorAll("[data-g]").forEach(a=>a.onclick=()=>{ansicht="geraet";geraetId=a.dataset.g;reiter="plan";entwurf=null;zeichne();});
   w.querySelectorAll("[data-r]").forEach(a=>a.onclick=()=>{reiter=a.dataset.r;entwurf=null;zeichne();});
@@ -723,6 +738,10 @@ function zeichne(){
   w.querySelectorAll("[data-fe]").forEach(i=>i.onchange=()=>{const f=new Set(entwurf.fenster||[]);
     i.checked?f.add(i.dataset.fe):f.delete(i.dataset.fe);entwurf.fenster=[...f];});
   if(ansicht==="geraet"&&reiter==="einst"&&SENSOREN===null){SENSOREN=[];api("api/sensoren").then(l=>{SENSOREN=l||[];zeichne();}).catch(()=>{});}
+  w.querySelectorAll("[data-wz]").forEach(i=>i.onchange=()=>{const m=i.value.match(/^(\d{1,2}):?(\d{2})?$/);
+    if(m) entwurf.wach[i.dataset.wz][i.dataset.w]=Number(m[1])+Number(m[2]||0)/60; else meldung("Uhrzeit wie 9:30");});
+  const hsp=document.getElementById("hspeichern");
+  if(hsp) hsp.onclick=async()=>{try{await api("api/heizregel",entwurf);entwurf=null;meldung("Gespeichert, gilt ab der nächsten Minute");await lade();}catch(e){meldung(e.message);}};
   w.querySelectorAll("[data-zt]").forEach(i=>i.onchange=()=>{const m=i.value.match(/^(\d{1,2}):?(\d{2})?$/);
     if(m) entwurf.zeiten[i.dataset.zt][i.dataset.w]=Number(m[1])+Number(m[2]||0)/60; else meldung("Uhrzeit wie 11:00");});
   const sp=document.getElementById("speichern");

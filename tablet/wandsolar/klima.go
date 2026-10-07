@@ -113,6 +113,18 @@ func (k *raumklima) lies() {
 	}
 }
 
+// co2Keller: CO2 im Spielekeller, wenn der Sensor dort liegt und der Wert
+// frisch ist, sonst 0.
+func (k *raumklima) co2Keller() float64 {
+	k.Lock()
+	defer k.Unlock()
+	if k.Standort != "spielekeller" || k.letzter == nil || k.letzter.Ort != "spielekeller" ||
+		time.Since(k.letzter.Zeit) > 20*time.Minute {
+		return 0
+	}
+	return k.letzter.CO2
+}
+
 // hinweise fuer die Wand: Messwoche im Keller vorbei, oder der Sensor ist
 // dort ausser Funkreichweite.
 func (k *raumklima) hinweise() []string {

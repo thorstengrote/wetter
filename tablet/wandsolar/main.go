@@ -547,6 +547,7 @@ func main() {
 				e.Innen = &w
 			}
 		}
+		e.CO2 = kl.co2Keller()
 		st := kf.stand()
 		e.KFDa, _ = st["eingerichtet"].(bool)
 		e.KF, _ = st["stellung"].(string)
@@ -558,7 +559,7 @@ func main() {
 		}
 		return nil
 	}
-	lf.fahre, lf.setzeSoll = kf.fahre, z.fr.setzeSoll
+	lf.fahre = kf.fahre
 	lf.pause = func(an bool) { z.st.lueftPause.Store(an) }
 	lf.bald = func(t time.Time) {
 		if t.IsZero() {
@@ -567,7 +568,11 @@ func main() {
 			z.st.lueftBald.Store(t.Unix())
 		}
 	}
+	hr := neueHeizRegel(filepath.Join(dir, "heizregel.json"), sag)
+	hr.ventil, hr.setzeSoll, hr.lueftet = lf.ventil, z.fr.setzeSoll, lf.lueftet
+	lf.wach = hr.wach
 	go lf.laufe()
+	go hr.laufe()
 	if *vlx != "" {
 		na := neueNacht(filepath.Join(dir, "nacht.json"), *vlx, sag)
 		go na.laufe()
@@ -582,6 +587,7 @@ func main() {
 	}
 	kf.bediene(mux)
 	lf.bediene(mux)
+	hr.bediene(mux)
 	kl.bediene(mux)
 	mux.HandleFunc("/api/heizung", func(w http.ResponseWriter, r *http.Request) {
 		a := z.fr.stand()
