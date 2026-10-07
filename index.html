@@ -2078,12 +2078,16 @@ const VELUX=(()=>{
     ["levi",          "Levi",        false],
     ["schlafzimmer",  "Schlafzimmer",false],
     ["wohnzimmer",    "Wohnzimmer",  false],
-    ["kueche",        "Küche",       false]
+    ["kueche",        "Küche",       false],
+    /* Seit 07.10.2026: die beiden Rolllaeden im Buero, Smart Life statt
+       Velux, gefahren ueber /api/tuya. Sie melden keine Stellung, die
+       Hervorhebung folgt dem letzten Befehl. */
+    ["buero",         "Büro",        false]
   ];
   /* Lueften ist zugleich Hitzeschutz: fast zu, aber ein Spalt bleibt. */
   const ZIEL=[["auf",100,F_AUF],["lueft",22,F_LUEFT],["zu",0,F_ZU]];
 
-  let da=false, stand={}, lueftWert=22, holt=null, nachtAuf={}, wahl=null;
+  let da=false, stand={}, lueftWert=22, holt=null, nachtAuf={}, wahl=null, buero=[];
   const MOND=`<svg viewBox="0 0 20 20"><path d="M13.6 2.6a7.6 7.6 0 1 0 3.8 13.1A6.3 6.3 0 0 1 13.6 2.6z" fill="currentColor"/></svg>`;
   const SONNE=`<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.6" fill="currentColor"/><g stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
     <path d="M10 1.8v2.3M10 15.9v2.3M1.8 10h2.3M15.9 10h2.3M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></g></svg>`;
@@ -2123,6 +2127,7 @@ const VELUX=(()=>{
       const d=await r.json();
       stand=(d&&d.gruppen)||{};
       try{ const n=await hol("/api/nacht"); if(n.ok) nachtAuf=await n.json()||{}; }catch(e){}
+      try{ const b=await hol("/api/tuya"); if(b.ok) buero=((await b.json())||[]).filter(g=>g.art==="clkg"); }catch(e){}
       if(document.getElementById("vdetail").classList.contains("on")&&!wahl) male();
     }catch(e){ /* Stand bleibt, wie er war */ }
   }
@@ -2136,9 +2141,17 @@ const VELUX=(()=>{
     return null;
   }
 
+  /* Buero: alle Rolllaeden mit demselben letzten Befehl ergeben die Stellung. */
+  function bueroIst(){
+    const b=buero.map(g=>(g.stand||{}).befehl);
+    if(!b.length||b.some(x=>x!==b[0])) return null;
+    return {open:"auf",lueften:"lueft",close:"zu"}[b[0]]||null;
+  }
+
   function zeile([schluessel,name,gruppe]){
+    if(schluessel==="buero"&&!buero.length) return "";
     const g=stand[schluessel]||{};
-    const ist=istStellung(g.position);
+    const ist=schluessel==="buero"?bueroIst():istStellung(g.position);
     const t=ZIEL.map(([art,wert,farbe])=>
       `<div class="vtaste" data-gruppe="${schluessel}" data-richtung="${art}"
             ${ist===art?'data-ist="ja"':""}>
@@ -2219,6 +2232,25 @@ const VELUX=(()=>{
     const f=document.getElementById("vfehler");
     if(f) f.textContent="";
     t.dataset.zustand="faehrt";
+    if(t.dataset.gruppe==="buero"){
+      try{
+        const was={auf:"open",lueft:"lueften",zu:"close"}[t.dataset.richtung];
+        for(const g of buero){
+          const r=await hol("/api/tuya",{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({id:g.id,was})});
+          if(!r.ok) throw new Error(await r.text());
+        }
+        t.dataset.zustand="fertig";
+        setTimeout(()=>{ delete t.dataset.zustand; },2500);
+        /* Die Lueftungsfahrt dauert bis zu 50 Sekunden, erst dann steht
+           ihr Befehl fest. */
+        setTimeout(holeStand,3000); setTimeout(holeStand,52000);
+      }catch(e){
+        delete t.dataset.zustand;
+        if(f) f.textContent="Ging nicht: "+e.message;
+      }
+      return;
+    }
     try{
       const r=await hol("/velux/fahre",{method:"POST",
         headers:{"Content-Type":"application/json"},
