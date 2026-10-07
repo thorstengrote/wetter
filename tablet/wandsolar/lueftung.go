@@ -45,8 +45,9 @@ package main
 //     wirklich offen ist: seine Temperatur faellt. Faellt sie nicht, wird der
 //     Befehl einmal wiederholt.
 //
-// Sicherheitsnetz: Der D1 mini faehrt selbst zu, wenn er bei offenem Fenster
-// 30 Minuten lang nichts vom Tablet hoert.
+// Ein Sicherheitsnetz im D1 mini gibt es bewusst nicht (Entscheidung vom
+// 07.10.2026): Faellt das Tablet aus, bleiben die Fenster, wie sie sind. Die
+// RMF-Zeitschaltuhr steht auf Handbetrieb und faehrt nichts von selbst.
 
 import (
 	"encoding/json"
