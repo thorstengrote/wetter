@@ -415,3 +415,13 @@ func TestFreieSonneSchlaegtKnappesLueften(t *testing.T) {
 		t.Fatal("bei 5 K mit Sonne nicht gelueftet")
 	}
 }
+
+func TestSchlafzeiten(t *testing.T) {
+	c := standardHeizung()
+	s := c.schlafzeiten(mittwoch(0, 0), mittwoch(23, 59))
+	// Mittwoch: 0:00 bis 9:30 und 22:30 bis Mitternacht
+	if len(s) != 2 || time.UnixMilli(s[0][1]).In(ort).Format("15:04") != "09:30" ||
+		time.UnixMilli(s[1][0]).In(ort).Format("15:04") != "22:30" {
+		t.Fatalf("Schlafzeiten %v", s)
+	}
+}

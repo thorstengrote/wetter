@@ -84,6 +84,25 @@ func (h *heizRegel) wach(t time.Time) bool {
 	return h.cfg.wach(t)
 }
 
+// schlafzeiten: die Schlafzeiten zwischen von und bis als Paare aus
+// Unix-Millisekunden, in Viertelstunden gerechnet, fuer die Zeitleiste.
+func (c heizCfg) schlafzeiten(von, bis time.Time) [][2]int64 {
+	var aus [][2]int64
+	t := von.Truncate(15 * time.Minute)
+	for ; t.Before(bis); t = t.Add(15 * time.Minute) {
+		if c.wach(t) {
+			continue
+		}
+		ms := t.UnixMilli()
+		if n := len(aus); n > 0 && aus[n-1][1] == ms {
+			aus[n-1][1] = ms + 15*60*1000
+		} else {
+			aus = append(aus, [2]int64{ms, ms + 15*60*1000})
+		}
+	}
+	return aus
+}
+
 // zielFuer: Solltemperatur und Grund.
 func (c heizCfg) zielFuer(t time.Time, lueftet bool) (float64, string) {
 	switch {
@@ -178,9 +197,10 @@ func pruefeHeizCfg(c heizCfg) string {
 func (h *heizRegel) bediene(mux *http.ServeMux) {
 	mux.HandleFunc("/api/heizregel", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
+			jetzt := time.Now().In(ort)
 			h.Lock()
 			a := map[string]any{"cfg": h.cfg, "ziel": h.ziel, "grund": h.grund,
-				"wach_jetzt": h.cfg.wach(time.Now().In(ort))}
+				"wach_jetzt": h.cfg.wach(jetzt), "schlaf": h.cfg.schlafzeiten(jetzt.AddDate(0, 0, -3), jetzt.AddDate(0, 0, 8))}
 			h.Unlock()
 			jsonAntwort(w, a)
 			return

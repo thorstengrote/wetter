@@ -467,20 +467,24 @@ async function ladeRaum(){
     kl:(await api("api/klima?tage=7&ort=spielekeller")).verlauf||[]};
 }
 function raumSicht(){
-  const kopf=`<h1>Spielekeller</h1><div class="unter">${reiter==="heiz"?"Heizung, eigene Regel statt FRITZ!Box-Zeitplan":"Wochenvorschau · bis jetzt gemessen, danach voraussichtlich"}</div>
+  const kopf=`<h1>Spielekeller</h1><div class="unter">${reiter==="heiz"?"Heizung, eigene Regel statt FRITZ!Box-Zeitplan":"Links die letzten 48 Stunden, gemessen · rechts die nächsten 7 Tage, voraussichtlich"}</div>
     <div class="tabs"><a data-r="vorschau" class="${reiter!=="heiz"?"an":""}">Vorschau</a><a data-r="heiz" class="${reiter==="heiz"?"an":""}">Heizung</a></div>`;
   if(reiter==="heiz") return kopf+heizungEinst();
   const g=raumGeraet(),v=raumVentil();
   if(!RAUM||!LP) return kopf+"<div class='klein'>lade…</div>";
-  const T0=new Date();T0.setHours(0,0,0,0);const t0=T0.getTime(),t1=t0+7*864e5,jetzt=Date.now();
-  const b=1100,links=118,rechts=14,iw=b-links-rechts,x=t=>links+(t-t0)/(t1-t0)*iw;
+  /* Geteilte Achse (Wunsch vom 07.10.2026): die letzten 48 Stunden nehmen
+     die linke Haelfte ein, damit das Gemessene genau zu sehen ist, die
+     naechsten 7 Tage die rechte. */
+  const T0=new Date();T0.setHours(0,0,0,0);const jetzt=Date.now(),t0=jetzt-48*36e5,t1=T0.getTime()+7*864e5;
+  const b=1100,links=118,rechts=14,iw=b-links-rechts,mitte=links+iw/2;
+  const x=t=>t<=jetzt?links+(Math.max(t,t0)-t0)/(jetzt-t0)*iw/2:mitte+(Math.min(t,t1)-jetzt)/(t1-jetzt)*iw/2;
   const ms=d=>new Date(d).getTime(),gueltig=d=>d&&!String(d).startsWith("0001");
   const geplant=lueftGeplant().map(c=>[ms(c.zeit),ms(c.zeit)+36e5]);
   const vergangen=(LF?.laeufe||[]).filter(l=>!l.probe).map(l=>[ms(l.von),gueltig(l.bis)?ms(l.bis):jetzt]);
   const inLueftung=t=>geplant.some(([a,e])=>t>=a&&t<e)||(LF?.phase==="offen"&&t<jetzt+36e5);
   /* Heizung: gemessen bis jetzt, danach unsere eigene Regel aus Wach- und
      Schlafzeit, waehrend erwarteter Lueftungen der Lueftungswert. */
-  const hk=RAUM.hk||[],hc=HR?.cfg,ruhe=t=>{const c=(LP.stunden||[])[Math.floor((t-t0)/36e5)];return c?c.ruhe:false;};
+  const schlaf=HR?.schlaf||[],hk=RAUM.hk||[],hc=HR?.cfg,ruhe=t=>schlaf.some(([a,e])=>t>=a&&t<e);
   const heiz=[];for(let t=t0;t<t1;t+=15*60e3){
     if(t<=jetzt){let best=null,bd=1e18;for(const p of hk){const d=Math.abs(p.z*1000-t);if(d<bd){bd=d;best=p;}}heiz.push(best&&bd<20*60e3?{t,s:best.s,f:best.f,mess:true}:{t,s:null});}
     else if(!hc||hc.modus==="aus") heiz.push({t,s:null});
@@ -497,10 +501,19 @@ function raumSicht(){
   let y=30,Y={};for(const [n,h] of spur){Y[n]=[y,h];y+=h+12;}const H=y+4;
   let s="";
   // Schlafzeiten als Hintergrund
-  for(const c of LP.stunden||[]) if(c.ruhe){const a=ms(c.zeit);s+=`<rect x="${x(a)}" y="22" width="${x(a+36e5)-x(a)+.3}" height="${H-26}" fill="#0a1018"/>`;}
-  // Tage
-  for(let d=0;d<=7;d++){const t=t0+d*864e5;s+=`<line x1="${x(t)}" y1="14" x2="${x(t)}" y2="${H}" stroke="#253244"/>`;
-    if(d<7)s+=`<text x="${x(t+432e5)}" y="16" fill="${d===0?"#e8eef5":"#8b97a6"}" font-size="12" text-anchor="middle">${tag(new Date(t+432e5))}</text>`;}
+  for(const [a,e] of schlaf) if(e>t0&&a<t1){const xa=x(Math.max(a,t0)),xe=x(Math.min(e,t1));
+    if(a<jetzt&&e>jetzt){s+=`<rect x="${xa}" y="22" width="${mitte-xa}" height="${H-26}" fill="#0a1018"/><rect x="${mitte}" y="22" width="${xe-mitte}" height="${H-26}" fill="#0a1018"/>`;}
+    else s+=`<rect x="${xa}" y="22" width="${xe-xa+.3}" height="${H-26}" fill="#0a1018"/>`;}
+  // Tage: Linie um Mitternacht, Name mittig im sichtbaren Teil, wenn Platz ist
+  {const d=new Date(t0);d.setHours(0,0,0,0);
+   for(;d.getTime()<t1;d.setDate(d.getDate()+1)){const m=d.getTime(),a=Math.max(m,t0),e=Math.min(m+864e5,t1);
+     if(m>t0) s+=`<line x1="${x(m)}" y1="14" x2="${x(m)}" y2="${H}" stroke="#253244"/>`;
+     const breite=a<jetzt&&e>jetzt?(mitte-x(a))+(x(e)-mitte):x(e)-x(a);
+     if(breite>46){const xm=a<jetzt&&e>jetzt?(x(a)+x(e))/2:x((a+e)/2);
+       s+=`<text x="${xm}" y="16" fill="${m===T0.getTime()?"#e8eef5":"#8b97a6"}" font-size="12" text-anchor="middle">${tag(new Date(m+432e5))}</text>`;}}}
+  // Stundenmarken in der Vergangenheit, dort ist Platz
+  for(let t=Math.ceil(t0/216e5)*216e5;t<jetzt;t+=216e5){const h=new Date(t).getHours();
+    if(h!==0) s+=`<text x="${x(t)}" y="${H-2}" fill="#5b6b7d" font-size="9" text-anchor="middle">${h}</text>`;}
   for(const [n,[yy,h]] of Object.entries(Y)) s+=`<text x="${links-10}" y="${yy+h/2+4}" fill="#8b97a6" font-size="12" text-anchor="end">${n}</text>`;
   const linie=(pts,yf,farbe,strich)=>{let d="",luecke=true;for(const p of pts){if(p==null){luecke=true;continue;}d+=(luecke?"M":"L")+x(p[0]).toFixed(1)+" "+yf(p[1]).toFixed(1);luecke=false;}
     return `<path d="${d}" fill="none" stroke="${farbe}" stroke-width="1.6" ${strich?`stroke-dasharray="${strich}"`:""}/>`;};
@@ -536,14 +549,15 @@ function raumSicht(){
   {const [yy,h]=Y.Sonne,mx=Math.max(1,...slots.map(s=>s.pv));let d="";for(const sl of slots){const yv=yy+h-sl.pv/mx*h;d+=`M${x(sl.t)} ${yy+h}V${yv}H${x(sl.t+18e5)}V${yy+h}Z`;}
    s+=`<path d="${d}" fill="#ffd166" opacity=".35"/><text x="${links+4}" y="${yy+10}" fill="#5b6b7d" font-size="10">${z(mx)} kW</text>`;}
   // Jetzt
-  s+=`<line x1="${x(jetzt)}" y1="18" x2="${x(jetzt)}" y2="${H}" stroke="#e8eef5" stroke-opacity=".7"/><text x="${x(jetzt)+4}" y="${H-2}" fill="#e8eef5" font-size="10">jetzt</text>`;
+  s+=`<line x1="${mitte}" y1="18" x2="${mitte}" y2="${H}" stroke="#e8eef5" stroke-opacity=".8"/><text x="${mitte+4}" y="${H-2}" fill="#e8eef5" font-size="10">jetzt</text>
+    <text x="${mitte-6}" y="30" fill="#5b6b7d" font-size="10" text-anchor="end">48 Stunden, gemessen</text><text x="${mitte+6}" y="30" fill="#5b6b7d" font-size="10">7 Tage, voraussichtlich</text>`;
   const svg=`<svg viewBox="0 0 ${b} ${H}" style="display:block;width:100%;height:auto;min-width:900px">${s}</svg>`;
   const nG=geplant.filter(([a])=>a>jetzt).length,nE=slots.filter(s=>s.an&&s.t>jetzt).length/2;
   return kopf+`<div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
       <div class="karte"><h2>Raumluft jetzt</h2><div class="zahl">${LF?.innen?z(LF.innen.rh,0)+" <small>%</small>":"–"}</div><div class="klein">${LF?.innen?z(LF.innen.temp)+" °C · Taupunkt "+z(LF.innen.taupunkt)+" °C":""}${LF?.co2?" · CO₂ "+Math.round(LF.co2)+" ppm":""}</div></div>
       <div class="karte"><h2>Lüften erwartet</h2><div class="zahl">${nG} <small>h</small></div><div class="klein">in den nächsten 7 Tagen, nach Vorhersage</div></div>
       <div class="karte"><h2>Entfeuchter geplant</h2><div class="zahl">${z(nE)} <small>h</small></div><div class="klein">in den nächsten 7 Tagen</div></div>
-      <div class="karte"><h2>Heizung</h2><div class="zahl" style="font-size:20px">${HR?z(HR.ziel)+" °C":"–"}</div><div class="klein">${esc(HR?.grund||"")}${v?` · Ventil ${sollText(v.soll)}, ${z(v.ist)} °C`:""}</div></div>
+      <div class="karte"><h2>Heizung</h2><div class="zahl" style="font-size:20px">${HR?.ziel?z(HR.ziel)+" °C":"–"}</div><div class="klein">${esc(HR?.grund||"Heizregel startet")}${v?` · Ventil ${sollText(v.soll)}, ${z(v.ist)} °C`:""}</div></div>
     </div>
     <div class="karte plan"><h2>Zeitleiste, 7 Tage</h2><div style="overflow-x:auto">${svg}</div>
       <div class="legende"><span><i style="background:#e8eef5"></i>drinnen, gemessen; gestrichelt angenommen</span><span><i style="background:#8b97a6"></i>draußen, Vorhersage</span>
@@ -562,7 +576,7 @@ function heizungEinst(){
   const zahl=(k,einh,schritt=1)=>`<span class="eing"><input type="number" step="${schritt}" data-c="${k}" value="${c[k]}"> ${einh}</span>`;
   const v=raumVentil();
   return `<div class="raster" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
-      <div class="karte"><h2>Sollwert jetzt</h2><div class="zahl">${z(HR.ziel)} <small>°C</small></div><div class="klein">${esc(HR.grund||"")}</div></div>
+      <div class="karte"><h2>Sollwert jetzt</h2><div class="zahl">${HR.ziel?z(HR.ziel)+" <small>°C</small>":"–"}</div><div class="klein">${esc(HR.grund||"")}</div></div>
       <div class="karte"><h2>Ventil</h2><div class="zahl">${v?z(v.ist)+" <small>°C</small>":"–"}</div><div class="klein">${v?"steht auf "+sollText(v.soll):"nicht gefunden"}</div></div>
       <div class="karte"><h2>Zeit</h2><div class="zahl" style="font-size:20px">${HR.wach_jetzt?"Wachzeit":"Schlafzeit"}</div><div class="klein">${LF?.feiertag?"Feiertag":""}</div></div>
     </div>
