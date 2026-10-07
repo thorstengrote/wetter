@@ -1,23 +1,40 @@
 package main
 
-// Lueftung des Spielekellers (Vorgaben vom 06.10.2026). Im Raum schlaeft
-// Thorstens Sohn, meist von 23 bis 9 Uhr, am Wochenende bis 10:30. Die
-// Fenstermotoren wecken ihn. Gefahren wird deshalb nur werktags von 9 bis
-// 22:30 und am Wochenende von 10:30 bis 22:30, und hoechstens zweimal am Tag.
+// Lueftung des Spielekellers (Vorgaben vom 06. und 07.10.2026). Der Raum hat
+// rund 20 m2 und zwei alte Kellerfensterschaechte, der Luftwechsel ist also
+// langsam. Im Raum schlaeft Thorstens Sohn, meist von 23 bis 9 Uhr, am
+// Wochenende bis 10:30. Die Fenstermotoren sind hoerbar, aber nicht schlimm,
+// gute Luft geht vor. Deshalb:
+//
+//   - tagsueber (Zeiten, werktags ab 9:30, am Wochenende ab 10:30, bis 22:30)
+//     hoechstens MaxJeTag Lueftungen mit AbstandStd Pause
+//   - nachts hoechstens NachtMaxJe Lueftungen, die dafuer lange offen bleiben
+//     duerfen. Eine Lueftung vom Abend wird mit Beginn der Nacht zur
+//     Nachtlueftung, wenn das Nachtbudget reicht, sonst geht sie vorher zu.
+//     NachtMaxJe 0 heisst: nachts nie fahren, offene Fenster gehen zu.
+//   - der Entfeuchter laeuft nachts nie, das regelt er selbst
 //
 // Gelueftet wird nur, wenn es den Keller trockener macht. Massstab ist der
 // Taupunkt, also das Wasser in der Luft. Die relative Feuchte taugt dafuer
 // nicht, warme Sommerluft mit 50 % bringt mehr Wasser herein, als die kalte
 // Kellerluft mit 65 % hat. Drinnen misst der SwitchBot des Entfeuchters an
-// der Wand gegenueber vom Fenster, draussen gilt die Vorhersage der laufenden
-// Stunde von der Wetterseite. Die Vorhersage liegt beim Taupunkt 1,5 bis 2 K
-// daneben, deshalb 3 K Abstand, und der Raumfuehler hat das letzte Wort:
-// Ist der Taupunkt drinnen nach einer Viertelstunde nicht gefallen, geht das
-// Fenster zu, und fuer zwei Stunden ist Ruhe.
+// der Wand gegenueber vom Fenster, waehrend gelueftet wird alle 2 Minuten.
+// Draussen gilt die Vorhersage der laufenden Stunde von der Wetterseite. Sie
+// liegt beim Taupunkt 1,5 bis 2 K daneben, deshalb 3 K Abstand, und der
+// Raumfuehler hat das letzte Wort:
 //
-// Von den erlaubten Stunden des Tages werden die besten genommen. Eine Stunde
-// zaehlt umso mehr, je groesser der Taupunktabstand ist, Kaelte zieht ab,
-// weil sie den Raum auskuehlt und die Heizung nachher nachschieben muss.
+//   - nach PruefMin muss der Taupunkt drinnen gefallen sein
+//   - steigt die relative Feuchte um RHAnstieg Punkte ueber den Startwert,
+//     kuehlt der Raum aus und die Waende werden klamm, auch wenn der
+//     Taupunkt faellt
+//
+// In beiden Faellen geht das Fenster zu, und zwei Stunden ist Ruhe. Jede
+// Lueftung schreibt ihre Kurve mit, damit sich sehen laesst, wie der Raum
+// reagiert.
+//
+// Von den erlaubten Stunden werden die besten genommen. Eine Stunde zaehlt
+// umso mehr, je groesser der Taupunktabstand ist, Kaelte zieht ab, weil sie
+// den Raum auskuehlt und die Heizung nachher nachschieben muss.
 //
 // Waehrend gelueftet wird:
 //   - der Entfeuchter pausiert (lueftPause), er steht direkt am Fenster
@@ -28,9 +45,8 @@ package main
 //     wirklich offen ist: seine Temperatur faellt. Faellt sie nicht, wird der
 //     Befehl einmal wiederholt.
 //
-// Sicherheitsnetze: Ausserhalb der erlaubten Zeit faehrt die Lueftung offene
-// Kellerfenster zu, egal wer sie geoeffnet hat. Der D1 mini schliesst selbst
-// nach 90 Minuten und um 22:45, und die RMF-Zeitschaltuhr faehrt abends zu.
+// Sicherheitsnetz: Der D1 mini faehrt selbst zu, wenn er bei offenem Fenster
+// 30 Minuten lang nichts vom Tablet hoert.
 
 import (
 	"encoding/json"
@@ -84,20 +100,39 @@ type lueftCfg struct {
 	Kaeltestrafe float64     `json:"kaeltestrafe_k"`      // je Grad unter 12 draussen
 	SonneVorrang float64     `json:"sonne_vorrang_unter"` // darunter nicht lueften, solange der Entfeuchter mit Sonne laeuft
 	FerienBis    string      `json:"ferien_bis"`          // JJJJ-MM-TT, bis dahin Sonntagszeiten
+	NachtMaxJe   int         `json:"nacht_max_je"`        // Lueftungen je Nacht, 0 heisst nachts nie fahren
+	NachtMaxMin  float64     `json:"nacht_max_min"`       // Hoechstdauer einer Nachtlueftung
+	RHAnstieg    float64     `json:"rh_anstieg"`          // zu, wenn die relative Feuchte so weit steigt, 0 aus
 }
 
 func standardLueftung() lueftCfg {
 	w, we := zeitraum{9.5, 22.5}, zeitraum{10.5, 22.5}
 	return lueftCfg{Modus: "scharf", Zeiten: [7]zeitraum{w, w, w, w, w, we, we},
-		AbstandK: 3, SchlussK: 1, MinInnen: 16, MinAussen: 0, MaxMin: 30, MaxMinKalt: 15,
-		MaxJeTag: 2, AbstandStd: 3, PruefMin: 15, MaxBoeen: 50, VentilSoll: 8,
-		VentilName: "spielkeller", Kaeltestrafe: 0.15, SonneVorrang: 10}
+		AbstandK: 3, SchlussK: 1, MinInnen: 16, MinAussen: 0, MaxMin: 90, MaxMinKalt: 40,
+		MaxJeTag: 2, AbstandStd: 3, PruefMin: 20, MaxBoeen: 50, VentilSoll: 8,
+		VentilName: "spielkeller", Kaeltestrafe: 0.15, SonneVorrang: 10,
+		NachtMaxJe: 1, NachtMaxMin: 240, RHAnstieg: 5}
 }
 
 func (c lueftCfg) erlaubt(t time.Time) bool {
 	z := c.Zeiten[tagIndex(t)]
 	h := float64(t.Hour()) + float64(t.Minute())/60
 	return h >= z.Von && h < z.Bis
+}
+
+// beginn der erlaubten Zeit an diesem Tag.
+func (c lueftCfg) beginn(t time.Time) time.Time {
+	z := c.Zeiten[tagIndex(t)]
+	return tagesAnfang(t).Add(time.Duration(z.Von * float64(time.Hour)))
+}
+
+// nacht: die Nacht, in der t liegt, von ende bis zum naechsten beginn. Nur
+// sinnvoll ausserhalb der erlaubten Zeit.
+func (c lueftCfg) nacht(t time.Time) (von, bis time.Time) {
+	if t.Before(c.beginn(t)) {
+		return c.ende(t.AddDate(0, 0, -1)), c.beginn(t)
+	}
+	return c.ende(t), c.beginn(t.AddDate(0, 0, 1))
 }
 
 // ende der erlaubten Zeit an diesem Tag.
@@ -107,20 +142,35 @@ func (c lueftCfg) ende(t time.Time) time.Time {
 }
 
 type lueftLauf struct {
-	Von          time.Time `json:"von"`
-	Bis          time.Time `json:"bis,omitempty"`
-	Probe        bool      `json:"probe,omitempty"`
-	Grund        string    `json:"grund"`
-	Ende         string    `json:"ende,omitempty"`
-	TaupunktIn   float64   `json:"taupunkt_innen"`
-	TaupunktAus  float64   `json:"taupunkt_aussen"`
-	TempIn       float64   `json:"temp_innen"`
-	TempAus      float64   `json:"temp_aussen"`
-	RHIn         float64   `json:"rh_innen"`
-	TaupunktEnde float64   `json:"taupunkt_innen_ende,omitempty"`
-	TempEnde     float64   `json:"temp_innen_ende,omitempty"`
-	RHEnde       float64   `json:"rh_innen_ende,omitempty"`
-	Bestaetigt   bool      `json:"bestaetigt,omitempty"`
+	Von          time.Time     `json:"von"`
+	Bis          time.Time     `json:"bis,omitempty"`
+	Probe        bool          `json:"probe,omitempty"`
+	Grund        string        `json:"grund"`
+	Ende         string        `json:"ende,omitempty"`
+	TaupunktIn   float64       `json:"taupunkt_innen"`
+	TaupunktAus  float64       `json:"taupunkt_aussen"`
+	TempIn       float64       `json:"temp_innen"`
+	TempAus      float64       `json:"temp_aussen"`
+	RHIn         float64       `json:"rh_innen"`
+	TaupunktEnde float64       `json:"taupunkt_innen_ende,omitempty"`
+	TempEnde     float64       `json:"temp_innen_ende,omitempty"`
+	RHEnde       float64       `json:"rh_innen_ende,omitempty"`
+	Bestaetigt   bool          `json:"bestaetigt,omitempty"`
+	Nacht        bool          `json:"nacht,omitempty"`
+	Kurve        []kurvenPunkt `json:"kurve,omitempty"`
+}
+
+// kurvenPunkt: Raumluft waehrend einer Lueftung, Minuten seit dem Oeffnen.
+type kurvenPunkt struct {
+	M  float64 `json:"m"`
+	T  float64 `json:"t"`
+	RH float64 `json:"rh"`
+	TP float64 `json:"tp"`
+}
+
+func punktAus(von time.Time, w *messFeuchte) kurvenPunkt {
+	return kurvenPunkt{M: math.Round(w.Zeit.Sub(von).Minutes()*10) / 10, T: w.Temp, RH: w.RH,
+		TP: math.Round(taupunkt(w.Temp, w.RH)*100) / 100}
 }
 
 type lueftStand struct {
@@ -198,10 +248,23 @@ func (l *lueftung) laufzeit() *lueftLauf {
 	return nil
 }
 
+// heute: Lueftungen am Tag, nachts begonnene zaehlen nicht.
 func (l *lueftung) heute(t time.Time) int {
 	n, anf := 0, tagesAnfang(t)
 	for _, x := range l.st.Laeufe {
-		if !x.Von.Before(anf) && x.Probe == (l.cfg.Modus != "scharf") {
+		if !x.Von.Before(anf) && !x.Nacht && x.Probe == (l.cfg.Modus != "scharf") {
+			n++
+		}
+	}
+	return n
+}
+
+// inNacht: Nachtlueftungen in der Nacht, in der t liegt.
+func (l *lueftung) inNacht(t time.Time) int {
+	von, bis := l.cfg.nacht(t)
+	n := 0
+	for _, x := range l.st.Laeufe {
+		if x.Nacht && !x.Von.Before(von) && x.Von.Before(bis) && x.Probe == (l.cfg.Modus != "scharf") {
 			n++
 		}
 	}
@@ -242,7 +305,8 @@ func luftZu(luft map[int64]luftWert, t time.Time) (luftWert, bool) {
 	return w, ok
 }
 
-// entscheide: "auf", "zu" oder nichts, dazu der Grund. Reine Rechnung.
+// entscheide: "auf", "zu" oder nichts, dazu der Grund. Rechnet nur, setzt
+// aber naechste und macht aus einer Abendlueftung eine Nachtlueftung.
 func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time.Duration) {
 	c, t := l.cfg, e.Jetzt
 	l.naechste = time.Time{}
@@ -253,18 +317,28 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		return "", "Automatik aus", 0
 	}
 	aus, ausDa := luftZu(e.Luft, t)
+	nacht := !c.erlaubt(t)
 
 	if l.st.Phase != "zu" {
 		lz := l.laufzeit()
 		dauer := t.Sub(l.st.Seit)
+		if lz != nil && nacht && !lz.Nacht {
+			if l.inNacht(t) >= c.NachtMaxJe {
+				return "zu", "Nachtruhe", 0
+			}
+			lz.Nacht = true // laeuft als Nachtlueftung weiter
+		}
 		max := c.MaxMin
-		if ausDa && aus.Temp < 10 {
+		switch {
+		case lz != nil && lz.Nacht:
+			max = c.NachtMaxMin
+		case ausDa && aus.Temp < 10:
 			max = c.MaxMinKalt
 		}
 		switch {
 		case l.st.Phase == "schliesst":
 			return "zu", "Schließen wiederholen", 0
-		case !c.erlaubt(t):
+		case nacht && lz == nil:
 			return "zu", "Nachtruhe", 0
 		case dauer >= time.Duration(max*float64(time.Minute)):
 			return "zu", fmt.Sprintf("nach %.0f Minuten", max), 0
@@ -280,19 +354,26 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 			if _, warum := l.eignung(tp, aus, c.SchlussK); warum != "" {
 				return "zu", warum, 0
 			}
-			if lz != nil && dauer >= time.Duration(c.PruefMin*float64(time.Minute)) &&
-				e.Innen.Zeit.After(l.st.Seit.Add(5*time.Minute)) && tp >= lz.TaupunktIn {
+			frisch := e.Innen.Zeit.After(l.st.Seit.Add(3 * time.Minute))
+			if lz != nil && frisch && c.RHAnstieg > 0 && e.Innen.RH >= lz.RHIn+c.RHAnstieg {
+				return "zu", fmt.Sprintf("relative Feuchte steigt (%.0f auf %.0f %%)", lz.RHIn, e.Innen.RH), 2 * time.Hour
+			}
+			if lz != nil && frisch && dauer >= time.Duration(c.PruefMin*float64(time.Minute)) && tp >= lz.TaupunktIn {
 				return "zu", fmt.Sprintf("Taupunkt drinnen nicht gefallen (%.1f °C)", tp), 2 * time.Hour
 			}
 			if e.Innen.RH <= e.ZielRH-2 {
 				return "zu", fmt.Sprintf("Raumluft trocken genug (%.0f %%)", e.Innen.RH), 0
 			}
 		}
-		return "", fmt.Sprintf("lüftet seit %.0f Minuten", dauer.Minutes()), 0
+		art := "lüftet"
+		if lz != nil && lz.Nacht {
+			art = "Nachtlüftung"
+		}
+		return "", fmt.Sprintf("%s seit %.0f Minuten", art, dauer.Minutes()), 0
 	}
 
 	// Fenster sind zu, oder sollten es sein.
-	if !c.erlaubt(t) {
+	if nacht && c.NachtMaxJe == 0 {
 		if e.KF == "offen" || e.KF == "fährt auf" || e.KF == "angehalten" {
 			return "zu", "Nachtruhe, Kellerfenster standen offen", 0
 		}
@@ -307,10 +388,12 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		return "", "kein frischer Messwert drinnen", 0
 	case !ausDa:
 		return "", "keine Vorhersage", 0
-	case c.ende(t).Sub(t) < time.Duration(c.MaxMin*float64(time.Minute)):
+	case !nacht && c.NachtMaxJe == 0 && c.ende(t).Sub(t) < time.Duration(c.MaxMin*float64(time.Minute)):
 		return "", "zu spät für heute", 0
-	case l.heute(t) >= c.MaxJeTag:
+	case !nacht && l.heute(t) >= c.MaxJeTag:
 		return "", fmt.Sprintf("heute schon %d-mal gelüftet", c.MaxJeTag), 0
+	case nacht && l.inNacht(t) >= c.NachtMaxJe:
+		return "", "diese Nacht schon gelüftet", 0
 	case e.Innen.RH <= e.ZielRH:
 		return "", fmt.Sprintf("Raumluft trocken genug (%.0f %%)", e.Innen.RH), 0
 	case e.Innen.Temp < c.MinInnen+1:
@@ -322,28 +405,22 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		frei = p
 	}
 
-	// Die besten restlichen Stunden des Tages, so viele, wie Lueftungen uebrig
-	// sind. Die jetzige muss mithalten koennen, sonst wird gewartet. Die
-	// frueheste davon erfaehrt der Entfeuchter, damit er nicht vorher mit
-	// Netzstrom trocknet, was die Lueftung umsonst erledigt.
-	type kand struct {
-		t time.Time
-		p float64
-	}
-	var k []kand
-	letzte := c.ende(t).Add(-time.Duration(c.MaxMin * float64(time.Minute)))
-	for h := t.Truncate(time.Hour).Add(time.Hour); !h.After(letzte); h = h.Add(time.Hour) {
-		if h.Before(frei) {
-			continue
-		}
-		if w, ok := luftZu(e.Luft, h); ok {
-			if p, warum := l.eignung(tp, w, c.AbstandK); warum == "" {
-				k = append(k, kand{h, p})
-			}
-		}
-	}
-	sort.Slice(k, func(i, j int) bool { return k[i].p > k[j].p })
+	// Die besten restlichen Stunden dieses Tages oder dieser Nacht, so viele,
+	// wie Lueftungen uebrig sind. Die jetzige muss mithalten koennen, sonst
+	// wird gewartet. Die frueheste davon erfaehrt der Entfeuchter, damit er
+	// nicht vorher mit Netzstrom trocknet, was die Lueftung umsonst erledigt.
+	var bis time.Time
 	rest := c.MaxJeTag - l.heute(t)
+	if nacht {
+		_, bis = c.nacht(t)
+		rest = c.NachtMaxJe - l.inNacht(t)
+	} else {
+		bis = c.ende(t)
+		if c.NachtMaxJe == 0 {
+			bis = bis.Add(-time.Duration(c.MaxMin * float64(time.Minute)))
+		}
+	}
+	k := l.kandidaten(tp, e.Luft, t.Truncate(time.Hour).Add(time.Hour), bis, frei)
 	jetzt, warum := l.eignung(tp, aus, c.AbstandK)
 	jetztGut := warum == "" && !t.Before(frei) && (len(k) < rest || jetzt >= k[rest-1].p-0.3)
 	if jetztGut {
@@ -367,7 +444,34 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 	case !jetztGut:
 		return "", fmt.Sprintf("um %s besser (%.1f gegen %.1f K)", k[0].t.In(ort).Format("15 Uhr"), k[0].p, jetzt), 0
 	}
-	return "auf", fmt.Sprintf("Taupunkt draußen %.1f °C, drinnen %.1f °C", aus.Taupunkt, tp), 0
+	vor := "Taupunkt"
+	if nacht {
+		vor = "Nachtlüftung, Taupunkt"
+	}
+	return "auf", fmt.Sprintf("%s draußen %.1f °C, drinnen %.1f °C", vor, aus.Taupunkt, tp), 0
+}
+
+type kand struct {
+	t time.Time
+	p float64
+}
+
+// kandidaten: geeignete volle Stunden von ab bis vor bis, nicht vor frei,
+// die besten zuerst.
+func (l *lueftung) kandidaten(tp float64, luft map[int64]luftWert, ab, bis, frei time.Time) []kand {
+	var k []kand
+	for h := ab; h.Before(bis); h = h.Add(time.Hour) {
+		if h.Before(frei) {
+			continue
+		}
+		if w, ok := luftZu(luft, h); ok {
+			if p, warum := l.eignung(tp, w, l.cfg.AbstandK); warum == "" {
+				k = append(k, kand{h, p})
+			}
+		}
+	}
+	sort.SliceStable(k, func(i, j int) bool { return k[i].p > k[j].p })
+	return k
 }
 
 // schritt: einmal entscheiden und handeln.
@@ -391,7 +495,10 @@ func (l *lueftung) schritt() {
 	switch aktion {
 	case "auf":
 		lz := lueftLauf{Von: t, Probe: !scharf, Grund: grund, TempIn: e.Innen.Temp, RHIn: e.Innen.RH,
-			TaupunktIn: taupunkt(e.Innen.Temp, e.Innen.RH)}
+			TaupunktIn: taupunkt(e.Innen.Temp, e.Innen.RH), Nacht: !l.cfg.erlaubt(t)}
+		start := punktAus(t, e.Innen)
+		start.M = 0
+		lz.Kurve = []kurvenPunkt{start}
 		if w, ok := luftZu(e.Luft, t); ok {
 			lz.TaupunktAus, lz.TempAus = w.Taupunkt, w.Temp
 		}
@@ -419,8 +526,8 @@ func (l *lueftung) schritt() {
 		}
 		l.st.Phase, l.st.Seit, l.st.Wiederholt = "offen", t, false
 		l.st.Laeufe = append(l.st.Laeufe, lz)
-		if len(l.st.Laeufe) > 200 {
-			l.st.Laeufe = l.st.Laeufe[len(l.st.Laeufe)-200:]
+		if len(l.st.Laeufe) > 100 {
+			l.st.Laeufe = l.st.Laeufe[len(l.st.Laeufe)-100:]
 		}
 		l.sag("Lüftung: auf%s, %s", map[bool]string{true: "", false: " (Probe)"}[scharf], grund)
 		l.sichern()
@@ -451,6 +558,7 @@ func (l *lueftung) schritt() {
 			if e.Innen != nil {
 				lz.TempEnde, lz.RHEnde = e.Innen.Temp, e.Innen.RH
 				lz.TaupunktEnde = taupunkt(e.Innen.Temp, e.Innen.RH)
+				l.merkePunkt(lz, e.Innen)
 			}
 		}
 		if sperre > 0 {
@@ -461,9 +569,12 @@ func (l *lueftung) schritt() {
 		l.sichern()
 
 	default:
+		lz := l.laufzeit()
+		if lz != nil && e.Innen != nil && l.merkePunkt(lz, e.Innen) {
+			l.sichern()
+		}
 		// Offen: bei kalter Aussenluft am Ventil unter dem Fenster pruefen,
 		// ob es wirklich offen ist, und den Befehl einmal wiederholen.
-		lz := l.laufzeit()
 		if l.st.Phase == "offen" && scharf && lz != nil && !lz.Probe && !lz.Bestaetigt && e.Ventil != nil &&
 			lz.TempAus < l.st.VentilStart-3 && t.Sub(l.st.Seit) >= 10*time.Minute {
 			if e.Ventil.Fenster || e.Ventil.Ist <= l.st.VentilStart-0.5 {
@@ -477,6 +588,19 @@ func (l *lueftung) schritt() {
 			}
 		}
 	}
+}
+
+// merkePunkt haengt einen neuen Messwert an die Kurve, true wenn neu.
+func (l *lueftung) merkePunkt(lz *lueftLauf, w *messFeuchte) bool {
+	if !w.Zeit.After(lz.Von) {
+		return false
+	}
+	p := punktAus(lz.Von, w)
+	if n := len(lz.Kurve); n > 0 && p.M <= lz.Kurve[n-1].M+0.5 {
+		return false
+	}
+	lz.Kurve = append(lz.Kurve, p)
+	return true
 }
 
 // zurueck: Ventil und Entfeuchter wie vor der Lueftung.
@@ -558,8 +682,14 @@ func pruefeLueftCfg(c lueftCfg) string {
 		return "Raum mindestens 5 bis 25 °C"
 	case c.MinAussen < -20 || c.MinAussen > 25:
 		return "Außen mindestens -20 bis 25 °C"
-	case c.MaxMin < 5 || c.MaxMin > 80 || c.MaxMinKalt < 5 || c.MaxMinKalt > c.MaxMin:
-		return "Dauer 5 bis 80 Minuten, bei Kälte nicht länger als sonst"
+	case c.MaxMin < 5 || c.MaxMin > 240 || c.MaxMinKalt < 5 || c.MaxMinKalt > c.MaxMin:
+		return "Dauer 5 bis 240 Minuten, bei Kälte nicht länger als sonst"
+	case c.NachtMaxJe < 0 || c.NachtMaxJe > 3:
+		return "0 bis 3 Lüftungen je Nacht"
+	case c.NachtMaxMin < 15 || c.NachtMaxMin > 720:
+		return "Nachtlüftung 15 bis 720 Minuten"
+	case c.RHAnstieg < 0 || c.RHAnstieg > 30:
+		return "Feuchteanstieg 0 bis 30 Punkte"
 	case c.MaxJeTag < 0 || c.MaxJeTag > 6:
 		return "0 bis 6 Lüftungen am Tag"
 	case c.AbstandStd < 0 || c.AbstandStd > 12:

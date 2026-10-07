@@ -202,14 +202,24 @@ func (b *switchbot) kurve(id string) []messFeuchte {
 	return append([]messFeuchte(nil), b.verlauf[id]...)
 }
 
-// laufe fragt alle 5 Minuten die Sensoren ab, die eingestellt sind.
-func (b *switchbot) laufe(ids func() []string) {
+// laufe fragt alle 5 Minuten ab, waehrend gelueftet wird alle 2 (schnell),
+// damit die Lueftung sieht, wie der Raum reagiert. Ein Sensor kostet so
+// hoechstens 720 der 10.000 erlaubten Abrufe am Tag.
+func (b *switchbot) laufe(ids func() []string, schnell func() bool) {
 	time.Sleep(time.Minute) // erst das Netz und die Uhr nach dem Start
+	var zuletzt time.Time
 	for {
-		for _, id := range ids() {
-			b.lies(id)
+		takt := 5 * time.Minute
+		if schnell != nil && schnell() {
+			takt = 2 * time.Minute
 		}
-		time.Sleep(5 * time.Minute)
+		if time.Since(zuletzt) >= takt-5*time.Second {
+			zuletzt = time.Now()
+			for _, id := range ids() {
+				b.lies(id)
+			}
+		}
+		time.Sleep(time.Minute)
 	}
 }
 

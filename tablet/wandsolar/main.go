@@ -514,7 +514,7 @@ func main() {
 	zu := neuerZugang(dir)
 	z.st.sb = neuerSwitchbot(filepath.Join(dir, "switchbot.json"), sag)
 	z.st.veluxBasis = *vlx
-	go z.st.sb.laufe(z.st.sensorIDs)
+	go z.st.sb.laufe(z.st.sensorIDs, z.st.lueftPause.Load)
 	z.fr = neueFritz(filepath.Join(dir, "fritz.json"), filepath.Join(dir, "heizung-verlauf.json"), sag)
 	go z.fr.laufe()
 	kf := neueKellerfenster(filepath.Join(dir, "kellerfenster.json"), filepath.Join(dir, "kellerfenster-verlauf.json"), sag)

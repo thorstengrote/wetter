@@ -71,6 +71,7 @@ func TestLueftungOeffnetNurMitAbstand(t *testing.T) {
 
 func TestLueftungNachtruheUndSperren(t *testing.T) {
 	l := testLueftung()
+	l.cfg.NachtMaxJe = 0 // strenge Nachtruhe wie bis 07.10.2026
 	luft := luftTag(mittwoch(0, 0), luftWert{Temp: 15, Taupunkt: 2}, nil)
 	for _, f := range []struct {
 		t    time.Time
@@ -79,7 +80,7 @@ func TestLueftungNachtruheUndSperren(t *testing.T) {
 		{mittwoch(8, 59), "Nachtruhe"},
 		{mittwoch(9, 15), "Nachtruhe"}, // werktags erst ab 9:30
 		{mittwoch(22, 31), "Nachtruhe"},
-		{mittwoch(22, 10), "zu spät"},
+		{mittwoch(21, 10), "zu spät"},                            // 90 Minuten passen nicht mehr bis 22:30
 		{time.Date(2026, 10, 10, 10, 0, 0, 0, ort), "Nachtruhe"}, // Samstag vor 10:30
 	} {
 		if a, g, _ := l.entscheide(eingang(f.t, 20, 60, luft)); a != "" || !strings.Contains(g, f.soll) {
@@ -146,7 +147,7 @@ func TestLueftungSchliesst(t *testing.T) {
 	neu := func() *lueftung {
 		l := testLueftung()
 		l.st.Phase, l.st.Seit = "offen", t0
-		l.st.Laeufe = []lueftLauf{{Von: t0, TaupunktIn: taupunkt(20, 60)}}
+		l.st.Laeufe = []lueftLauf{{Von: t0, TaupunktIn: taupunkt(20, 60), RHIn: 60}}
 		return l
 	}
 	for _, f := range []struct {
@@ -157,13 +158,14 @@ func TestLueftungSchliesst(t *testing.T) {
 		soll   string
 		sperre bool
 	}{
-		{31 * time.Minute, 20, 58, nil, "nach 30 Minuten", false},
+		{91 * time.Minute, 20, 58, nil, "nach 90 Minuten", false},
 		{5 * time.Minute, 15.5, 60, nil, "abgekühlt", false},
-		{16 * time.Minute, 20, 61, nil, "nicht gefallen", true},
+		{21 * time.Minute, 20, 61, nil, "nicht gefallen", true},
+		{10 * time.Minute, 18, 66, nil, "Feuchte steigt", true},
 		{5 * time.Minute, 20, 50, nil, "trocken genug", false},
 		{5 * time.Minute, 20, 60, &luftWert{Temp: 15, Taupunkt: 5, Regen: 1}, "Regen", false},
-		{5 * time.Minute, 20, 60, &luftWert{Temp: 8, Taupunkt: 5}, "", false}, // kalt: 15 Minuten
-		{16 * time.Minute, 20, 55, &luftWert{Temp: 8, Taupunkt: 5}, "nach 15 Minuten", false},
+		{30 * time.Minute, 20, 58, &luftWert{Temp: 8, Taupunkt: 5}, "", false}, // kalt: 40 Minuten
+		{41 * time.Minute, 20, 55, &luftWert{Temp: 8, Taupunkt: 5}, "nach 40 Minuten", false},
 	} {
 		l := neu()
 		lf := luft
@@ -181,8 +183,9 @@ func TestLueftungSchliesst(t *testing.T) {
 			t.Errorf("%s: %q %q %v", f.soll, a, g, sp)
 		}
 	}
-	// Nachtruhe schliesst auch Fenster, die jemand von Hand geoeffnet hat
+	// Strenge Nachtruhe schliesst auch Fenster, die jemand von Hand geoeffnet hat
 	l := testLueftung()
+	l.cfg.NachtMaxJe = 0
 	e := eingang(mittwoch(23, 0), 20, 60, luft)
 	e.KF = "offen"
 	if a, _, _ := l.entscheide(e); a != "zu" {
@@ -210,6 +213,11 @@ func TestLueftungSchritt(t *testing.T) {
 	l.schritt()
 	if l.st.Phase != "offen" || soll != 8 || !pause || len(befehle) != 1 || befehle[0] != "auf" {
 		t.Fatalf("Oeffnen: %v soll %v pause %v %v", l.st.Phase, soll, pause, befehle)
+	}
+	jetzt, rh = t0.Add(4*time.Minute), 58
+	l.schritt()
+	if k := l.laufzeit().Kurve; len(k) != 2 || k[1].RH != 58 || k[1].M != 4 {
+		t.Fatalf("Kurve: %+v", k)
 	}
 	jetzt, rh = t0.Add(10*time.Minute), 50
 	l.schritt()
@@ -256,6 +264,7 @@ func TestFeiertageNRW(t *testing.T) {
 
 func TestLueftungFeiertagUndFerien(t *testing.T) {
 	l := testLueftung()
+	l.cfg.NachtMaxJe = 0
 	luftAm := func(t time.Time) map[int64]luftWert { return luftTag(t, luftWert{Temp: 15, Taupunkt: 2}, nil) }
 	weihnacht := time.Date(2026, 12, 25, 10, 0, 0, 0, ort) // Freitag, Feiertag
 	if a, g, _ := l.entscheide(eingang(weihnacht, 20, 60, luftAm(weihnacht))); a != "" || g != "Nachtruhe" {
@@ -314,6 +323,7 @@ func TestLueftungSonneHatVorrangBeiKaelte(t *testing.T) {
 
 func TestLueftungWochenplan(t *testing.T) {
 	l := testLueftung()
+	l.cfg.NachtMaxJe = 0
 	t0 := mittwoch(14, 20)
 	luft := map[int64]luftWert{}
 	for d := 0; d < 7; d++ {
@@ -368,5 +378,65 @@ func TestLueftungWochenplan(t *testing.T) {
 		if float64(z.Hour())+float64(z.Minute())/60 < 10.5 {
 			t.Errorf("Wochenende zu frueh: %v", z)
 		}
+	}
+}
+
+func TestLueftungNachts(t *testing.T) {
+	l := testLueftung()
+	nacht := time.Date(2026, 10, 8, 1, 0, 0, 0, ort) // Donnerstag 1 Uhr
+	luft := luftTag(nacht, luftWert{Temp: 12, Taupunkt: 3}, nil)
+	a, g, _ := l.entscheide(eingang(nacht, 20, 60, luft))
+	if a != "auf" || !strings.Contains(g, "Nachtlüftung") {
+		t.Fatalf("Nachtlueftung: %q %q", a, g)
+	}
+	// Eine pro Nacht: die Nacht begann Mittwoch 22:30
+	l.st.Laeufe = []lueftLauf{{Von: mittwoch(23, 30), Bis: mittwoch(23, 50), Nacht: true}}
+	if a, g, _ := l.entscheide(eingang(nacht.Add(4*time.Hour), 20, 60, luft)); a != "" || !strings.Contains(g, "diese Nacht") {
+		t.Fatalf("zweite in derselben Nacht: %q %q", a, g)
+	}
+	// Die Lueftung vom Abend laeuft als Nachtlueftung weiter
+	l = testLueftung()
+	ab := mittwoch(22, 0)
+	l.st.Phase, l.st.Seit = "offen", ab
+	l.st.Laeufe = []lueftLauf{{Von: ab, TaupunktIn: taupunkt(20, 60), RHIn: 60}}
+	luft = luftTag(ab, luftWert{Temp: 12, Taupunkt: 3}, nil)
+	if a, g, _ := l.entscheide(eingang(mittwoch(22, 40), 20, 59, luft)); a != "" || !strings.Contains(g, "Nachtlüftung") || !l.st.Laeufe[0].Nacht {
+		t.Fatalf("Abend in die Nacht: %q %q", a, g)
+	}
+	if a, _, _ := l.entscheide(eingang(mittwoch(22, 0).Add(241*time.Minute), 20, 59, luftTag(mittwoch(23, 0), luftWert{Temp: 12, Taupunkt: 3}, nil))); a != "zu" {
+		t.Fatal("Nachtlueftung nach 4 Stunden nicht zu")
+	}
+	// Ist das Nachtbudget verbraucht, geht die Abendlueftung vor der Nacht zu
+	l = testLueftung()
+	l.st.Phase, l.st.Seit = "offen", ab
+	l.st.Laeufe = []lueftLauf{{Von: ab, TaupunktIn: taupunkt(20, 60), RHIn: 60}}
+	l.cfg.NachtMaxJe = 0
+	if a, g, _ := l.entscheide(eingang(mittwoch(22, 31), 20, 59, luft)); a != "zu" || g != "Nachtruhe" {
+		t.Fatalf("ohne Nachtbudget: %q %q", a, g)
+	}
+}
+
+func TestLueftungWochenplanNachts(t *testing.T) {
+	l := testLueftung() // eine Nachtlueftung je Nacht
+	t0 := mittwoch(14, 20)
+	luft := map[int64]luftWert{}
+	for h := 0; h < 8*24; h++ {
+		luft[tagesAnfang(t0).Add(time.Duration(h)*time.Hour).Unix()] = luftWert{Temp: 14, Taupunkt: 6}
+	}
+	p := l.planeWoche(eingang(t0, 20, 60, luft))
+	je := map[string]int{}
+	for _, s := range p.Stunden {
+		if s.Geplant && s.Ruhe {
+			von, _ := l.cfg.nacht(s.Zeit)
+			je[von.Format("02.01.")]++
+		}
+	}
+	for n, k := range je {
+		if k != 1 {
+			t.Errorf("Nacht ab %s: %d Lueftungen", n, k)
+		}
+	}
+	if len(je) < 6 {
+		t.Errorf("nur %d Naechte geplant: %v", len(je), je)
 	}
 }
