@@ -445,6 +445,7 @@ function klimaKarte(){
       <span class="chip ${a?"":"rot"}">${a?"CO₂":"keine Werte"}</span></div>
     <div><span class="zahl" style="color:${a?co2Farbe(a.co2):"var(--text)"}">${a?Math.round(a.co2):"–"}</span> <span class="klein">&nbsp;ppm${a?` · ${z(a.t)} °C · ${z(a.rh,0)} %`:""}</span></div>
     <div class="klein">${a?"unter 1.000 ppm gut, ab 1.400 schlecht":esc(KL.fehler||"hapwatch hat vom Sensor noch nichts gehört")}</div>
+    ${KL.standort==="spielekeller"?`<div class="stoerung">Der Sensor liegt im Keller. Die Velux-Automatik im Wohnzimmer sieht jetzt Kellerwerte: in der Velux-App die automatische Lüftung ausschalten und nach der Messwoche wieder einschalten.</div>`:""}
     <div class="feld" style="padding:4px 0 0;border:0"><span class="n">Standort</span><span class="segment">${Object.entries(KL.orte||{}).map(([k,n])=>`<a data-ko="${k}" class="${KL.standort===k?"an":""}">${esc(n)}</a>`).join("")}</span>
       <span class="e">Beim Umstellen auf Spielekeller zählt jeder Wert für den Keller. Danach wieder zurückstellen.</span></div></div>`;
 }
