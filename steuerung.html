@@ -442,17 +442,17 @@ function heizungSicht(){
 function tuyaKarte(){
   if(!TU||!TU.length) return "";
   const roll=TU.filter(g=>g.art==="clkg"),dosen=TU.filter(g=>g.art==="cz");
-  const befehl={open:"auf",stop:"steht",close:"zu"};
+  const befehl={open:"auf",stop:"steht",close:"zu",lueften:"in Lüftungsstellung"};
   const zeile=(n,inhalt,knoepfe)=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0">
     <div><b>${esc(n)}</b> <span class="klein">${inhalt}</span></div><div class="knoepfe" style="margin:0">${knoepfe}</div></div>`;
-  const rk=ids=>`<button data-tu="${ids}|open">▲</button><button data-tu="${ids}|stop">■</button><button data-tu="${ids}|close">▼</button>`;
+  const rk=ids=>`<button data-tu="${ids}|open">▲</button><button data-tu="${ids}|lueften" title="Lüftungsstellung">≡</button><button data-tu="${ids}|stop">■</button><button data-tu="${ids}|close">▼</button>`;
   return `<div class="karte geraet"><div class="kopf"><div><div class="name">Büro & Garten</div><div class="klein">Smart Life · direkt im Heimnetz</div></div>
       <span class="chip ${TU.every(g=>g.online||g.art==="cz")?"blau":""}">${TU.filter(g=>g.online).length} von ${TU.length} erreichbar</span></div>
     ${roll.length>1?zeile("Rollläden Büro","beide",rk(roll.map(g=>g.id).join(","))):""}
     ${roll.map(g=>zeile(g.name.replace("Rollladen ",""),g.online?(g.stand.befehl?`zuletzt ${befehl[g.stand.befehl]||g.stand.befehl} ${uhr(g.stand.befehl_zeit)}`:""):"nicht erreichbar",g.online?rk(g.id):"")).join("")}
     ${dosen.map(g=>{const an=g.stand.dps?.["1"];return zeile(g.name,!g.online?"offline":an===true?"an":an===false?"aus":"?",
       g.online?`<button class="${an?"haupt":""}" data-tu="${g.id}|${an?"aus":"an"}">${an?"Aus":"An"}</button>`:"");}).join("")}
-    <div class="klein">Die Rollläden melden keine Stellung, nur den letzten Befehl.</div></div>`;
+    <div class="klein">≡ fährt die Lüftungsstellung an: von oben 24 s runter, von unten 6 s hoch, sonst erst ganz zu. Die Rollläden melden keine Stellung, nur den letzten Befehl.</div></div>`;
 }
 
 /* Raumklima vom Velux-Sensor. Er gehoert ins Wohnzimmer und steuert dort die

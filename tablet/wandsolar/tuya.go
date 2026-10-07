@@ -39,6 +39,21 @@ type tuyaGeraet struct {
 	ID   string `json:"id"`
 	Key  string `json:"key"`
 	Art  string `json:"art"` // clkg Rollladen, cz Steckdose
+	// Lueftungsstellung (gestoppt am 07.10.2026 am rechten Rollladen):
+	// von ganz offen 24 s runter, von ganz zu 6 s hoch.
+	VonOben  float64 `json:"lueftung_von_oben,omitempty"`
+	VonUnten float64 `json:"lueftung_von_unten,omitempty"`
+}
+
+func (g tuyaGeraet) lueftungsZeiten() (oben, unten time.Duration) {
+	o, u := g.VonOben, g.VonUnten
+	if o <= 0 {
+		o = 24
+	}
+	if u <= 0 {
+		u = 6
+	}
+	return time.Duration(o * float64(time.Second)), time.Duration(u * float64(time.Second))
 }
 
 type tuyaStand struct {
@@ -47,8 +62,9 @@ type tuyaStand struct {
 	DPS        map[string]any `json:"dps,omitempty"`
 	Abgefragt  time.Time      `json:"abgefragt,omitempty"`
 	Fehler     string         `json:"fehler,omitempty"`
-	Befehl     string         `json:"befehl,omitempty"` // Rollladen: letzter Befehl
+	Befehl     string         `json:"befehl,omitempty"` // Rollladen: letzter Befehl, auch "lueften"
 	BefehlZeit time.Time      `json:"befehl_zeit,omitempty"`
+	Folge      int            `json:"-"` // jeder Befehl von aussen bricht eine laufende Lueftungsfahrt ab
 }
 
 type tuya struct {
@@ -306,8 +322,75 @@ func (t *tuya) frage(id string) {
 	}
 }
 
-// schalte: Rollladen "open", "stop", "close"; Steckdose "an", "aus".
+// schalte: Rollladen "open", "stop", "close", "lueften"; Steckdose "an",
+// "aus". Ein Befehl von aussen bricht eine laufende Lueftungsfahrt ab.
 func (t *tuya) schalte(id, was string) error {
+	g, _, ok := t.geraet(id)
+	if !ok {
+		return errors.New("unbekanntes Geraet")
+	}
+	if g.Art == "clkg" {
+		t.Lock()
+		t.stand[id].Folge++
+		folge := t.stand[id].Folge
+		t.Unlock()
+		if was == "lueften" {
+			go t.lueftungsfahrt(g, folge)
+			return nil
+		}
+	}
+	return t.befehl(id, was)
+}
+
+// lueftungsfahrt: Lueftungsstellung anfahren. Ist der Rollladen sicher oben
+// oder unten (letzter Befehl ganz durchgelaufen), reicht eine kurze Fahrt.
+// Sonst erst ganz zu und dann hoch.
+func (t *tuya) lueftungsfahrt(g tuyaGeraet, folge int) {
+	oben, unten := g.lueftungsZeiten()
+	t.Lock()
+	st := t.stand[g.ID]
+	durch := time.Since(st.BefehlZeit) >= 40*time.Second
+	stand := st.Befehl
+	t.Unlock()
+	noch := func() bool {
+		t.Lock()
+		defer t.Unlock()
+		return t.stand[g.ID].Folge == folge
+	}
+	schritt := func(was string, warte time.Duration) bool {
+		if !noch() {
+			return false
+		}
+		if err := t.befehl(g.ID, was); err != nil {
+			t.sag("Tuya: %s Lueftungsfahrt abgebrochen: %v", g.Name, err)
+			return false
+		}
+		time.Sleep(warte)
+		return true
+	}
+	switch {
+	case stand == "open" && durch:
+		if !schritt("close", oben) {
+			return
+		}
+	case stand == "close" && durch:
+		if !schritt("open", unten) {
+			return
+		}
+	default:
+		if !schritt("close", 42*time.Second) || !schritt("open", unten) {
+			return
+		}
+	}
+	if noch() && t.befehl(g.ID, "stop") == nil {
+		t.Lock()
+		t.stand[g.ID].Befehl = "lueften"
+		t.Unlock()
+	}
+}
+
+// befehl schickt einen einzelnen Befehl ans Geraet.
+func (t *tuya) befehl(id, was string) error {
 	g, ip, ok := t.geraet(id)
 	if !ok {
 		return errors.New("unbekanntes Geraet")
