@@ -36,7 +36,8 @@ type raumklima struct {
 	basis, cfgPfad, verlaufPfad string
 	sag                         func(string, ...any)
 	web                         *http.Client
-	Standort                    string `json:"standort"` // wohnzimmer, spielekeller
+	Standort                    string    `json:"standort"` // wohnzimmer, spielekeller
+	Seit                        time.Time `json:"seit"`     // seit wann dort
 	verlauf                     []klimaPunkt
 	letzter                     *klimaPunkt
 	gesichert                   time.Time
@@ -112,6 +113,31 @@ func (k *raumklima) lies() {
 	}
 }
 
+// hinweise fuer die Wand: Messwoche im Keller vorbei, oder der Sensor ist
+// dort ausser Funkreichweite.
+func (k *raumklima) hinweise() []string {
+	k.Lock()
+	defer k.Unlock()
+	if k.Standort != "spielekeller" {
+		return nil
+	}
+	var h []string
+	if !k.Seit.IsZero() && time.Since(k.Seit) >= 7*24*time.Hour {
+		h = append(h, "Messwoche vorbei: Velux-Sensor zurück ins Wohnzimmer, Velux-Automatik wieder einschalten")
+	}
+	letzte := k.Seit
+	for i := len(k.verlauf) - 1; i >= 0; i-- {
+		if k.verlauf[i].Ort == "spielekeller" {
+			letzte = k.verlauf[i].Zeit
+			break
+		}
+	}
+	if !letzte.IsZero() && time.Since(letzte) >= time.Hour {
+		h = append(h, "Velux-Sensor im Keller sendet nicht, seit "+letzte.In(ort).Format("15:04"))
+	}
+	return h
+}
+
 func (k *raumklima) laufe() {
 	time.Sleep(90 * time.Second) // hapwatch braucht nach dem Start seine Sitzung
 	for {
@@ -131,8 +157,11 @@ func (k *raumklima) bediene(mux *http.ServeMux) {
 				return
 			}
 			k.Lock()
+			if k.Standort != a.Standort {
+				k.Seit = time.Now().In(ort)
+			}
 			k.Standort = a.Standort
-			schreibeJSON(k.cfgPfad, map[string]string{"standort": a.Standort})
+			schreibeJSON(k.cfgPfad, map[string]any{"standort": k.Standort, "seit": k.Seit})
 			schreibeJSON(k.verlaufPfad, k.verlauf)
 			k.Unlock()
 			k.sag("Raumklima: Velux-Sensor steht jetzt im %s", klimaOrte[a.Standort])
@@ -141,7 +170,7 @@ func (k *raumklima) bediene(mux *http.ServeMux) {
 		}
 		k.Lock()
 		defer k.Unlock()
-		a := map[string]any{"standort": k.Standort, "orte": klimaOrte}
+		a := map[string]any{"standort": k.Standort, "orte": klimaOrte, "seit": k.Seit}
 		if k.letzter != nil {
 			a["aktuell"] = k.letzter
 		}

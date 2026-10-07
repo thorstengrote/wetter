@@ -236,6 +236,7 @@ type zustand struct {
 	velux   *url.URL // Steuerdienst in hapwatch, nil heisst abgeschaltet
 	st      *steuerung
 	fr      *fritz
+	kl      *raumklima
 }
 
 // laden holt den gespeicherten Tag zurueck, und zwar ohne Blick auf die Uhr.
@@ -393,6 +394,9 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 		if z.fr != nil {
 			h = append(h, z.fr.hinweise()...)
 		}
+		if z.kl != nil {
+			h = append(h, z.kl.hinweise()...)
+		}
 		w.Write(z.json(h))
 	})
 	// Die Velux-Steuerung laeuft als eigener Dienst in hapwatch auf 8098.
@@ -520,6 +524,7 @@ func main() {
 	kf := neueKellerfenster(filepath.Join(dir, "kellerfenster.json"), filepath.Join(dir, "kellerfenster-verlauf.json"), sag)
 	go kf.laufe()
 	kl := neuesKlima(*vlx, filepath.Join(dir, "klima.json"), filepath.Join(dir, "klima-verlauf.json"), sag)
+	z.kl = kl
 	go kl.laufe()
 	lf := neueLueftung(filepath.Join(dir, "lueftung.json"), filepath.Join(dir, "lueftung-stand.json"), sag)
 	lf.eingang = func() lueftEingang {
