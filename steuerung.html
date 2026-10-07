@@ -110,7 +110,7 @@ const dauerText=m=>m<60?`${Math.round(m)} min`:`${z(m/60)} h`;
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 const FENSTER={"3":"Ben","5":"Wohnzimmer unten","15":"Wohnzimmer oben"};
-let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null, LF=null, LP=null, RAUM=null, RAUMZEIT=0;
+let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null, LF=null, LP=null, RAUM=null, RAUMZEIT=0, KL=null;
 let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null;
 
 function meldung(t){const m=document.getElementById("meldung");m.textContent=t;m.style.display="block";
@@ -161,6 +161,7 @@ async function lade(){
     KF=await api("api/kellerfenster");
     LF=await api("api/lueftung");
     LP=await api("api/lueftung/plan");
+    KL=await api("api/klima");
     if(ansicht==="heizung"&&Date.now()-HZZEIT>5*60e3){
       HZZEIT=Date.now();
       for(const r of HZ.raeume||[]) HZK[r.ventil.ain]=await api("api/heizung/verlauf?h=48&ain="+r.ventil.ain);
@@ -202,7 +203,8 @@ function planSvg(plan,kompakt){
     s=`<path d="${d}" fill="#ffd166" opacity=".16"/>`+s+`<path d="${soc}" fill="none" stroke="#ffd166" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>`;
     for(const st of lueftGeplant()) if(new Date(st.zeit).toDateString()===T.d.toDateString()){
       const d=new Date(st.zeit),t0=d.getHours()+d.getMinutes()/60;
-      s+=`<rect x="${x(t0)}" y="${y-3}" width="${Math.max(3,x(t0+LP.dauer_min/60)-x(t0))}" height="4" rx="1" fill="var(--luft)"><title>Lüftung geplant ${uhr(d)}</title></rect>`;}
+      const dm=st.ruhe?LP.dauer_nacht_min:st.temp<10?LP.dauer_kalt_min:LP.dauer_min;
+      s+=`<rect x="${x(t0)}" y="${y+hh-4}" width="${Math.max(3,x(t0+dm/60)-x(t0))}" height="4" rx="1" fill="var(--luft)"><title>Lüftung geplant ${uhr(d)}</title></rect>`;}
     if(i===0){const t=jetzt.getHours()+jetzt.getMinutes()/60;s+=`<line x1="${x(t)}" y1="${y-2}" x2="${x(t)}" y2="${y+hh+2}" stroke="#e8eef5" stroke-opacity=".6"/>`;}
     s+=`<text x="${links-12}" y="${y+hh/2+4}" fill="${i===0?"#e8eef5":"#8b97a6"}" font-size="12" text-anchor="end">${tag(T.d)}</text>
         <text x="${b-rechts+12}" y="${y+hh/2+4}" fill="#c9d2dc" font-size="12">${lauf?dauerText(lauf):"–"}</text>
@@ -312,12 +314,13 @@ function uebersicht(){
         <div><span class="zahl">${t.akku??"–"} %</span> <span class="klein">&nbsp;${t.strom_ma>0?"lädt":"entlädt"} ${Math.abs(t.strom_ma||0)} mA</span></div>
         <div class="klein">Helligkeit tags ${t.hell_tag}, nachts 51 · Sparstufe ab 20 %</div>
         <div class="knoepfe"><button data-v="tablet">Einstellen</button></div></div>
-      ${HZ&&HZ.raeume?.length?`<div class="karte geraet"><div class="kopf"><div><div class="name">Heizung</div><div class="klein">${HZ.raeume.length} Ventile · nur lesend</div></div>
+      ${HZ&&HZ.raeume?.length?`<div class="karte geraet"><div class="kopf"><div><div class="name">Heizung</div><div class="klein">${HZ.raeume.length} Ventile · Spielkeller beim Lüften verstellt</div></div>
         <span class="chip">${HZ.aussen!=null?"außen "+z(HZ.aussen)+" °C":"FRITZ!Box"}</span></div>
         <div><span class="zahl">${HZ.raeume.filter(x=>x.ventil.fordert).length}</span> <span class="klein">&nbsp;Räume fordern Wärme</span></div>
         <div class="klein">${HZ.raeume.filter(x=>x.ventil.fordert).map(x=>esc(x.ventil.name)).join(", ")||"alle zufrieden"}${HZ.raeume.some(x=>x.ventil.warm_ohne_heizung)?" · warm ohne Heizung: "+HZ.raeume.filter(x=>x.ventil.warm_ohne_heizung).map(x=>esc(x.ventil.name)).join(", "):""}</div>
         <div class="knoepfe"><button data-v="heizung">Ansehen</button></div></div>`:""}
       ${kellerKarte()}
+      ${klimaKarte()}
     </div>
     ${g.map(x=>`<div class="karte plan" style="margin-top:14px"><h2>${esc(x.cfg.name)} · die nächsten 7 Tage</h2>${planSvg(PLAN[x.cfg.id]?.plan||{},true)}${legende}</div>`).join("")}`;
 }
@@ -413,7 +416,7 @@ function heizungSicht(){
   if(!HZ) return "<h1>Heizung</h1><div class='unter'>lade…</div>";
   const r=HZ.raeume||[],ford=r.filter(x=>x.ventil.fordert),fremd=r.filter(x=>x.ventil.warm_ohne_heizung),schwach=r.filter(x=>x.ventil.batterie_schwach);
   const sum24=r.reduce((a,x)=>a+x.bedarf_24h,0),sum7=r.reduce((a,x)=>a+x.bedarf_7t,0);
-  return `<h1>Heizung</h1><div class="unter">FRITZ!DECT-Ventile, nur lesend · Stand ${HZ.zeit&&!HZ.zeit.startsWith("0001")?uhr(HZ.zeit):"–"}${HZ.fehler?` · <span style="color:var(--netz)">${esc(HZ.fehler)}</span>`:""}</div>
+  return `<h1>Heizung</h1><div class="unter">FRITZ!DECT-Ventile, gelesen; nur das Ventil im Spielkeller wird beim Lüften verstellt · Stand ${HZ.zeit&&!HZ.zeit.startsWith("0001")?uhr(HZ.zeit):"–"}${HZ.fehler?` · <span style="color:var(--netz)">${esc(HZ.fehler)}</span>`:""}</div>
     <div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
       <div class="karte"><h2>Fordern Wärme</h2><div class="zahl">${ford.length} <small>von ${r.length}</small></div><div class="klein">${ford.map(x=>esc(x.ventil.name)).join(", ")||"kein Raum"}</div></div>
       <div class="karte"><h2>Außen</h2><div class="zahl">${HZ.aussen!=null?z(HZ.aussen)+" <small>°C</small>":"–"}</div><div class="klein">laut Prognose, laufende Stunde</div></div>
@@ -432,6 +435,20 @@ function heizungSicht(){
     <div class="klein" style="margin-top:10px">"Fordert Wärme" heißt: Ist mehr als 0,3 Grad unter Soll. Die Ventilöffnung selbst gibt die FRITZ!Box nicht heraus.
       "Warm ohne Heizung": in zwei Stunden mehr als ein Grad wärmer, ohne dass das Ventil gefordert hat, etwa durch den Kamin oder Sonne.</div>`;
 }
+/* Raumklima vom Velux-Sensor. Er gehoert ins Wohnzimmer und steuert dort die
+   Velux-Lueftung, laesst sich aber zum Messen in den Keller ausleihen. */
+const co2Farbe=v=>v<1000?"var(--ein)":v<1400?"var(--pv)":"var(--netz)";
+function klimaKarte(){
+  if(!KL) return "";
+  const a=KL.aktuell,alt=a?(Date.now()-new Date(a.zeit))/60000:null;
+  return `<div class="karte geraet"><div class="kopf"><div><div class="name">Raumklima</div><div class="klein">Velux-Sensor · steht im ${esc(KL.orte?.[KL.standort]||KL.standort)}</div></div>
+      <span class="chip ${a?"":"rot"}">${a?"CO₂":"keine Werte"}</span></div>
+    <div><span class="zahl" style="color:${a?co2Farbe(a.co2):"var(--text)"}">${a?Math.round(a.co2):"–"}</span> <span class="klein">&nbsp;ppm${a?` · ${z(a.t)} °C · ${z(a.rh,0)} %`:""}</span></div>
+    <div class="klein">${a?"unter 1.000 ppm gut, ab 1.400 schlecht":esc(KL.fehler||"hapwatch hat vom Sensor noch nichts gehört")}</div>
+    <div class="feld" style="padding:4px 0 0;border:0"><span class="n">Standort</span><span class="segment">${Object.entries(KL.orte||{}).map(([k,n])=>`<a data-ko="${k}" class="${KL.standort===k?"an":""}">${esc(n)}</a>`).join("")}</span>
+      <span class="e">Beim Umstellen auf Spielekeller zählt jeder Wert für den Keller. Danach wieder zurückstellen.</span></div></div>`;
+}
+
 /* ---------- Spielekeller: Wochenvorschau ----------
    Eine Zeitleiste von heute 0 Uhr ueber 7 Tage. Bis jetzt Messwerte, danach
    das Voraussichtliche: Wetter aus der Vorhersage, Entfeuchter und Lueftung
@@ -443,7 +460,8 @@ const raumVentil=()=>(HZ?.raeume||[]).map(r=>r.ventil).find(v=>LF&&v.name.toLowe
 async function ladeRaum(){
   RAUMZEIT=Date.now();
   const g=raumGeraet(),v=raumVentil();
-  RAUM={hk:v?await api("api/heizung/verlauf?h=168&ain="+v.ain):[],ev:g?(await api("api/verlauf?id="+g.cfg.id)).laeufe||[]:[]};
+  RAUM={hk:v?await api("api/heizung/verlauf?h=168&ain="+v.ain):[],ev:g?(await api("api/verlauf?id="+g.cfg.id)).laeufe||[]:[],
+    kl:(await api("api/klima?tage=7&ort=spielekeller")).verlauf||[]};
 }
 function raumSicht(){
   const g=raumGeraet(),v=raumVentil();
@@ -472,7 +490,8 @@ function raumSicht(){
   const evVergangen=(RAUM.ev||[]).filter(l=>!l.probe&&(gueltig(l.bis)?ms(l.bis):jetzt)>t0).map(l=>{const m=l.min||{};const q=["netz","akku","sonne"].find(k=>(m[k]||0)>0.5)||"sonne";return [ms(l.von),gueltig(l.bis)?ms(l.bis):jetzt,q];});
 
   // Spuren
-  const spur=[["Temperatur",96],["Taupunkt",96],["Lüftung",22],["Entfeuchter",22],["Heizung",22],["Sonne",36]];
+  const kl=(RAUM.kl||[]).map(p=>({t:ms(p.zeit),co2:p.co2})).filter(p=>p.t>=t0);
+  const spur=[["Temperatur",96],["Taupunkt",96],...(kl.length?[["CO₂",60]]:[]),["Lüftung",22],["Entfeuchter",22],["Heizung",22],["Sonne",36]];
   let y=30,Y={};for(const [n,h] of spur){Y[n]=[y,h];y+=h+12;}const H=y+4;
   let s="";
   // Ruhezeiten als Hintergrund
@@ -499,6 +518,11 @@ function raumSicht(){
    s+=linie([[Math.max(jetzt,t0),tpIn],[t1,tpIn]],yf,"#e8eef5","2 4");
    s+=linie(innenT.map(p=>[p.t,p.tp]),yf,"#e8eef5");
    for(const p of aussen) if(p.regen>=0.2) s+=`<rect x="${x(p.t)}" y="${Y.Taupunkt[0]+Y.Taupunkt[1]-3}" width="${x(p.t+36e5)-x(p.t)}" height="3" fill="var(--haus)"/>`;}
+  // CO2, nur solange der Velux-Sensor im Keller lag
+  if(kl.length){const [yy,h]=Y["CO₂"],hi=Math.max(1600,...kl.map(p=>p.co2)),lo=400,yf=v=>yy+(1-(v-lo)/(hi-lo))*h;
+    for(const g of [1000,1400]) s+=`<line x1="${links}" x2="${b-rechts}" y1="${yf(g)}" y2="${yf(g)}" stroke="${co2Farbe(g)}" stroke-dasharray="3 4" opacity=".5"/>`;
+    let d="",vor=null;for(const p of kl){d+=(vor===null||p.t-vor>20*60e3?"M":"L")+x(p.t).toFixed(1)+" "+yf(p.co2).toFixed(1);vor=p.t;}
+    s+=`<path d="${d}" fill="none" stroke="#e8eef5" stroke-width="1.6"/><text x="${links+4}" y="${yy+10}" fill="#5b6b7d" font-size="10">${Math.round(hi)} ppm</text>`;}
   // Balkenspuren
   const balken=(n,a,e,farbe,op=1,titel="")=>{const [yy,h]=Y[n];return `<rect x="${x(Math.max(a,t0))}" y="${yy+3}" width="${Math.max(2,x(Math.min(e,t1))-x(Math.max(a,t0)))}" height="${h-6}" rx="2" fill="${farbe}" opacity="${op}"><title>${titel}</title></rect>`;};
   for(const [a,e] of vergangen) s+=balken("Lüftung",a,e,"var(--luft)",1,"gelüftet "+uhr(a)+" bis "+uhr(e));
@@ -523,7 +547,8 @@ function raumSicht(){
       <div class="legende"><span><i style="background:#e8eef5"></i>drinnen, gemessen; gestrichelt angenommen</span><span><i style="background:#8b97a6"></i>draußen, Vorhersage</span>
         <span><i style="background:#ffb38a"></i>Heiz-Soll</span><span><i style="background:var(--haus)"></i>Taupunkt draußen, Regen</span><span><i style="background:var(--ein);opacity:.4"></i>gut zum Lüften</span>
         <span><i style="background:var(--luft)"></i>Lüftung</span><span><i style="background:var(--ein)"></i>Entfeuchter mit Sonne</span><span><i style="background:var(--akku)"></i>aus dem Akku</span><span><i style="background:var(--netz)"></i>vom Netz</span>
-        <span><i style="background:#ff7b6b"></i>Ventil fordert Wärme</span><span><i style="background:#0a1018;border:1px solid #253244"></i>Ruhezeit</span></div>
+        <span><i style="background:#ff7b6b"></i>Ventil fordert Wärme</span><span><i style="background:#0a1018;border:1px solid #253244"></i>Ruhezeit</span>
+        ${RAUM.kl?.length?`<span><i style="background:var(--ein)"></i>CO₂ 1.000 ppm</span><span><i style="background:var(--netz)"></i>1.400 ppm</span>`:""}</div>
       <div class="klein" style="margin-top:10px">Kräftige Farben sind Gemessenes, blasse sind voraussichtlich. Die Vorschau ist eine Rechnung, keine Zusage:
         Wetter aus der Vorhersage, Entfeuchter und Lüftung aus ihren Plänen, die jede Viertelstunde neu entstehen.
         Die Heizung ist geschätzt wie in der Vorwoche, weil die FRITZ!Box ihren Wochenplan nicht herausgibt, und steht während geplanter Lüftungen auf ${z(LF.cfg.ventil_soll,0)} °C.
@@ -685,6 +710,7 @@ function zeichne(){
   w.querySelectorAll("[data-r]").forEach(a=>a.onclick=()=>{reiter=a.dataset.r;entwurf=null;zeichne();});
   w.querySelectorAll("[data-h]").forEach(b=>b.onclick=async()=>{b.disabled=true;
     try{await api("api/hand",{id:b.dataset.id,aktion:b.dataset.h});meldung("Erledigt");await lade();}catch(e){meldung(e.message);}});
+  w.querySelectorAll("[data-ko]").forEach(a=>a.onclick=async()=>{try{await api("api/klima",{standort:a.dataset.ko});meldung("Standort gespeichert");await lade();}catch(e){meldung(e.message);}});
   w.querySelectorAll("[data-kf]").forEach(b=>b.onclick=async()=>{w.querySelectorAll("[data-kf]").forEach(x=>x.disabled=true);
     try{await api("api/kellerfenster",{richtung:b.dataset.kf});meldung("Gesendet");await lade();}catch(e){meldung(e.message);zeichne();}});
   w.querySelectorAll("[data-m]").forEach(a=>a.onclick=()=>{entwurf.modus=a.dataset.m;zeichne();});

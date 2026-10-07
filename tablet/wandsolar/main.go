@@ -519,6 +519,8 @@ func main() {
 	go z.fr.laufe()
 	kf := neueKellerfenster(filepath.Join(dir, "kellerfenster.json"), filepath.Join(dir, "kellerfenster-verlauf.json"), sag)
 	go kf.laufe()
+	kl := neuesKlima(*vlx, filepath.Join(dir, "klima.json"), filepath.Join(dir, "klima-verlauf.json"), sag)
+	go kl.laufe()
 	lf := neueLueftung(filepath.Join(dir, "lueftung.json"), filepath.Join(dir, "lueftung-stand.json"), sag)
 	lf.eingang = func() lueftEingang {
 		e := lueftEingang{Jetzt: time.Now().In(ort)}
@@ -575,6 +577,7 @@ func main() {
 	}
 	kf.bediene(mux)
 	lf.bediene(mux)
+	kl.bediene(mux)
 	mux.HandleFunc("/api/heizung", func(w http.ResponseWriter, r *http.Request) {
 		a := z.fr.stand()
 		a["aussen"] = z.st.aussenJetzt()
