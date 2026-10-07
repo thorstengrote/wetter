@@ -110,7 +110,7 @@ const dauerText=m=>m<60?`${Math.round(m)} min`:`${z(m/60)} h`;
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 const FENSTER={"3":"Ben","5":"Wohnzimmer unten","15":"Wohnzimmer oben"};
-let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null, LF=null, LP=null, RAUM=null, RAUMZEIT=0, KL=null, HR=null;
+let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null, LF=null, LP=null, RAUM=null, RAUMZEIT=0, KL=null, HR=null, TU=null;
 let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null;
 
 function meldung(t){const m=document.getElementById("meldung");m.textContent=t;m.style.display="block";
@@ -163,6 +163,7 @@ async function lade(){
     LP=await api("api/lueftung/plan");
     KL=await api("api/klima");
     HR=await api("api/heizregel");
+    TU=await api("api/tuya");
     if(ansicht==="heizung"&&Date.now()-HZZEIT>5*60e3){
       HZZEIT=Date.now();
       for(const r of HZ.raeume||[]) HZK[r.ventil.ain]=await api("api/heizung/verlauf?h=48&ain="+r.ventil.ain);
@@ -322,6 +323,7 @@ function uebersicht(){
         <div class="knoepfe"><button data-v="heizung">Ansehen</button></div></div>`:""}
       ${kellerKarte()}
       ${klimaKarte()}
+      ${tuyaKarte()}
     </div>
     ${g.map(x=>`<div class="karte plan" style="margin-top:14px"><h2>${esc(x.cfg.name)} · die nächsten 7 Tage</h2>${planSvg(PLAN[x.cfg.id]?.plan||{},true)}${legende}</div>`).join("")}`;
 }
@@ -436,6 +438,23 @@ function heizungSicht(){
     <div class="klein" style="margin-top:10px">"Fordert Wärme" heißt: Ist mehr als 0,3 Grad unter Soll. Die Ventilöffnung selbst gibt die FRITZ!Box nicht heraus.
       "Warm ohne Heizung": in zwei Stunden mehr als ein Grad wärmer, ohne dass das Ventil gefordert hat, etwa durch den Kamin oder Sonne.</div>`;
 }
+/* Tuya-Geraete aus der Smart-Life-App, direkt im Heimnetz gesteuert. */
+function tuyaKarte(){
+  if(!TU||!TU.length) return "";
+  const roll=TU.filter(g=>g.art==="clkg"),dosen=TU.filter(g=>g.art==="cz");
+  const befehl={open:"auf",stop:"steht",close:"zu"};
+  const zeile=(n,inhalt,knoepfe)=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0">
+    <div><b>${esc(n)}</b> <span class="klein">${inhalt}</span></div><div class="knoepfe" style="margin:0">${knoepfe}</div></div>`;
+  const rk=ids=>`<button data-tu="${ids}|open">▲</button><button data-tu="${ids}|stop">■</button><button data-tu="${ids}|close">▼</button>`;
+  return `<div class="karte geraet"><div class="kopf"><div><div class="name">Büro & Garten</div><div class="klein">Smart Life · direkt im Heimnetz</div></div>
+      <span class="chip ${TU.every(g=>g.online||g.art==="cz")?"blau":""}">${TU.filter(g=>g.online).length} von ${TU.length} erreichbar</span></div>
+    ${roll.length>1?zeile("Rollläden Büro","beide",rk(roll.map(g=>g.id).join(","))):""}
+    ${roll.map(g=>zeile(g.name.replace("Rollladen ",""),g.online?(g.stand.befehl?`zuletzt ${befehl[g.stand.befehl]||g.stand.befehl} ${uhr(g.stand.befehl_zeit)}`:""):"nicht erreichbar",g.online?rk(g.id):"")).join("")}
+    ${dosen.map(g=>{const an=g.stand.dps?.["1"];return zeile(g.name,!g.online?"offline":an===true?"an":an===false?"aus":"?",
+      g.online?`<button class="${an?"haupt":""}" data-tu="${g.id}|${an?"aus":"an"}">${an?"Aus":"An"}</button>`:"");}).join("")}
+    <div class="klein">Die Rollläden melden keine Stellung, nur den letzten Befehl.</div></div>`;
+}
+
 /* Raumklima vom Velux-Sensor. Er gehoert ins Wohnzimmer und steuert dort die
    Velux-Lueftung, laesst sich aber zum Messen in den Keller ausleihen. */
 const co2Farbe=v=>v<1000?"var(--ein)":v<1400?"var(--pv)":"var(--netz)";
@@ -743,6 +762,8 @@ function zeichne(){
   w.querySelectorAll("[data-r]").forEach(a=>a.onclick=()=>{reiter=a.dataset.r;entwurf=null;zeichne();});
   w.querySelectorAll("[data-h]").forEach(b=>b.onclick=async()=>{b.disabled=true;
     try{await api("api/hand",{id:b.dataset.id,aktion:b.dataset.h});meldung("Erledigt");await lade();}catch(e){meldung(e.message);}});
+  w.querySelectorAll("[data-tu]").forEach(b=>b.onclick=async()=>{const [ids,was]=b.dataset.tu.split("|");b.disabled=true;
+    try{for(const id of ids.split(",")) await api("api/tuya",{id,was});meldung("Gesendet");await lade();}catch(e){meldung(e.message);zeichne();}});
   w.querySelectorAll("[data-ko]").forEach(a=>a.onclick=async()=>{try{await api("api/klima",{standort:a.dataset.ko});meldung("Standort gespeichert");await lade();}catch(e){meldung(e.message);}});
   w.querySelectorAll("[data-kf]").forEach(b=>b.onclick=async()=>{w.querySelectorAll("[data-kf]").forEach(x=>x.disabled=true);
     try{await api("api/kellerfenster",{richtung:b.dataset.kf});meldung("Gesendet");await lade();}catch(e){meldung(e.message);zeichne();}});

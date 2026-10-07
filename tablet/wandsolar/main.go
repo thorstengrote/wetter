@@ -578,6 +578,8 @@ func main() {
 	lf.wach = hr.wach
 	go lf.laufe()
 	go hr.laufe()
+	tu := neuesTuya(filepath.Join(dir, "tuya.json"), sag)
+	go tu.laufe()
 	if *vlx != "" {
 		na := neueNacht(filepath.Join(dir, "nacht.json"), *vlx, sag)
 		go na.laufe()
@@ -593,6 +595,7 @@ func main() {
 	kf.bediene(mux)
 	lf.bediene(mux)
 	hr.bediene(mux)
+	tu.bediene(mux)
 	kl.bediene(mux)
 	mux.HandleFunc("/api/heizung", func(w http.ResponseWriter, r *http.Request) {
 		a := z.fr.stand()
