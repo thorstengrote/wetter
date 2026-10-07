@@ -2092,7 +2092,7 @@ const VELUX=(()=>{
   const SONNE=`<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.6" fill="currentColor"/><g stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
     <path d="M10 1.8v2.3M10 15.9v2.3M1.8 10h2.3M15.9 10h2.3M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></g></svg>`;
   /* Welche Zeilen Mond und Sonne bekommen: jeder einzelne Raum und Ben. */
-  const EINMAL=new Set(["ben","levi","schlafzimmer","wohnzimmer","kueche"]);
+  const EINMAL=new Set(["ben","levi","schlafzimmer","wohnzimmer","kueche","buero"]);
   const ART={nacht:{zeichen:MOND,text:"einmal heute Nacht",ziele:[["zu","ganz zu"],["lueft","Lüftung"]],std:[2,0],r:"zu"},
              morgen:{zeichen:SONNE,text:"einmal morgen früh",ziele:[["auf","ganz auf"],["lueft","Lüftung"]],std:[7,0],r:"auf"}};
   const hm=d=>{const t=new Date(d);return t.getHours()+":"+String(t.getMinutes()).padStart(2,"0");};

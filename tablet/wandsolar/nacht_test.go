@@ -119,3 +119,24 @@ func TestMorgenOeffnetNur(t *testing.T) {
 		t.Fatal("offenen Rollladen morgens auf Lueftung zugefahren")
 	}
 }
+
+func TestNachtEigeneGruppe(t *testing.T) {
+	berlin()
+	n := neueNacht(t.TempDir()+"/n.json", "http://127.0.0.1:1", func(string, ...any) {})
+	jetzt := time.Date(2026, 10, 7, 21, 0, 0, 0, ort)
+	n.jetzt = func() time.Time { return jetzt }
+	var gefahren []string
+	n.eigene = map[string]func(string) error{"buero": func(r string) error { gefahren = append(gefahren, r); return nil }}
+	if _, err := n.setze("buero", "nacht", "23:00", "lueft"); err != nil {
+		t.Fatal(err)
+	}
+	n.pruefe()
+	if len(gefahren) != 0 {
+		t.Fatal("zu frueh gefahren")
+	}
+	jetzt = jetzt.Add(2*time.Hour + time.Minute)
+	n.pruefe()
+	if len(gefahren) != 1 || gefahren[0] != "lueft" || len(n.liste()) != 0 {
+		t.Fatalf("gefahren %v, offen %v", gefahren, n.liste())
+	}
+}

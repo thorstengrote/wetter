@@ -582,6 +582,16 @@ func main() {
 	go tu.laufe()
 	if *vlx != "" {
 		na := neueNacht(filepath.Join(dir, "nacht.json"), *vlx, sag)
+		// Einmal heute Nacht, einmal morgen frueh auch fuer das Buero.
+		na.eigene = map[string]func(string) error{"buero": func(richtung string) error {
+			was := map[string]string{"zu": "close", "lueft": "lueften", "auf": "open"}[richtung]
+			for _, id := range tu.rolllaeden() {
+				if err := tu.schalte(id, was); err != nil {
+					return err
+				}
+			}
+			return nil
+		}}
 		go na.laufe()
 		nachtDienst = na
 	}

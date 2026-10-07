@@ -434,6 +434,19 @@ func (t *tuya) befehl(id, was string) error {
 	return nil
 }
 
+// rolllaeden: die IDs aller Rollladenschalter.
+func (t *tuya) rolllaeden() []string {
+	t.Lock()
+	defer t.Unlock()
+	var ids []string
+	for _, g := range t.geraete {
+		if g.Art == "clkg" {
+			ids = append(ids, g.ID)
+		}
+	}
+	return ids
+}
+
 func (t *tuya) laufe() {
 	go t.horche()
 	time.Sleep(30 * time.Second) // erst die Rundrufe abwarten

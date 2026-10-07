@@ -48,6 +48,10 @@ type nacht struct {
 	sag       func(string, ...any)
 	client    *http.Client
 	jetzt     func() time.Time
+	// eigene: Gruppen, die nicht ueber hapwatch fahren, sondern selbst
+	// (seit 07.10.2026 das Buero ueber Tuya). Sie melden keine Stellung,
+	// deshalb faellt dort die Pruefung "steht schon da" weg.
+	eigene map[string]func(richtung string) error
 }
 
 func neueNacht(pfad, basis string, sag func(string, ...any)) *nacht {
@@ -176,6 +180,15 @@ func (n *nacht) pruefe() {
 		}
 		if t.Sub(a.Zeit) > 4*time.Hour {
 			n.sag("Einmal %s: %s verworfen, %s verpasst", a.Art, g, a.Zeit.Format("15:04"))
+			n.loesche(k)
+			continue
+		}
+		if f, ok := n.eigene[g]; ok {
+			if err := f(a.Richtung); err != nil {
+				n.sag("Einmal %s: %s: %v, neuer Versuch in einer Minute", a.Art, g, err)
+				continue
+			}
+			n.sag("Einmal %s: %s auf %s gefahren", a.Art, g, a.Richtung)
 			n.loesche(k)
 			continue
 		}
