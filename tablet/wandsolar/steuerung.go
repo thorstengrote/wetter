@@ -489,7 +489,7 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 	dauer := t.Sub(g.st.Seit)
 	minAn := time.Duration(cfg.MinAnMin * float64(time.Minute))
 	minAus := time.Duration(cfg.MinAusMin * float64(time.Minute))
-	woche := g.minuten7(t)
+	woche := g.minuten7Grenze(t) // nur Netz- und Akkuminuten
 	handAn := g.st.Hand == "an" && t.Before(g.st.HandBis)
 	handAus := g.st.Hand == "aus" && t.Before(g.st.HandBis)
 	mangelLang := !g.mangelSeit.IsZero() && t.Sub(g.mangelSeit) >= 3*time.Minute
@@ -580,6 +580,37 @@ func (g *geraet) naechster(t time.Time) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// zaehlt: Anteil eines Laufs, der gegen MaxH7 zaehlt. Minuten mit reinem
+// Sonnenstrom zaehlen nicht (Vorgabe vom 07.10.2026): an einem Sonnentag soll
+// die Wochengrenze den Entfeuchter nicht ausbremsen. Ohne Aufteilung zaehlt
+// der ganze Lauf.
+func (l lauf) zaehlt() float64 {
+	ges := l.Min["sonne"] + l.Min["akku"] + l.Min["netz"]
+	if ges <= 0 {
+		return 1
+	}
+	return (l.Min["akku"] + l.Min["netz"]) / ges
+}
+
+// minuten7Grenze: was davon gegen MaxH7 zaehlt.
+func (g *geraet) minuten7Grenze(t time.Time) float64 {
+	m := 0.0
+	von := t.Add(-7 * 24 * time.Hour)
+	for _, l := range g.laeufeFuer(g.probe()) {
+		a, b := l.Von, l.Bis
+		if b.IsZero() {
+			b = t
+		}
+		if a.Before(von) {
+			a = von
+		}
+		if b.After(a) {
+			m += b.Sub(a).Minutes() * l.zaehlt()
+		}
+	}
+	return m
 }
 
 // minuten7: Laufzeit der letzten 7 Tage im aktuellen Modus.

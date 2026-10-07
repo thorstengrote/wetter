@@ -20,6 +20,10 @@ package main
 //     der SwitchBot des Entfeuchters, beim Lueften alle 2 Minuten. Draussen
 //     gilt die Vorhersage der laufenden Stunde, sie liegt beim Taupunkt 1,5
 //     bis 2 K daneben, deshalb 3 K Abstand zum Oeffnen.
+//   - Freier Sonnenstrom schlaegt knappes Lueften (07.10.2026): Kann der
+//     Entfeuchter gerade kostenlos laufen und liegt der Taupunktabstand unter
+//     SonneAbstand, holt er mehr Wasser heraus als das Fenster. Dann bleibt
+//     es zu, oder es geht zu, und der Entfeuchter uebernimmt.
 //   - CO2, solange der Velux-Sensor im Keller liegt. Ab CO2Auf wird gelueftet,
 //     wenn die Aussenluft nicht feuchter ist als drinnen, ab CO2Max auch dann.
 //
@@ -84,6 +88,7 @@ type lueftCfg struct {
 	MaxStd       float64 `json:"max_std"`             // Notbremse fuer eine Lueftung
 	MaxJeTag     int     `json:"max_je_tag"`          // 0 heisst unbegrenzt
 	SonneVorrang float64 `json:"sonne_vorrang_unter"` // darunter nicht wegen Feuchte lueften, solange der Entfeuchter mit Sonne laeuft
+	SonneAbstand float64 `json:"sonne_abstand_k"`     // unter diesem Abstand trocknet freier Sonnenstrom besser als Lueften, 0 aus
 	CO2Auf       float64 `json:"co2_auf"`             // ppm
 	CO2Zu        float64 `json:"co2_zu"`              // ppm
 	CO2Max       float64 `json:"co2_max"`             // ab hier auch bei feuchterer Aussenluft
@@ -93,7 +98,7 @@ type lueftCfg struct {
 
 func standardLueftung() lueftCfg {
 	return lueftCfg{Modus: "scharf", AbstandK: 3, SchlussK: 1, MinInnen: 17, MinAussen: 0, MaxBoeen: 50,
-		PruefMin: 20, RHAnstieg: 5, PauseMin: 30, MaxStd: 12, SonneVorrang: 10,
+		PruefMin: 20, RHAnstieg: 5, PauseMin: 30, MaxStd: 12, SonneVorrang: 10, SonneAbstand: 3,
 		CO2Auf: 1000, CO2Zu: 700, CO2Max: 1400, VentilName: "spielkeller", Kaeltestrafe: 0.15}
 }
 
@@ -151,6 +156,7 @@ type lueftEingang struct {
 	Luft             map[int64]luftWert
 	KF               string // Stellung der Kellerfenster
 	EntfeuchterSonne bool   // Entfeuchter laeuft gerade ohne Netz und Akku
+	SonneFrei        bool   // Entfeuchter darf jetzt laufen und haette freien Sonnenstrom
 	KFDa             bool   // D1 mini eingerichtet
 	Ventil           *ventil
 }
@@ -324,6 +330,9 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		}
 		co2 := l.co2Grund(e, tp, aus, c.CO2Zu)
 		feuchte := tp-aus.Taupunkt >= c.SchlussK && e.Innen.RH > e.ZielRH-2
+		if lz != nil && lz.Anlass != "co2" && !co2 && e.SonneFrei && c.SonneAbstand > 0 && tp-aus.Taupunkt < c.SonneAbstand {
+			return "zu", fmt.Sprintf("Entfeuchter übernimmt mit freiem Sonnenstrom, Abstand nur %.1f K", tp-aus.Taupunkt), 0
+		}
 		if lz != nil && lz.Anlass != "co2" && !co2 && frisch &&
 			dauer >= time.Duration(c.PruefMin*float64(time.Minute)) && tp >= lz.TaupunktIn {
 			return "zu", fmt.Sprintf("Taupunkt drinnen nicht gefallen (%.1f °C)", tp), 2 * time.Hour
@@ -375,6 +384,8 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		return "", fmt.Sprintf("Raumluft trocken genug (%.0f %%)", e.Innen.RH), 0
 	case tp-aus.Taupunkt < c.AbstandK:
 		return "", fmt.Sprintf("Außenluft zu feucht (Taupunkt %.1f gegen %.1f °C drinnen)", aus.Taupunkt, tp), 0
+	case e.SonneFrei && c.SonneAbstand > 0 && tp-aus.Taupunkt < c.SonneAbstand:
+		return "", fmt.Sprintf("Entfeuchter trocknet mit freiem Sonnenstrom, Abstand nur %.1f K", tp-aus.Taupunkt), 0
 	case e.EntfeuchterSonne && aus.Temp < c.SonneVorrang:
 		return "", fmt.Sprintf("Entfeuchter läuft mit Sonne, Lüften kostet bei %.0f °C Heizwärme", aus.Temp), 0
 	}
@@ -518,13 +529,14 @@ func (l *lueftung) lueftet() bool {
 }
 
 func (l *lueftung) laufe() {
-	time.Sleep(2 * time.Minute) // erst Sensor, Box und Prognose
-	// Nach einem Neustart mitten in einer Lueftung: Pause wieder setzen.
+	// Nach einem Neustart mitten in einer Lueftung: Pause sofort setzen, sonst
+	// laeuft der Entfeuchter an, bevor die Lueftung wieder entschieden hat.
 	l.Lock()
-	if l.st.Phase != "zu" {
+	if l.st.Phase != "zu" && l.cfg.Modus == "scharf" {
 		l.pause(true)
 	}
 	l.Unlock()
+	time.Sleep(2 * time.Minute) // erst Sensor, Box und Prognose
 	for {
 		l.schritt()
 		time.Sleep(time.Minute)
@@ -590,6 +602,8 @@ func pruefeLueftCfg(c lueftCfg) string {
 		return "Kältestrafe 0 bis 1 K je Grad"
 	case c.SonneVorrang < -30 || c.SonneVorrang > 30:
 		return "Vorrang des Entfeuchters -30 bis 30 °C"
+	case c.SonneAbstand < 0 || c.SonneAbstand > 10:
+		return "Sonnenvorrang 0 bis 10 K"
 	case c.CO2Zu < 400 || c.CO2Auf <= c.CO2Zu || c.CO2Max < c.CO2Auf || c.CO2Max > 5000:
 		return "CO₂: zu unter auf unter Höchstwert, ab 400 ppm"
 	}

@@ -158,8 +158,9 @@ func TestNetzVerboten(t *testing.T) {
 	}
 }
 
-// Sonnenwoche: kein 7-Tage-Raum ueber 30 Stunden.
-func TestHoechstens30Stunden(t *testing.T) {
+// Sonnenwoche: Laeufe mit freiem Sonnenstrom zaehlen seit 07.10.2026 nicht
+// gegen die 30 Stunden, der Planer darf die Sonne voll nutzen.
+func TestSonnenlaeufeZaehlenNichtGegenGrenze(t *testing.T) {
 	l := berlin()
 	jetzt := time.Date(2026, 10, 5, 9, 0, 0, 0, l)
 	p := planFuer(jetzt, 100, pvWoche(jetzt, 9, 9, 9, 9, 9, 9, 9), standardEntfeuchter(), nil, jetzt.AddDate(0, 0, -30))
@@ -167,13 +168,43 @@ func TestHoechstens30Stunden(t *testing.T) {
 	for _, s := range p.Slots {
 		if s.An {
 			gesamt += 30
+			if s.Art != "frei" {
+				t.Fatalf("Pflichtlauf in einer Sonnenwoche: %v", s.Zeit)
+			}
 		}
 	}
-	if gesamt > 30*60 {
-		t.Fatalf("%.1f h geplant", gesamt/60)
+	if gesamt <= 30*60 {
+		t.Fatalf("Sonnenwoche nicht ueber die Grenze genutzt: %.1f h", gesamt/60)
 	}
-	if gesamt < 25*60 {
-		t.Fatalf("Sonnenwoche nicht genutzt: %.1f h", gesamt/60)
+	// Auch mit voller Vorgeschichte aus Netzstrom bleibt die Sonne frei
+	var vor []lauf
+	for d := 1; d <= 6; d++ {
+		v := jetzt.AddDate(0, 0, -d)
+		vor = append(vor, lauf{Von: v, Bis: v.Add(5 * time.Hour), Min: map[string]float64{"netz": 300}})
+	}
+	p = planFuer(jetzt, 100, pvWoche(jetzt, 9, 9, 9, 9, 9, 9, 9), standardEntfeuchter(), vor, jetzt.AddDate(0, 0, -30))
+	if m := minutenAm(p, jetzt, "frei"); m < 60 {
+		t.Fatalf("Sonne trotz voller Netzwoche nicht genutzt: %.0f min", m)
+	}
+}
+
+func TestNurNetzUndAkkuZaehlen(t *testing.T) {
+	if z := (lauf{Min: map[string]float64{"sonne": 60, "netz": 30, "akku": 30}}).zaehlt(); z != 0.5 {
+		t.Fatalf("Anteil %.2f", z)
+	}
+	if z := (lauf{}).zaehlt(); z != 1 {
+		t.Fatalf("ohne Aufteilung %.2f", z)
+	}
+	l := berlin()
+	t0 := time.Date(2026, 10, 5, 12, 0, 0, 0, l)
+	g := &geraet{cfg: standardEntfeuchter()}
+	g.cfg.Modus = "scharf"
+	g.st.Laeufe = []lauf{{Von: t0.Add(-4 * time.Hour), Bis: t0.Add(-2 * time.Hour), Min: map[string]float64{"sonne": 90, "netz": 30}}}
+	if m := g.minuten7Grenze(t0); m != 30 {
+		t.Fatalf("zaehlende Minuten %.0f", m)
+	}
+	if m := g.minuten7(t0); m != 120 {
+		t.Fatalf("Laufzeit %.0f", m)
 	}
 }
 
@@ -267,22 +298,6 @@ func TestHandAus(t *testing.T) {
 	p.laufe(30, 2.0, 0, 100)
 	if g.st.An {
 		t.Fatal("trotz Hand aus eingeschaltet")
-	}
-}
-
-// Knappe Hoechstgrenze: gleichmaessig verteilen, kein freier Tag leer.
-func TestGleichmaessigBeiKnapperGrenze(t *testing.T) {
-	l := berlin()
-	jetzt := time.Date(2026, 10, 5, 9, 0, 0, 0, l)
-	c := standardEntfeuchter()
-	c.MaxH7 = 20
-	p := planFuer(jetzt, 60, pvWoche(jetzt, 9, 9, 6, 5, 9, 9, 9), c, nil, jetzt.AddDate(0, 0, -30))
-	for d := 0; d < 7; d++ {
-		m := minutenAm(p, jetzt.AddDate(0, 0, d), "")
-		// Tag +3 traegt mit 5 kW Spitze vorsichtig gerechnet nur eine Stunde.
-		if m < 60 || m > 240 {
-			t.Errorf("Tag +%d: %.0f min, erwartet 1 bis 4 h", d, m)
-		}
 	}
 }
 

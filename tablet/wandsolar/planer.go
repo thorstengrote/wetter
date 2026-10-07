@@ -141,7 +141,7 @@ func neuerPlaner(in planEingabe) *planer {
 				ende = b
 			}
 			if k >= 0 && k < fenster7 {
-				p.hist[k] += ende.Sub(a).Minutes()
+				p.hist[k] += ende.Sub(a).Minutes() * l.zaehlt()
 			}
 			a = ende
 		}
@@ -285,7 +285,8 @@ func (p *planer) passtMax(i, n int) bool {
 			}
 			return p.hist[k]
 		}
-		if j := k - fenster7; j < len(p.on) && p.on[j] {
+		// Geplante Sonnenlaeufe zaehlen nicht gegen die Wochengrenze.
+		if j := k - fenster7; j < len(p.on) && p.on[j] && p.art[j] != "frei" {
 			return 30
 		}
 		return 0
@@ -348,7 +349,7 @@ func (p *planer) rechne() plan {
 		soc := p.socVor()
 		best, bestEin, bestTag := -1, -1.0, math.Inf(1)
 		for i := range p.slots {
-			if p.on[i] || !p.slots[i].Erlaub || !p.passtMax(i, 1) || !p.frei(i, soc) {
+			if p.on[i] || !p.slots[i].Erlaub || !p.frei(i, soc) {
 				continue
 			}
 			_, ein, _ := simSchritt(p.pvV[i], p.slots[i].Haus, soc[i])

@@ -384,3 +384,34 @@ func TestHeizRegelSetzt(t *testing.T) {
 		t.Fatalf("Probe hat gesetzt: %v %s", gesetzt, h.grund)
 	}
 }
+
+func TestFreieSonneSchlaegtKnappesLueften(t *testing.T) {
+	t0 := mittwoch(13, 0)
+	sonne := func(e lueftEingang) lueftEingang { e.SonneFrei = true; return e }
+	knapp := luftTag(t0, luftWert{Temp: 18, Taupunkt: tpInnen - 1.5}, nil) // 1,5 K
+	weit := luftTag(t0, luftWert{Temp: 18, Taupunkt: tpInnen - 5}, nil)    // 5 K
+	l := offeneLueftung(t0, "feuchte")
+	if a, g, _ := l.entscheide(sonne(eingang(t0.Add(30*time.Minute), 20, 60, knapp))); a != "zu" || !strings.Contains(g, "Entfeuchter übernimmt") {
+		t.Fatalf("knapp mit Sonne: %q %q", a, g)
+	}
+	l = offeneLueftung(t0, "feuchte")
+	if a, g, _ := l.entscheide(sonne(eingang(t0.Add(30*time.Minute), 20, 58, weit))); a != "" {
+		t.Fatalf("weiter Abstand mit Sonne sollte lueften: %q %q", a, g)
+	}
+	l = offeneLueftung(t0, "feuchte")
+	if a, _, _ := l.entscheide(eingang(t0.Add(15*time.Minute), 20, 60, knapp)); a != "" {
+		t.Fatal("ohne Sonne bei 1,5 K zu, obwohl ueber der Schliessgrenze")
+	}
+	// CO2 bleibt unberuehrt
+	l = offeneLueftung(t0, "co2")
+	e := sonne(eingang(t0.Add(30*time.Minute), 20, 60, knapp))
+	e.CO2 = 1200
+	if a, g, _ := l.entscheide(e); a != "" {
+		t.Fatalf("CO2-Lueftung wegen Sonne zu: %q %q", a, g)
+	}
+	// Geschlossen und Sonne frei: mit weitem Abstand trotzdem lueften
+	l = testLueftung()
+	if a, _, _ := l.entscheide(sonne(eingang(t0, 20, 60, weit))); a != "auf" {
+		t.Fatal("bei 5 K mit Sonne nicht gelueftet")
+	}
+}

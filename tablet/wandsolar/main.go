@@ -536,6 +536,11 @@ func main() {
 				id, e.ZielRH = g.cfg.SensorID, g.cfg.FeuchteUnten
 				m := z.st.letzte
 				e.EntfeuchterSonne = g.st.An && m != nil && m.Netz > -0.05 && m.Akku > -0.05
+				// Koennte er jetzt kostenlos laufen? Er darf, er hat keine
+				// Stoerung, die Luft ist nicht zu trocken, und entweder laeuft
+				// er schon mit Sonne oder es geht genug ins Netz.
+				e.SonneFrei = g.cfg.Modus == "scharf" && g.cfg.erlaubt(e.Jetzt) && g.st.Stoerung == "" && !g.trocken &&
+					m != nil && (e.EntfeuchterSonne || m.Netz >= g.leistung()+g.cfg.EinReserveW/1000)
 				break
 			}
 		}
