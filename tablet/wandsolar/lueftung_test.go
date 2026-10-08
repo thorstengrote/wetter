@@ -73,7 +73,6 @@ func TestLueftungSperren(t *testing.T) {
 		rh   float64
 		soll string
 	}{
-		{luftWert{Temp: 15, Taupunkt: 2, Regen: 0.5}, 20, 60, "Regen"},
 		{luftWert{Temp: 15, Taupunkt: 2, Boeen: 60}, 20, 60, "Böen"},
 		{luftWert{Temp: -2, Taupunkt: -8}, 20, 60, "zu kalt"},
 		{luftWert{Temp: 15, Taupunkt: 2}, 20, 52, "trocken genug"},
@@ -146,7 +145,7 @@ func TestLueftungSchliesstNachMesswerten(t *testing.T) {
 		{21 * time.Minute, 20, 61, gut, "nicht gefallen", true},
 		{10 * time.Minute, 18, 66, gut, "Feuchte steigt", true},
 		{30 * time.Minute, 20, 50, gut, "trocken genug", false},
-		{5 * time.Minute, 20, 60, luftTag(t0, luftWert{Temp: 15, Taupunkt: 5, Regen: 1}, nil), "Regen", false},
+		{5 * time.Minute, 20, 60, luftTag(t0, luftWert{Temp: 15, Taupunkt: 5, Boeen: 70}, nil), "Böen", false},
 		{12*time.Hour + time.Minute, 20, 55, gut, "Notbremse", false},
 	} {
 		l := offeneLueftung(t0, "feuchte")
@@ -267,7 +266,7 @@ func TestLueftungWochenplan(t *testing.T) {
 			w.Taupunkt = 5
 		}
 		if z.Day() == 9 {
-			w.Regen = 1 // Freitag regnet es
+			w.Boeen = 80 // Freitag stuermt es
 		}
 		luft[z.Unix()] = w
 	}
@@ -423,5 +422,15 @@ func TestSchlafzeiten(t *testing.T) {
 	if len(s) != 2 || time.UnixMilli(s[0][1]).In(ort).Format("15:04") != "09:30" ||
 		time.UnixMilli(s[1][0]).In(ort).Format("15:04") != "22:30" {
 		t.Fatalf("Schlafzeiten %v", s)
+	}
+}
+
+func TestRegenSperrtNicht(t *testing.T) {
+	l := testLueftung()
+	t0 := mittwoch(3, 0)
+	e := eingang(t0, 20, 60, luftTag(t0, luftWert{Temp: 12, Taupunkt: tpInnen - 1, Regen: 2}, nil))
+	e.CO2 = 1500
+	if a, g, _ := l.entscheide(e); a != "auf-co2" {
+		t.Fatalf("CO2 bei Regen: %q %q", a, g)
 	}
 }

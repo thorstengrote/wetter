@@ -32,7 +32,7 @@ package main
 //   - der Taupunkt drinnen nach PruefMin nicht gefallen ist (dann 2 h Ruhe)
 //   - die relative Feuchte um RHAnstieg Punkte steigt: der Raum kuehlt aus,
 //     die Waende werden klamm (dann 2 h Ruhe)
-//   - der Raum unter MinInnen abkuehlt, es regnet, stuermt oder friert
+//   - der Raum unter MinInnen abkuehlt, es stuermt oder friert
 //
 // Jede Lueftung schreibt ihre Kurve mit. Bei kalter Aussenluft bestaetigt das
 // Ventil unter dem Fenster, dass es wirklich offen ist: seine Temperatur
@@ -234,14 +234,15 @@ func (l *lueftung) letztesEnde() time.Time {
 	return time.Time{}
 }
 
-// wetter: was ein Lueften verbietet, egal aus welchem Grund.
+// wetter: was ein Lueften verbietet, egal aus welchem Grund. Regen gehoert
+// seit 08.10.2026 nicht mehr dazu: die Schaechte sind schraeg mit einer
+// Platte abgedeckt, es regnet nicht herein. Ob feuchte Regenluft schadet,
+// entscheidet der Taupunkt.
 func (l *lueftung) wetter(w luftWert) string {
 	c := l.cfg
 	switch {
 	case w.Temp < c.MinAussen:
 		return fmt.Sprintf("draußen zu kalt (%.0f °C)", w.Temp)
-	case w.Regen >= 0.2:
-		return "Regen angesagt"
 	case w.Boeen >= c.MaxBoeen:
 		return fmt.Sprintf("Böen bis %.0f km/h", w.Boeen)
 	}

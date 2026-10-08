@@ -668,7 +668,7 @@ function lueftungSicht(){
         oder wenn das CO₂ über ${c.co2_auf} ppm steigt und die Außenluft nicht feuchter ist als drinnen, ab ${c.co2_max} ppm auch dann.
         Es bleibt offen, solange es hilft, und geht zu, wenn der Abstand unter ${z(c.schluss_k)} K fällt, das CO₂ wieder unter ${c.co2_zu} ppm liegt,
         der Taupunkt drinnen nach ${z(c.pruef_min,0)} Minuten nicht gefallen ist, die relative Feuchte um ${z(c.rh_anstieg,0)} Punkte steigt oder der Raum unter ${z(c.min_innen)} °C abkühlt.
-        Regen, Böen über ${z(c.max_boeen,0)} km/h und Frost schließen immer. Zwischen zwei Lüftungen liegen mindestens ${z(c.pause_min,0)} Minuten.
+        Böen über ${z(c.max_boeen,0)} km/h und Frost schließen immer. Regen nicht, die Schächte sind abgedeckt. Zwischen zwei Lüftungen liegen mindestens ${z(c.pause_min,0)} Minuten.
         Kann der Entfeuchter gerade mit freiem Sonnenstrom laufen und liegt der Abstand unter ${z(c.sonne_abstand_k)} K, übernimmt er statt des Fensters.
         Ist eine Lüftung in Sicht, trocknet der Entfeuchter vorher nicht mit Netzstrom. Läuft er mit Sonne und ist es draußen unter ${z(c.sonne_vorrang_unter,0)} °C, wird nicht gelüftet.
         Während gelüftet wird, pausiert der Entfeuchter und die Heizung geht herunter. Der Entfeuchter läuft nachts nie.</div></div>
@@ -722,7 +722,7 @@ function lueftungEinst(){
     <div class="karte"><h2>Temperatur und Wetter</h2>
       <div class="feld"><span class="n">Raum nicht kälter als</span>${zahl("min_innen","°C",0.5)}</div>
       <div class="feld"><span class="n">Draußen mindestens</span>${zahl("min_aussen","°C",0.5)}</div>
-      <div class="feld"><span class="n">Böen höchstens</span>${zahl("max_boeen","km/h",5)}<span class="e">Regen ab 0,2 mm in der Stunde sperrt immer.</span></div>
+      <div class="feld"><span class="n">Böen höchstens</span>${zahl("max_boeen","km/h",5)}<span class="e">Regen sperrt nicht, die Schächte sind abgedeckt. Feuchte Regenluft hält der Taupunkt ab.</span></div>
       <div class="feld"><span class="n">Entfeuchter mit Sonne hat Vorrang unter</span>${zahl("sonne_vorrang_unter","°C",1)}<span class="e">Läuft er gerade mit Sonnenstrom, wird bei kälterer Luft nicht wegen Feuchte gelüftet, weil das Heizwärme kostet. -30 schaltet es ab.</span></div>
       <div class="feld"><span class="n">Freier Sonnenstrom schlägt Lüften unter</span>${zahl("sonne_abstand_k","K",0.5)}<span class="e">Kann der Entfeuchter gerade kostenlos laufen und ist der Taupunktabstand kleiner, bleibt das Fenster zu oder geht zu, und der Entfeuchter übernimmt. 0 schaltet es ab.</span></div>
       <div class="feld"><span class="n">Kälte im Plan</span>${zahl("kaeltestrafe_k","K je Grad unter 12 °C",0.05)}<span class="e">Nur für die Farbe im Plan.</span></div>
