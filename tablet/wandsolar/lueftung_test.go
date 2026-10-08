@@ -425,6 +425,35 @@ func TestSchlafzeiten(t *testing.T) {
 	}
 }
 
+func TestCO2NurSpalt(t *testing.T) {
+	t0 := mittwoch(3, 0)
+	luft := luftTag(t0, luftWert{Temp: 12, Taupunkt: tpInnen - 1}, nil)
+	var befehle []string
+	var gewartet time.Duration
+	l := testLueftung()
+	l.eingang = func() lueftEingang { e := eingang(t0, 20, 60, luft); e.CO2 = 1200; return e }
+	l.fahre = func(r string) error { befehle = append(befehle, r); return nil }
+	l.pause = func(bool) {}
+	l.warte = func(d time.Duration) { gewartet += d }
+	l.standPfad = t.TempDir() + "/stand.json"
+	l.schritt()
+	if len(befehle) != 2 || befehle[0] != "auf" || befehle[1] != "stop" || gewartet != 7*time.Second || !l.laufzeit().Spalt {
+		t.Fatalf("Spalt: %v nach %v", befehle, gewartet)
+	}
+	// Feuchte oeffnet ganz
+	befehle, gewartet = nil, 0
+	l = testLueftung()
+	l.eingang = func() lueftEingang { return eingang(t0, 20, 60, luftTag(t0, luftWert{Temp: 12, Taupunkt: 5}, nil)) }
+	l.fahre = func(r string) error { befehle = append(befehle, r); return nil }
+	l.pause = func(bool) {}
+	l.warte = func(d time.Duration) { gewartet += d }
+	l.standPfad = t.TempDir() + "/stand.json"
+	l.schritt()
+	if len(befehle) != 1 || befehle[0] != "auf" || gewartet != 0 {
+		t.Fatalf("Feuchte: %v", befehle)
+	}
+}
+
 func TestRegenSperrtNicht(t *testing.T) {
 	l := testLueftung()
 	t0 := mittwoch(3, 0)

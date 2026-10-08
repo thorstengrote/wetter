@@ -24,7 +24,8 @@ package main
 //     Entfeuchter gerade kostenlos laufen und liegt der Taupunktabstand unter
 //     SonneAbstand, holt er mehr Wasser heraus als das Fenster. Dann bleibt
 //     es zu, oder es geht zu, und der Entfeuchter uebernimmt.
-//   - CO2, solange der Velux-Sensor im Keller liegt. Ab CO2Auf wird gelueftet,
+//   - CO2, solange der Velux-Sensor im Keller liegt. Dafuer geht das Fenster
+//     nur einen Spalt auf (SpaltSek), fuer Feuchte ganz. Ab CO2Auf wird gelueftet,
 //     wenn die Aussenluft nicht feuchter ist als drinnen, ab CO2Max auch dann.
 //
 // Der Raumfuehler hat das letzte Wort. Das Fenster geht zu, wenn
@@ -94,12 +95,14 @@ type lueftCfg struct {
 	CO2Max       float64 `json:"co2_max"`             // ab hier auch bei feuchterer Aussenluft
 	VentilName   string  `json:"ventil_name"`         // zur Bestaetigung, Teil des Namens in der FRITZ!Box
 	Kaeltestrafe float64 `json:"kaeltestrafe_k"`      // nur fuer die Farbe im Plan: je Grad unter 12 draussen
+	SpaltSek     float64 `json:"spalt_sek"`           // CO2-Lueftung: so lange auffahren, dann stop; 0 heisst ganz auf
 }
 
 func standardLueftung() lueftCfg {
 	return lueftCfg{Modus: "scharf", AbstandK: 3, SchlussK: 1, MinInnen: 17, MinAussen: 0, MaxBoeen: 50,
 		PruefMin: 20, RHAnstieg: 5, PauseMin: 30, MaxStd: 12, SonneVorrang: 10, SonneAbstand: 3,
-		CO2Auf: 1000, CO2Zu: 700, CO2Max: 1400, VentilName: "spielkeller", Kaeltestrafe: 0.15}
+		CO2Auf: 1000, CO2Zu: 700, CO2Max: 1400, VentilName: "spielkeller", Kaeltestrafe: 0.15,
+		SpaltSek: 7}
 }
 
 type lueftLauf struct {
@@ -120,6 +123,7 @@ type lueftLauf struct {
 	RHEnde       float64       `json:"rh_innen_ende,omitempty"`
 	CO2Ende      float64       `json:"co2_innen_ende,omitempty"`
 	Bestaetigt   bool          `json:"bestaetigt,omitempty"`
+	Spalt        bool          `json:"spalt,omitempty"` // nur einen Spalt geoeffnet
 	Nacht        bool          `json:"nacht,omitempty"` // aus der Zeit mit Nachtregeln, nur noch alte Laeufe
 	Kurve        []kurvenPunkt `json:"kurve,omitempty"`
 }
@@ -175,6 +179,7 @@ type lueftung struct {
 	ventil  func(name string) *ventil
 	fahre   func(richtung string) error
 	pause   func(bool)
+	warte   func(time.Duration)  // fuer die Spaltoeffnung, in Tests ohne Warten
 	bald    func(time.Time)      // naechste Lueftung an den Entfeuchter
 	wach    func(time.Time) bool // Wachzeit im Raum, nur fuer die Anzeige
 }
@@ -439,7 +444,19 @@ func (l *lueftung) schritt() {
 				l.st.VentilStart = v.Ist
 			}
 			l.pause(true)
-			if err := l.fahre("auf"); err != nil {
+			err := l.fahre("auf")
+			// Fuer CO2 reicht ein Spalt (gestoppt am 08.10.2026: 7 s von
+			// ganz zu, ganz auf dauert 23 s). Er kuehlt weniger aus.
+			if err == nil && anlass == "co2" && l.cfg.SpaltSek > 0 {
+				w := l.warte
+				if w == nil {
+					w = time.Sleep
+				}
+				w(time.Duration(l.cfg.SpaltSek * float64(time.Second)))
+				err = l.fahre("stop")
+				lz.Spalt = err == nil
+			}
+			if err != nil {
 				l.sag("Lüftung: Öffnen gescheitert: %v", err)
 				l.pause(false)
 				l.st.SperreBis = t.Add(15 * time.Minute)
@@ -605,6 +622,8 @@ func pruefeLueftCfg(c lueftCfg) string {
 		return "Vorrang des Entfeuchters -30 bis 30 °C"
 	case c.SonneAbstand < 0 || c.SonneAbstand > 10:
 		return "Sonnenvorrang 0 bis 10 K"
+	case c.SpaltSek < 0 || c.SpaltSek > 60:
+		return "Spalt 0 bis 60 Sekunden"
 	case c.CO2Zu < 400 || c.CO2Auf <= c.CO2Zu || c.CO2Max < c.CO2Auf || c.CO2Max > 5000:
 		return "CO₂: zu unter auf unter Höchstwert, ab 400 ppm"
 	}

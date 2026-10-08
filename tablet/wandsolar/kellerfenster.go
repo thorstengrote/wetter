@@ -51,7 +51,7 @@ type kellerfenster struct {
 	rssi       int
 }
 
-const kfFahrzeit = 60 * time.Second
+const kfFahrzeit = 25 * time.Second // gestoppt am 08.10.2026: ganz auf in 23 s
 
 func neueKellerfenster(pfad, verlaufPfad string, sag func(string, ...any)) *kellerfenster {
 	k := &kellerfenster{pfad: pfad, verlaufPfad: verlaufPfad, sag: sag,

@@ -665,7 +665,7 @@ function lueftungSicht(){
     <div class="raster" style="grid-template-columns:1fr 2fr;margin-bottom:14px">${kellerKarte()}
       <div class="karte"><h2>So entscheidet die Automatik</h2><div class="klein" style="line-height:1.6">
         Allein nach Messwerten, rund um die Uhr. Das Fenster geht auf, wenn der Taupunkt draußen mindestens ${z(c.abstand_k)} K unter dem drinnen liegt und die Raumluft feuchter als ${c.ziel_rh>0?z(c.ziel_rh,0)+" %":"die Untergrenze des Entfeuchters"} ist,
-        oder wenn das CO₂ über ${c.co2_auf} ppm steigt und die Außenluft nicht feuchter ist als drinnen, ab ${c.co2_max} ppm auch dann.
+        oder wenn das CO₂ über ${c.co2_auf} ppm steigt und die Außenluft nicht feuchter ist als drinnen, ab ${c.co2_max} ppm auch dann. Für CO₂ öffnet es nur einen Spalt (${z(c.spalt_sek,0)} s), für Feuchte ganz.
         Es bleibt offen, solange es hilft, und geht zu, wenn der Abstand unter ${z(c.schluss_k)} K fällt, das CO₂ wieder unter ${c.co2_zu} ppm liegt,
         der Taupunkt drinnen nach ${z(c.pruef_min,0)} Minuten nicht gefallen ist, die relative Feuchte um ${z(c.rh_anstieg,0)} Punkte steigt oder der Raum unter ${z(c.min_innen)} °C abkühlt.
         Böen über ${z(c.max_boeen,0)} km/h und Frost schließen immer. Regen nicht, die Schächte sind abgedeckt. Zwischen zwei Lüftungen liegen mindestens ${z(c.pause_min,0)} Minuten.
@@ -680,7 +680,7 @@ function lueftungSicht(){
     <div class="karte"><h2>Letzte Lüftungen</h2>${l.length?`<table><tr><th>Tag</th><th>Zeit</th><th class="r">Dauer</th><th>Verlauf drinnen</th><th class="r">Taupunkt drinnen</th><th class="r">draußen</th><th class="r">Feuchte</th><th class="r">Raum</th><th>Ende</th></tr>
       ${l.map(x=>{const v=new Date(x.von),b=d(x.bis),m=((b||new Date())-v)/60000;
         const k=x.kurve||[],tpE=b?x.taupunkt_innen_ende:k.length?k[k.length-1].tp:null,rhE=b?x.rh_innen_ende:k.length?k[k.length-1].rh:null;
-        return `<tr><td>${tag(v)}${x.probe?' <span class="chip gelb">Probe</span>':""}${x.anlass==="co2"?' <span class="chip">CO₂</span>':""}${x.bestaetigt?' <span class="chip gruen">bestätigt</span>':""}</td><td>${uhr(v)} bis ${b?uhr(b):"jetzt"}</td>
+        return `<tr><td>${tag(v)}${x.probe?' <span class="chip gelb">Probe</span>':""}${x.anlass==="co2"?' <span class="chip">CO₂</span>':""}${x.spalt?' <span class="chip">Spalt</span>':""}${x.bestaetigt?' <span class="chip gruen">bestätigt</span>':""}</td><td>${uhr(v)} bis ${b?uhr(b):"jetzt"}</td>
           <td class="r">${dauerText(m)}</td><td>${kurveSvg(k)}</td><td class="r">${z(x.taupunkt_innen)}${tpE!=null?" → "+z(tpE):""} °C</td><td class="r">${z(x.taupunkt_aussen)} °C</td>
           <td class="r">${z(x.rh_innen,0)}${rhE!=null?" → "+z(rhE,0):""} %</td>
           <td class="r">${z(x.temp_innen)}${b?" → "+z(x.temp_innen_ende):""} °C</td><td class="klein">${esc(x.ende||x.grund)}</td></tr>`;}).join("")}</table>`
@@ -717,6 +717,7 @@ function lueftungEinst(){
       <div class="feld"><span class="n">Auf ab</span>${zahl("co2_auf","ppm",50)}<span class="e">Wenn die Außenluft nicht feuchter ist als drinnen.</span></div>
       <div class="feld"><span class="n">Zu unter</span>${zahl("co2_zu","ppm",50)}</div>
       <div class="feld"><span class="n">Auch bei feuchterer Außenluft ab</span>${zahl("co2_max","ppm",50)}</div>
+      <div class="feld"><span class="n">Nur einen Spalt öffnen</span>${zahl("spalt_sek","s")}<span class="e">So lange auffahren, dann Stop. Ganz auf dauert 23 s. 0 heißt ganz auf.</span></div>
       <div class="klein">Gilt nur, solange der Velux-Sensor im Keller liegt und der Standort in der Übersicht auf Spielekeller steht.</div>
     </div>
     <div class="karte"><h2>Temperatur und Wetter</h2>
