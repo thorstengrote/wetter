@@ -710,6 +710,7 @@ function lueftungEinst(){
       <div class="feld"><span class="n">Auf ab Taupunktabstand</span>${zahl("abstand_k","K",0.5)}<span class="e">Taupunkt draußen so weit unter drinnen. Die Vorhersage irrt beim Taupunkt um 1,5 bis 2 K.</span></div>
       <div class="feld"><span class="n">Zu unter</span>${zahl("schluss_k","K",0.5)}</div>
       <div class="feld"><span class="n">Nur lüften über</span>${zahl("ziel_rh","%")}<span class="e">Raumluft. 0 heißt: Untergrenze des Entfeuchters.</span></div>
+      <div class="feld"><span class="n">Nach "trocken genug" erst wieder ab</span>${zahl("nach_trocken","Punkte über dem Ziel",1)}<span class="e">Verhindert Hin und Her, wenn die Feuchte nach dem Schließen gleich wieder etwas steigt.</span></div>
       <div class="feld"><span class="n">Prüfen nach</span>${zahl("pruef_min","min")}<span class="e">Dann muss der Taupunkt drinnen gefallen sein, sonst zu und zwei Stunden Ruhe.</span></div>
       <div class="feld"><span class="n">Zu, wenn die Feuchte steigt um</span>${zahl("rh_anstieg","Punkte")}<span class="e">Relative Feuchte drinnen gegenüber dem Start. Kalte Luft kühlt den Raum, die Wände werden klamm. 0 schaltet es ab.</span></div>
     </div>

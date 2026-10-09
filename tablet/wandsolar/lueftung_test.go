@@ -463,3 +463,22 @@ func TestRegenSperrtNicht(t *testing.T) {
 		t.Fatalf("CO2 bei Regen: %q %q", a, g)
 	}
 }
+
+func TestNachTrockenerLuftMehrAbstand(t *testing.T) {
+	t0 := mittwoch(8, 0)
+	luft := luftTag(t0, luftWert{Temp: 10, Taupunkt: 4}, nil)
+	l := testLueftung()
+	l.st.Laeufe = []lueftLauf{{Von: t0.Add(-3 * time.Hour), Bis: t0.Add(-time.Hour), TrockenEnde: true}}
+	// Ziel 53: bei 55 % noch nicht, bei 57 % wieder
+	if a, g, _ := l.entscheide(eingang(t0, 20, 55, luft)); a != "" || !strings.Contains(g, "wieder ab 57") {
+		t.Fatalf("55 %%: %q %q", a, g)
+	}
+	if a, g, _ := l.entscheide(eingang(t0, 20, 57, luft)); a != "auf" {
+		t.Fatalf("57 %%: %q %q", a, g)
+	}
+	// Endete die letzte aus anderem Grund, gilt das normale Ziel
+	l.st.Laeufe[0].TrockenEnde = false
+	if a, g, _ := l.entscheide(eingang(t0, 20, 55, luft)); a != "auf" {
+		t.Fatalf("ohne Trockenende 55 %%: %q %q", a, g)
+	}
+}

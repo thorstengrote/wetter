@@ -96,13 +96,14 @@ type lueftCfg struct {
 	VentilName   string  `json:"ventil_name"`         // zur Bestaetigung, Teil des Namens in der FRITZ!Box
 	Kaeltestrafe float64 `json:"kaeltestrafe_k"`      // nur fuer die Farbe im Plan: je Grad unter 12 draussen
 	SpaltSek     float64 `json:"spalt_sek"`           // CO2-Lueftung: so lange auffahren, dann stop; 0 heisst ganz auf
+	NachTrocken  float64 `json:"nach_trocken"`        // nach "trocken genug" erst so viele Punkte ueber dem Ziel wieder
 }
 
 func standardLueftung() lueftCfg {
 	return lueftCfg{Modus: "scharf", AbstandK: 3, SchlussK: 1, MinInnen: 17, MinAussen: 0, MaxBoeen: 50,
 		PruefMin: 20, RHAnstieg: 5, PauseMin: 30, MaxStd: 12, SonneVorrang: 10, SonneAbstand: 3,
 		CO2Auf: 1000, CO2Zu: 700, CO2Max: 1400, VentilName: "spielkeller", Kaeltestrafe: 0.15,
-		SpaltSek: 7}
+		SpaltSek: 7, NachTrocken: 3}
 }
 
 type lueftLauf struct {
@@ -123,8 +124,9 @@ type lueftLauf struct {
 	RHEnde       float64       `json:"rh_innen_ende,omitempty"`
 	CO2Ende      float64       `json:"co2_innen_ende,omitempty"`
 	Bestaetigt   bool          `json:"bestaetigt,omitempty"`
-	Spalt        bool          `json:"spalt,omitempty"` // nur einen Spalt geoeffnet
-	Nacht        bool          `json:"nacht,omitempty"` // aus der Zeit mit Nachtregeln, nur noch alte Laeufe
+	Spalt        bool          `json:"spalt,omitempty"`        // nur einen Spalt geoeffnet
+	TrockenEnde  bool          `json:"trocken_ende,omitempty"` // endete, weil die Luft trocken genug war
+	Nacht        bool          `json:"nacht,omitempty"`        // aus der Zeit mit Nachtregeln, nur noch alte Laeufe
 	Kurve        []kurvenPunkt `json:"kurve,omitempty"`
 }
 
@@ -147,7 +149,6 @@ type lueftStand struct {
 	Seit        time.Time   `json:"seit"`
 	SperreBis   time.Time   `json:"sperre_bis,omitempty"`
 	VentilStart float64     `json:"ventil_start,omitempty"` // Temperatur am Ventil beim Oeffnen
-	Wiederholt  bool        `json:"wiederholt,omitempty"`
 	Laeufe      []lueftLauf `json:"laeufe"`
 }
 
@@ -385,9 +386,16 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		l.naechste = t
 		return "auf-co2", fmt.Sprintf("CO₂ %.0f ppm, Taupunkt draußen %.1f °C, drinnen %.1f °C", e.CO2, aus.Taupunkt, tp), 0
 	}
+	// Nach einer Lueftung, die wegen trockener Luft endete, erst wieder ab
+	// NachTrocken Punkten ueber dem Ziel (08.10.2026: zu bei 51 %, 40 Minuten
+	// spaeter bei 55 % wieder auf und nach 20 Minuten wirkungslos zu).
+	ziel := e.ZielRH
+	if n := len(l.st.Laeufe); n > 0 && l.st.Laeufe[n-1].TrockenEnde {
+		ziel += c.NachTrocken
+	}
 	switch {
-	case e.Innen.RH <= e.ZielRH:
-		return "", fmt.Sprintf("Raumluft trocken genug (%.0f %%)", e.Innen.RH), 0
+	case e.Innen.RH <= ziel:
+		return "", fmt.Sprintf("Raumluft trocken genug (%.0f %%, wieder ab %.0f %%)", e.Innen.RH, ziel+1), 0
 	case tp-aus.Taupunkt < c.AbstandK:
 		return "", fmt.Sprintf("Außenluft zu feucht (Taupunkt %.1f gegen %.1f °C drinnen)", aus.Taupunkt, tp), 0
 	case e.SonneFrei && c.SonneAbstand > 0 && tp-aus.Taupunkt < c.SonneAbstand:
@@ -465,7 +473,7 @@ func (l *lueftung) schritt() {
 				return
 			}
 		}
-		l.st.Phase, l.st.Seit, l.st.Wiederholt = "offen", t, false
+		l.st.Phase, l.st.Seit = "offen", t
 		l.st.Laeufe = append(l.st.Laeufe, lz)
 		if len(l.st.Laeufe) > 100 {
 			l.st.Laeufe = l.st.Laeufe[len(l.st.Laeufe)-100:]
@@ -489,6 +497,7 @@ func (l *lueftung) schritt() {
 		}
 		if lz != nil {
 			lz.Bis, lz.Ende = t, grund
+			lz.TrockenEnde = strings.HasPrefix(grund, "Raumluft trocken genug")
 			if e.Innen != nil {
 				lz.TempEnde, lz.RHEnde, lz.CO2Ende = e.Innen.Temp, e.Innen.RH, e.CO2
 				lz.TaupunktEnde = taupunkt(e.Innen.Temp, e.Innen.RH)
@@ -507,19 +516,15 @@ func (l *lueftung) schritt() {
 		if lz != nil && e.Innen != nil && l.merkePunkt(lz, e.Innen, e.CO2) {
 			l.sichern()
 		}
-		// Offen: bei kalter Aussenluft am Ventil unter dem Fenster pruefen,
-		// ob es wirklich offen ist, und den Befehl einmal wiederholen.
+		// Offen: bei kalter Aussenluft zeigt das Ventil unter dem Fenster, ob
+		// es wirklich offen ist. Nur noch zur Anzeige: es reagiert zu traege,
+		// die Wiederholung des Befehls kam am 08.10.2026 bei jeder Lueftung,
+		// obwohl das Fenster offen war.
 		if l.st.Phase == "offen" && scharf && lz != nil && !lz.Probe && !lz.Bestaetigt && e.Ventil != nil &&
-			l.st.VentilStart > 0 && lz.TempAus < l.st.VentilStart-3 && t.Sub(l.st.Seit) >= 10*time.Minute {
-			if e.Ventil.Fenster || e.Ventil.Ist <= l.st.VentilStart-0.5 {
-				lz.Bestaetigt = true
-				l.sichern()
-			} else if !l.st.Wiederholt {
-				l.st.Wiederholt = true
-				l.sag("Lüftung: Ventil merkt nichts vom offenen Fenster, Befehl wiederholt")
-				l.fahre("auf")
-				l.sichern()
-			}
+			l.st.VentilStart > 0 && lz.TempAus < l.st.VentilStart-3 &&
+			(e.Ventil.Fenster || e.Ventil.Ist <= l.st.VentilStart-0.5) {
+			lz.Bestaetigt = true
+			l.sichern()
 		}
 	}
 }
@@ -622,6 +627,8 @@ func pruefeLueftCfg(c lueftCfg) string {
 		return "Vorrang des Entfeuchters -30 bis 30 °C"
 	case c.SonneAbstand < 0 || c.SonneAbstand > 10:
 		return "Sonnenvorrang 0 bis 10 K"
+	case c.NachTrocken < 0 || c.NachTrocken > 15:
+		return "Abstand nach trockener Luft 0 bis 15 Punkte"
 	case c.SpaltSek < 0 || c.SpaltSek > 60:
 		return "Spalt 0 bis 60 Sekunden"
 	case c.CO2Zu < 400 || c.CO2Auf <= c.CO2Zu || c.CO2Max < c.CO2Auf || c.CO2Max > 5000:
