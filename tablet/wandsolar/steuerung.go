@@ -38,6 +38,12 @@ package main
 //   - dazwischen: nur freie Laeufe
 //   - Fenster des Raums offen: Pause, waehrend gelueftet wird
 //
+// Rangfolge (Vorgabe vom 10.10.2026): am besten gar nicht laufen und
+// lueften, sonst Ueberschuss, dann Akku, zuletzt Netz. Schimmel darf in
+// keinem Fall entstehen. Ist es nur maessig zu feucht und ist binnen sechs
+// Stunden Ueberschuss geplant, wartet er darauf. Ab 70 % ueber zwei Stunden
+// erscheint eine Warnung auf der Wand.
+//
 // Die festen Mindestregeln (5 h in 7 Tagen, alle 3 Tage) sind ein Ersatz
 // fuer die fehlende Messung. Mit frischem Sensorwert ruhen sie, faellt der
 // Sensor aus, gelten sie wieder.
@@ -102,6 +108,9 @@ type geraetCfg struct {
 // Abwasser, laeuft nach Stromunterbrechung von selbst weiter. Im Raum
 // schlaeft niemand, er darf rund um die Uhr; ohne Sonne nur ueber der
 // Obergrenze.
+// schimmelRH: ab hier warnt die Wand, wenn es zwei Stunden so bleibt.
+const schimmelRH = 70
+
 func standardWaschkueche() geraetCfg {
 	t := zeitraum{0, 24}
 	return geraetCfg{
@@ -178,6 +187,7 @@ type geraet struct {
 	feuchte      *messFeuchte
 	fensterAuf   bool
 	shellyFehler time.Time // seit wann der Shelly nicht antwortet
+	schimmelSeit time.Time // seit wann die Raumluft ueber der Schimmelgrenze ist
 }
 
 type steuerung struct {
@@ -241,6 +251,11 @@ func (s *steuerung) raumluft(g *geraet, t time.Time) {
 			g.nass = true
 		} else if rh <= g.cfg.FeuchteOben-3 {
 			g.nass = false
+		}
+		if rh < schimmelRH {
+			g.schimmelSeit = time.Time{}
+		} else if g.schimmelSeit.IsZero() {
+			g.schimmelSeit = t
 		}
 		if rh <= g.cfg.FeuchteUnten {
 			g.trocken = true
@@ -507,12 +522,8 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 	} else {
 		g.ueberSeit = time.Time{}
 	}
-	// Laeuft er nach Plan frei, ist Akkustrom gewollt; dann zaehlt nur Netz.
-	schlecht := mangel
-	if g.st.An && art == "frei" {
-		schlecht = bezug
-	}
-	if schlecht {
+	// Frei heisst Ueberschuss: zieht er aus Akku oder Netz, ist die Sonne weg.
+	if mangel {
 		if g.mangelSeit.IsZero() {
 			g.mangelSeit = t
 		}
@@ -543,6 +554,14 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 			if !bt.After(t) {
 				wartet = "die Lüftung beginnt gleich"
 			}
+		}
+	}
+
+	// Erst Ueberschuss, dann Akku: maessig zu feucht und bald Sonne, dann
+	// wartet er auf sie. Laeuft er schon, laeuft er weiter.
+	if wartet == "" && !g.st.An && g.feuchte != nil && g.feuchte.RH < cfg.FeuchteOben+5 {
+		if n := g.naechsterFrei(t); !n.IsZero() && n.Sub(t) < 6*time.Hour {
+			wartet = "wartet auf Sonne um " + n.In(ort).Format("15:04")
 		}
 	}
 
@@ -605,6 +624,16 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 			g.grund = "naechster Lauf geplant " + n.Format("Mon 15:04")
 		}
 	}
+}
+
+// naechsterFrei: Beginn der naechsten geplanten Halbstunde mit Ueberschuss.
+func (g *geraet) naechsterFrei(t time.Time) time.Time {
+	for _, sl := range g.plan.Slots {
+		if sl.An && sl.Art == "frei" && sl.Zeit.After(t) {
+			return sl.Zeit
+		}
+	}
+	return time.Time{}
 }
 
 func (g *geraet) naechster(t time.Time) time.Time {
@@ -778,6 +807,10 @@ func (s *steuerung) hinweise() []string {
 	for _, g := range s.geraete {
 		if g.st.Stoerung != "" && g.cfg.Modus == "scharf" {
 			h = append(h, g.cfg.Name+": "+g.st.Stoerung)
+		}
+		if !g.schimmelSeit.IsZero() && time.Since(g.schimmelSeit) > 2*time.Hour && g.feuchte != nil {
+			h = append(h, fmt.Sprintf("%s: Schimmelgefahr, Raumluft %.0f %% seit %s", g.cfg.Name, g.feuchte.RH,
+				g.schimmelSeit.In(ort).Format("02.01. 15:04")))
 		}
 		if !g.shellyFehler.IsZero() && time.Since(g.shellyFehler) > 10*time.Minute {
 			was := "Shelly"

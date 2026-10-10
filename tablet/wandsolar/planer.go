@@ -8,7 +8,10 @@ package main
 // zusaetzlichen Netzbezug verursacht. Das schliesst Einspeisung ein, aber
 // auch Akkustrom, den die Sonne spaeter am Tag ohnehin wieder auffuellt. So
 // darf ein Geraet anlaufen, bevor der Akku voll ist, wenn die Prognose
-// genug Einspeisung fuer den Rest des Tages erwartet. Gegen eine zu
+// genug Einspeisung fuer den Rest des Tages erwartet. Seit 10.10.2026 gilt
+// die Rangfolge Lueften, Ueberschuss, Akku, Netz: frei ist eine Halbstunde nur
+// noch, wenn die Sonne in ihr Haus und Geraet selbst traegt. Nachts aus dem
+// Akku, den morgen die Sonne wieder fuellt, ist nicht mehr frei. Gegen eine zu
 // freundliche Prognose rechnet der Planer dabei mit nur zwei Dritteln der
 // vorhergesagten Erzeugung, und fuer heute zusaetzlich mit dem Verhaeltnis
 // von gemessener zu vorhergesagter Erzeugung der bisherigen Stunden.
@@ -326,6 +329,9 @@ func (p *planer) frei(i int, soc []float64) bool {
 		last := p.slots[i].Haus
 		_, ein, _ := simSchritt(p.pvV[i], last, soc[i])
 		return ein >= p.in.Leistung
+	}
+	if p.pvV[i] < p.slots[i].Haus+p.in.Leistung {
+		return false // der Akku muesste zuschiessen
 	}
 	return p.kosten(i, 1, soc) <= freiSchwelle
 }

@@ -522,3 +522,26 @@ func TestWaschkuecheUeberBroadlink(t *testing.T) {
 		t.Fatalf("Stoerung ohne Messung: %s", wk.st.Stoerung)
 	}
 }
+
+// Rangfolge seit 10.10.2026: nachts aus dem Akku ist nicht frei, auch wenn
+// die Sonne ihn morgen wieder fuellt.
+func TestNachtsAusDemAkkuNichtFrei(t *testing.T) {
+	l := berlin()
+	jetzt := time.Date(2026, 10, 10, 21, 0, 0, 0, l)
+	c := standardWaschkueche()
+	p := planFuer(jetzt, 90, pvWoche(jetzt, 8, 8, 8, 8, 8, 8, 8), c, nil, jetzt.AddDate(0, 0, -10))
+	for _, s := range p.Slots {
+		if s.An && s.Art == "frei" && s.PV*vorsicht < s.Haus+c.LeistungKW {
+			t.Fatalf("%v frei geplant ohne Ueberschuss: %+v", s.Zeit, s)
+		}
+	}
+	n := 0
+	for _, s := range p.Slots {
+		if s.An && s.Art == "frei" {
+			n++
+		}
+	}
+	if n == 0 {
+		t.Fatal("an Sonnentagen gar nichts frei geplant")
+	}
+}
