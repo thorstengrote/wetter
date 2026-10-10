@@ -89,6 +89,7 @@ type lueftCfg struct {
 	MaxStd       float64 `json:"max_std"`             // Notbremse fuer eine Lueftung
 	MaxJeTag     int     `json:"max_je_tag"`          // 0 heisst unbegrenzt
 	SonneVorrang float64 `json:"sonne_vorrang_unter"` // darunter nicht wegen Feuchte lueften, solange der Entfeuchter mit Sonne laeuft
+	HeizungAus   bool    `json:"heizung_aus"`         // Zentralheizung abgeschaltet: Lueften kostet keine Heizwaerme
 	SonneAbstand float64 `json:"sonne_abstand_k"`     // unter diesem Abstand trocknet freier Sonnenstrom besser als Lueften, 0 aus
 	CO2Auf       float64 `json:"co2_auf"`             // ppm
 	CO2Zu        float64 `json:"co2_zu"`              // ppm
@@ -319,7 +320,7 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 	l.kosten = nil
 	teuer := func(faktor float64) bool { return false }
 	if e.Innen != nil && ausDa && e.EntfKW > 0 {
-		k := kostenJeLiter(*e.Innen, tp, aus, heizzeit(e.Luft, t), e.Einspeisung, e.EntfKW, e.EntfStrom)
+		k := kostenJeLiter(*e.Innen, tp, aus, !c.HeizungAus && heizzeit(e.Luft, t), e.Einspeisung, e.EntfKW, e.EntfStrom)
 		l.kosten = &k
 		teuer = func(faktor float64) bool {
 			return k.Heizzeit && (e.ObenRH <= 0 || e.Innen.RH < e.ObenRH) && k.Lueften > k.Entfeucht*faktor+0.5
