@@ -195,7 +195,10 @@ func (st *blStand) anmelden() error {
 	}
 	n[0x1E], n[0x2D] = 0x01, 0x01
 	copy(n[0x30:], "Test 1")
-	st.key = nil
+	// Eine Anmeldung beginnt immer ohne Sitzung. Nach einem Neustart der
+	// Steckdose meldete sie mit der alten Nummer "Steuerschluessel abgelaufen"
+	// (0xfff9, 10.10.2026).
+	st.key, st.id = nil, 0
 	a, err := st.sende(0x65, n)
 	if err != nil {
 		return err
