@@ -545,6 +545,14 @@ func main() {
 				// er schon mit Sonne oder es geht genug ins Netz.
 				e.SonneFrei = g.cfg.Modus == "scharf" && g.cfg.erlaubt(e.Jetzt) && g.st.Stoerung == "" && !g.trocken &&
 					m != nil && (e.EntfeuchterSonne || m.Netz >= g.leistung()+g.cfg.EinReserveW/1000)
+				// Heizkosten des Lueftens: wozu liefe der Entfeuchter statt dessen?
+				// Mit Sonne jetzt oder geplant binnen 18 Stunden zum Einspeisepreis,
+				// sonst vom Netz.
+				e.ObenRH, e.EntfKW, e.EntfStrom = g.cfg.FeuchteOben, g.leistung(), preisNetz
+				e.Einspeisung = m != nil && m.Netz > 0.3
+				if n := g.naechsterFrei(e.Jetzt); e.SonneFrei || (!n.IsZero() && n.Sub(e.Jetzt) < 18*time.Hour) {
+					e.EntfStrom = preisEinspeisung
+				}
 				break
 			}
 		}

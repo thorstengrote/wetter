@@ -159,10 +159,14 @@ type lueftEingang struct {
 	ZielRH           float64
 	CO2              float64 // ppm im Keller, 0 heisst unbekannt
 	Luft             map[int64]luftWert
-	KF               string // Stellung der Kellerfenster
-	EntfeuchterSonne bool   // Entfeuchter laeuft gerade ohne Netz und Akku
-	SonneFrei        bool   // Entfeuchter darf jetzt laufen und haette freien Sonnenstrom
-	KFDa             bool   // D1 mini eingerichtet
+	KF               string  // Stellung der Kellerfenster
+	EntfeuchterSonne bool    // Entfeuchter laeuft gerade ohne Netz und Akku
+	SonneFrei        bool    // Entfeuchter darf jetzt laufen und haette freien Sonnenstrom
+	KFDa             bool    // D1 mini eingerichtet
+	ObenRH           float64 // Obergrenze des Entfeuchters, darueber zaehlen keine Kosten
+	Einspeisung      bool    // das Haus speist gerade ein
+	EntfKW           float64 // Leistung des Entfeuchters
+	EntfStrom        float64 // ct/kWh, zu denen der Entfeuchter statt der Lueftung liefe
 	Ventil           *ventil
 }
 
@@ -173,6 +177,7 @@ type lueftung struct {
 	st                 lueftStand
 	grund              string
 	naechste           time.Time // naechste zu erwartende Lueftung, null ohne
+	kosten             *feuchteKosten
 	sag                func(string, ...any)
 
 	// Verbindungen nach aussen, in Tests ersetzt
@@ -308,6 +313,21 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 	if e.Innen != nil {
 		tp = taupunkt(e.Innen.Temp, e.Innen.RH)
 	}
+	// Heizkosten gegen Entfeuchter, nur unter seiner Obergrenze. Darueber
+	// geht Trocknen vor, Schimmel darf nicht entstehen. 10 % Abstand auf
+	// beiden Seiten, damit es nicht hin und her geht.
+	l.kosten = nil
+	teuer := func(faktor float64) bool { return false }
+	if e.Innen != nil && ausDa && e.EntfKW > 0 {
+		k := kostenJeLiter(*e.Innen, tp, aus, heizzeit(e.Luft, t), e.Einspeisung, e.EntfKW, e.EntfStrom)
+		l.kosten = &k
+		teuer = func(faktor float64) bool {
+			return k.Heizzeit && (e.ObenRH <= 0 || e.Innen.RH < e.ObenRH) && k.Lueften > k.Entfeucht*faktor+0.5
+		}
+	}
+	kostenText := func() string {
+		return fmt.Sprintf("Lüften kostet %.0f ct/l Heizwärme, Entfeuchter %.0f ct/l", l.kosten.Lueften, l.kosten.Entfeucht)
+	}
 
 	if l.st.Phase != "zu" {
 		lz := l.laufzeit()
@@ -339,6 +359,9 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		feuchte := tp-aus.Taupunkt >= c.SchlussK && e.Innen.RH > e.ZielRH-2
 		if lz != nil && lz.Anlass != "co2" && !co2 && e.SonneFrei && c.SonneAbstand > 0 && tp-aus.Taupunkt < c.SonneAbstand {
 			return "zu", fmt.Sprintf("Entfeuchter übernimmt mit freiem Sonnenstrom, Abstand nur %.1f K", tp-aus.Taupunkt), 0
+		}
+		if lz != nil && lz.Anlass != "co2" && !co2 && teuer(1.1) {
+			return "zu", kostenText(), 0
 		}
 		if lz != nil && lz.Anlass != "co2" && !co2 && frisch &&
 			dauer >= time.Duration(c.PruefMin*float64(time.Minute)) && tp >= lz.TaupunktIn {
@@ -410,6 +433,8 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 		return "", fmt.Sprintf("Entfeuchter trocknet mit freiem Sonnenstrom, Abstand nur %.1f K", tp-aus.Taupunkt), 0
 	case e.EntfeuchterSonne && aus.Temp < c.SonneVorrang:
 		return "", fmt.Sprintf("Entfeuchter läuft mit Sonne, Lüften kostet bei %.0f °C Heizwärme", aus.Temp), 0
+	case teuer(0.9):
+		return "", kostenText(), 0
 	}
 	l.naechste = t
 	return "auf", fmt.Sprintf("Taupunkt draußen %.1f °C, drinnen %.1f °C", aus.Taupunkt, tp), 0
@@ -604,6 +629,9 @@ func (l *lueftung) stand(e lueftEingang) map[string]any {
 	l.ergaenze(&e)
 	a := map[string]any{"cfg": l.cfg, "modus": l.cfg.Modus, "phase": l.st.Phase, "seit": l.st.Seit,
 		"grund": l.grund, "heute": l.heute(e.Jetzt)}
+	if l.kosten != nil && !math.IsInf(l.kosten.Lueften, 0) {
+		a["kosten"] = l.kosten
+	}
 	if !l.naechste.IsZero() {
 		a["naechste"] = l.naechste
 	}

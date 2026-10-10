@@ -507,3 +507,38 @@ func TestSpaltWirdGanzAuf(t *testing.T) {
 		t.Fatalf("doppelt: %v", befehle)
 	}
 }
+
+// Heizzeit (Vorgabe vom 10.10.2026): bei 2 °C draussen und Sonne fuer den
+// Entfeuchter kostet Lueften mehr als Entfeuchten, also zu. Ueber der
+// Obergrenze lueftet er trotzdem, und im Sommer kostet Lueften nichts.
+func TestHeizkostenGegenEntfeuchter(t *testing.T) {
+	t0 := mittwoch(8, 0)
+	kalt := luftTag(t0, luftWert{Temp: 2, Taupunkt: 0}, nil)
+	l := testLueftung()
+	e := eingang(t0, 20, 57, kalt)
+	e.EntfKW, e.EntfStrom, e.ObenRH = 0.22, preisEinspeisung, 60
+	a, g, _ := l.entscheide(e)
+	if a != "" || !strings.Contains(g, "Heizwärme") {
+		t.Fatalf("kalt mit Sonne fuer den Entfeuchter: %q %q", a, g)
+	}
+	t.Logf("%s (%.2f l/h, Waerme %.1f ct/kWh)", g, l.kosten.LueftenLpH, l.kosten.WaermeCt)
+	e.Innen.RH = 62
+	if a, g, _ := l.entscheide(e); a != "auf" {
+		t.Fatalf("ueber der Obergrenze: %q %q", a, g)
+	}
+	warm := luftTag(t0, luftWert{Temp: 16, Taupunkt: 8}, nil)
+	e = eingang(t0, 20, 57, warm)
+	e.EntfKW, e.EntfStrom, e.ObenRH = 0.22, preisEinspeisung, 60
+	if a, g, _ := l.entscheide(e); a != "auf" {
+		t.Fatalf("ausserhalb der Heizzeit: %q %q", a, g)
+	}
+	// Mild und Entfeuchter nur mit Netz: Lueften ist billiger
+	mild := luftTag(t0, luftWert{Temp: 10, Taupunkt: 4}, nil)
+	e = eingang(t0, 20, 57, mild)
+	e.EntfKW, e.EntfStrom, e.ObenRH = 0.22, preisNetz, 60
+	a, g, _ = l.entscheide(e)
+	t.Logf("mild, Netz: %q %q, Lueften %.0f, Entfeuchter %.0f ct/l", a, g, l.kosten.Lueften, l.kosten.Entfeucht)
+	if a != "auf" {
+		t.Fatalf("mild und Entfeuchter nur mit Netz: %q %q", a, g)
+	}
+}
