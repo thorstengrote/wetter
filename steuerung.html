@@ -171,6 +171,7 @@ async function lade(){
       for(const r of HZ.raeume||[]) HZK[r.ventil.ain]=await api("api/heizung/verlauf?h=48&ain="+r.ventil.ain);
     }
     if(ansicht==="raum"&&rtab==="vorschau"&&Date.now()-RAUMZEIT>5*60e3) await ladeRaum();
+    if(ansicht==="waschkueche"&&rtab==="vorschau"&&Date.now()-WKZEIT>5*60e3) await ladeWK();
     /* Beim Bearbeiten von Einstellungen nicht neu zeichnen, sonst sind die Eingaben weg. */
     if(ansicht!=="pin"&&!(ansicht==="raum"&&(rtab==="heizung"||reiter==="einst"))&&!(ansicht==="waschkueche"&&reiter==="einst")) zeichne();
   }catch(e){ if(e.message!=="PIN") meldung("Keine Verbindung zum Tablet"); }
@@ -718,16 +719,116 @@ function dosenKarte(titel,filter){
     ${tu.map(g=>{const an=g.stand.dps?.["1"];return tuZeile(g.name,!g.online?"offline":an===true?"an":an===false?"aus":"?",
       g.online?`<button class="${an?"haupt":""}" data-tu="${g.id}|${an?"aus":"an"}">${an?"Aus":"An"}</button>`:"");}).join("")}</div>`;
 }
+/* Waschkueche: Zeitleiste wie im Spielekeller, links 48 Stunden gemessen,
+   rechts 7 Tage voraussichtlich. Die Feuchte drinnen rechnet die Vorschau
+   aus dem eigenen Verlauf: wie schnell sie mit laufendem Entfeuchter faellt
+   und wie schnell sie ohne ihn steigt, angewandt auf den Plan. Fuer die
+   Heizung gibt es keine eigene Regel, nur das Gemessene. */
+let WK=null, WKZEIT=0;
+async function ladeWK(){
+  WKZEIT=Date.now();
+  const g=wkGeraet(),v=ventilVon("waschk");
+  WK={hk:v?await api("api/heizung/verlauf?h=48&ain="+v.ain):[],ev:g?(await api("api/verlauf?id="+g.cfg.id)).laeufe||[]:[]};
+}
+/* Feuchteraten in %/h aus Messpaaren hoechstens 40 Minuten auseinander,
+   getrennt nach Entfeuchter an und aus. Unter einer Stunde Messzeit je
+   Zustand gibt es keine Rate. */
+function wkRaten(fe,laeufe){
+  const lief=t=>laeufe.some(([a,e])=>t>=a&&t<e);const r={an:[0,0],aus:[0,0]};
+  for(let i=1;i<fe.length;i++){const a=fe[i-1],b=fe[i],dt=(b.t-a.t)/36e5;if(dt<=0||dt>2/3)continue;
+    const k=lief((a.t+b.t)/2)?"an":"aus";r[k][0]+=b.rh-a.rh;r[k][1]+=dt;}
+  return {an:r.an[1]>=1?r.an[0]/r.an[1]:null,aus:r.aus[1]>=1?r.aus[0]/r.aus[1]:null,stdAn:r.an[1],stdAus:r.aus[1]};
+}
+function wkVorschau(){
+  const kopf=`<div class="unter">Links die letzten 48 Stunden, gemessen · rechts die nächsten 7 Tage, voraussichtlich</div>`;
+  const g=wkGeraet(),v=ventilVon("waschk");
+  if(!g) return kopf+"<div class='klein'>Entfeuchter Waschküche fehlt in der Steuerung.</div>";
+  if(!WK||!LP) return kopf+"<div class='klein'>lade…</div>";
+  const c=g.cfg,T0=new Date();T0.setHours(0,0,0,0);const jetzt=Date.now(),t0=jetzt-48*36e5,t1=T0.getTime()+7*864e5;
+  const b=1100,links=118,rechts=14,iw=b-links-rechts,mitte=links+iw/2;
+  const x=t=>t<=jetzt?links+(Math.max(t,t0)-t0)/(jetzt-t0)*iw/2:mitte+(Math.min(t,t1)-jetzt)/(t1-jetzt)*iw/2;
+  const ms=d=>new Date(d).getTime(),gueltig=d=>d&&!String(d).startsWith("0001");
+  const fe=(FEUCHTE[c.id]||[]).map(p=>({t:ms(p.zeit),rh:p.rh,temp:p.temp,tp:taupunktJs(p.temp,p.rh)}));
+  const laeufe=(WK.ev||[]).filter(l=>!l.probe).map(l=>{const m=l.min||{};const q=["netz","akku","sonne"].find(k=>(m[k]||0)>0.5)||"sonne";return [ms(l.von),gueltig(l.bis)?ms(l.bis):jetzt,q];});
+  const slots=(PLAN[c.id]?.plan?.slots||[]).map(s=>({t:ms(s.zeit),an:s.an,q:s.quelle,pv:s.pv}));
+  const aussen=(LP.stunden||[]).filter(p=>p.daten).map(p=>({t:ms(p.zeit),temp:p.temp,tp:p.taupunkt,regen:p.regen}));
+  const hk=(WK.hk||[]).map(p=>({t:p.z*1000,ist:p.i,f:p.f})).filter(p=>p.ist>0);
+  // Feuchte voraus: vom letzten Messwert mit den gelernten Raten durch den Plan
+  const raten=wkRaten(fe,laeufe),letzt=fe[fe.length-1],prog=[];
+  if(letzt&&raten.an!=null&&raten.aus!=null){let rh=letzt.rh;prog.push([letzt.t,rh]);
+    for(let t=Math.max(letzt.t,jetzt);t<t1;t+=18e5){const sl=slots.find(s=>t>=s.t&&t<s.t+18e5);
+      rh=Math.min(85,Math.max(35,rh+(sl?.an?raten.an:raten.aus)/2));prog.push([t+18e5,rh]);}}
+  const spur=[["Feuchte",110],["Temperatur",80],["Entfeuchter",22],["Heizung",22],["Sonne",36]];
+  let y=30,Y={};for(const [n,h] of spur){Y[n]=[y,h];y+=h+12;}const H=y+4;
+  let s="";
+  {const d=new Date(t0);d.setHours(0,0,0,0);
+   for(;d.getTime()<t1;d.setDate(d.getDate()+1)){const m=d.getTime(),a=Math.max(m,t0),e=Math.min(m+864e5,t1);
+     if(m>t0) s+=`<line x1="${x(m)}" y1="14" x2="${x(m)}" y2="${H}" stroke="#253244"/>`;
+     const breite=a<jetzt&&e>jetzt?(mitte-x(a))+(x(e)-mitte):x(e)-x(a);
+     if(breite>46){const xm=a<jetzt&&e>jetzt?(x(a)+x(e))/2:x((a+e)/2);
+       s+=`<text x="${xm}" y="16" fill="${m===T0.getTime()?"#e8eef5":"#8b97a6"}" font-size="12" text-anchor="middle">${tag(new Date(m+432e5))}</text>`;}}}
+  for(let t=Math.ceil(t0/216e5)*216e5;t<jetzt;t+=216e5){const h=new Date(t).getHours();
+    if(h!==0) s+=`<text x="${x(t)}" y="${H-2}" fill="#5b6b7d" font-size="9" text-anchor="middle">${h}</text>`;}
+  for(const [n,[yy,h]] of Object.entries(Y)) s+=`<text x="${links-10}" y="${yy+h/2+4}" fill="#8b97a6" font-size="12" text-anchor="end">${n}</text>`;
+  const linie=(pts,yf,farbe,strich)=>{let d="",luecke=true,vor=null;for(const p of pts){if(p==null||(vor!=null&&p[0]-vor>40*60e3&&vor<=jetzt)){luecke=true;if(p==null)continue;}
+      d+=(luecke?"M":"L")+x(p[0]).toFixed(1)+" "+yf(p[1]).toFixed(1);luecke=false;vor=p[0];}
+    return `<path d="${d}" fill="none" stroke="${farbe}" stroke-width="1.6" ${strich?`stroke-dasharray="${strich}"`:""}/>`;};
+  const skala=(werte,[yy,h])=>{const lo=Math.floor(Math.min(...werte)-1),hi=Math.ceil(Math.max(...werte)+1);return [v=>yy+(1-(v-lo)/(hi-lo))*h,lo,hi];};
+  const achse=(n,hi,lo,e)=>`<text x="${links+4}" y="${Y[n][0]+10}" fill="#5b6b7d" font-size="10">${hi}${e}</text><text x="${links+4}" y="${Y[n][0]+Y[n][1]-2}" fill="#5b6b7d" font-size="10">${lo}${e}</text>`;
+  // Feuchte mit Ober- und Untergrenze der Regel
+  {const w=[...fe.filter(p=>p.t>=t0).map(p=>p.rh),...prog.map(p=>p[1]),c.feuchte_oben,c.feuchte_unten].filter(v=>v>0);
+   if(w.length){const [yf,lo,hi]=skala(w,Y.Feuchte);s+=achse("Feuchte",hi,lo," %");
+    for(const [g,farbe] of [[c.feuchte_oben,"var(--netz)"],[c.feuchte_unten,"var(--ein)"]]) if(g>0)
+      s+=`<line x1="${links}" x2="${b-rechts}" y1="${yf(g)}" y2="${yf(g)}" stroke="${farbe}" stroke-dasharray="3 4" opacity=".6"/>`;
+    s+=linie(prog,yf,"#e8eef5","4 3");
+    s+=linie(fe.filter(p=>p.t>=t0).map(p=>[p.t,p.rh]),yf,"#e8eef5");}}
+  // Temperatur: drinnen, draussen, am Ventil
+  {const w=[...fe.filter(p=>p.t>=t0).map(p=>p.temp),...aussen.map(p=>p.temp),...hk.map(p=>p.ist)].filter(v=>v!=null);
+   if(w.length){const [yf,lo,hi]=skala(w,Y.Temperatur);s+=achse("Temperatur",hi,lo,"°");
+    s+=linie(aussen.map(p=>[p.t,p.temp]),yf,"#8b97a6");
+    s+=linie(hk.map(p=>[p.t,p.ist]),yf,"#ffb38a","4 3");
+    s+=linie(fe.filter(p=>p.t>=t0).map(p=>[p.t,p.temp]),yf,"#e8eef5");
+    for(const p of aussen) if(p.regen>=0.2) s+=`<rect x="${x(p.t)}" y="${Y.Temperatur[0]+Y.Temperatur[1]-3}" width="${x(p.t+36e5)-x(p.t)}" height="3" fill="var(--haus)"/>`;}}
+  const balken=(n,a,e,farbe,op=1,titel="")=>{const [yy,h]=Y[n];return `<rect x="${x(Math.max(a,t0))}" y="${yy+3}" width="${Math.max(2,x(Math.min(e,t1))-x(Math.max(a,t0)))}" height="${h-6}" rx="2" fill="${farbe}" opacity="${op}"><title>${titel}</title></rect>`;};
+  for(const [a,e,q] of laeufe) if(e>t0) s+=balken("Entfeuchter",a,e,Q[q],1,"lief "+uhr(a)+" bis "+uhr(e));
+  for(const sl of slots) if(sl.an&&sl.t+18e5>jetzt) s+=balken("Entfeuchter",Math.max(sl.t,jetzt),sl.t+18e5,Q[sl.q]||"#888",.55,"geplant "+uhr(sl.t)+", "+(QT[sl.q]||""));
+  for(const p of hk) if(p.f) s+=balken("Heizung",p.t,p.t+15*60e3,"#ff7b6b",.9,"forderte Wärme "+uhr(p.t));
+  {const [yy,h]=Y.Sonne,mx=Math.max(1,...slots.map(s=>s.pv));let d="";for(const sl of slots){const yv=yy+h-sl.pv/mx*h;d+=`M${x(sl.t)} ${yy+h}V${yv}H${x(sl.t+18e5)}V${yy+h}Z`;}
+   s+=`<path d="${d}" fill="#ffd166" opacity=".35"/><text x="${links+4}" y="${yy+10}" fill="#5b6b7d" font-size="10">${z(mx)} kW</text>`;}
+  s+=`<line x1="${mitte}" y1="18" x2="${mitte}" y2="${H}" stroke="#e8eef5" stroke-opacity=".8"/><text x="${mitte+4}" y="${H-2}" fill="#e8eef5" font-size="10">jetzt</text>
+    <text x="${mitte-6}" y="30" fill="#5b6b7d" font-size="10" text-anchor="end">48 Stunden, gemessen</text><text x="${mitte+6}" y="30" fill="#5b6b7d" font-size="10">7 Tage, voraussichtlich</text>`;
+  const svg=`<svg viewBox="0 0 ${b} ${H}" style="display:block;width:100%;height:auto;min-width:900px">${s}</svg>`;
+  const f=g.feuchte,nE=slots.filter(s=>s.an&&s.t>jetzt).length/2,nN=slots.filter(s=>s.an&&s.t>jetzt&&s.q!=="sonne").length/2;
+  const rate=r=>r==null?"–":(r>0?"+":"")+z(r,1)+" %/h";
+  const ratenText=raten.an!=null&&raten.aus!=null?`Gelernt aus den letzten Tagen: mit Entfeuchter ${rate(raten.an)}, ohne ${rate(raten.aus)}.`
+    :`Für die Feuchte voraus fehlt noch Messzeit (an ${z(raten.stdAn,1)} h, aus ${z(raten.stdAus,1)} h, je eine Stunde nötig).`;
+  return kopf+`<div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
+      <div class="karte"><h2>Raumluft jetzt</h2><div class="zahl">${f?z(f.rh,0)+" <small>%</small>":"–"}</div><div class="klein">${f?z(f.temp)+" °C · Taupunkt "+z(taupunktJs(f.temp,f.rh))+" °C":""}${f?.batterie?" · Fühlerbatterie "+f.batterie+" %":""}</div></div>
+      <div class="karte"><h2>Entfeuchter</h2><div class="zahl" style="font-size:20px">${g.an?"an":"aus"}</div><div class="klein">${esc(g.grund||"")}</div></div>
+      <div class="karte"><h2>Geplant</h2><div class="zahl">${z(nE)} <small>h</small></div><div class="klein">in den nächsten 7 Tagen${nN?`, davon ${z(nN)} h aus Akku oder Netz`:""}</div></div>
+      <div class="karte"><h2>Heizung</h2><div class="zahl" style="font-size:20px">${v?z(v.ist)+" °C":"–"}</div><div class="klein">${v?`Ventil ${sollText(v.soll)}`:"kein Ventil gefunden"}</div></div>
+    </div>
+    <div class="karte plan"><h2>Zeitleiste, 7 Tage</h2><div style="overflow-x:auto">${svg}</div>
+      <div class="legende"><span><i style="background:#e8eef5"></i>drinnen, gemessen; gestrichelt gerechnet</span><span><i style="background:#8b97a6"></i>draußen, Vorhersage</span>
+        <span><i style="background:var(--netz)"></i>Obergrenze ${z(c.feuchte_oben,0)} %</span><span><i style="background:var(--ein)"></i>Untergrenze ${z(c.feuchte_unten,0)} %</span>
+        <span><i style="background:#ffb38a"></i>am Ventil</span><span><i style="background:var(--haus)"></i>Regen</span>
+        <span><i style="background:var(--ein)"></i>Entfeuchter mit Sonne</span><span><i style="background:var(--akku)"></i>aus dem Akku</span><span><i style="background:var(--netz)"></i>vom Netz</span>
+        <span><i style="background:#ff7b6b"></i>Ventil forderte Wärme</span></div>
+      <div class="klein" style="margin-top:10px">Kräftige Farben sind Gemessenes, blasse sind voraussichtlich. Die Vorschau ist eine Rechnung, keine Zusage:
+        Wetter aus der Vorhersage, Entfeuchter aus seinem Plan. ${ratenText}
+        Die Rechnung kennt keine Wäsche auf der Leine und kein offenes Fenster.</div></div>`;
+}
 function bueroSicht(){
   return `<h1>Büro</h1><div class="unter">Rollläden und Heizung</div>
     <div class="raster geraete">${rolllaedenKarte()}${ventilKarte("buero")}</div>`;
 }
 function waschkuecheSicht(){
-  const g=wkGeraet();
+  const g=wkGeraet(),tabs=[["vorschau","Vorschau"],["entfeuchter","Entfeuchter"]];
+  const kopf=`<h1>Waschküche</h1>
+    <div class="tabs">${tabs.map(([k,n])=>`<a data-rt="${k}" class="${rtab===k?"an":""}">${n}</a>`).join("")}</div>`;
   const unten=`<div class="raster geraete" style="margin-top:14px">${dosenKarte("Steckdose",n=>/waschk/i.test(n))}${ventilKarte("waschk")}</div>`;
-  if(!g) return `<h1>Waschküche</h1>`+unten;
-  geraetId=g.cfg.id;
-  return `<h1>Waschküche</h1>`+geraetSicht().replace(/^\s*<h1>[\s\S]*?<\/h1>/,"")+unten;
+  if(rtab==="entfeuchter"&&g){geraetId=g.cfg.id;return kopf+geraetSicht().replace(/^\s*<h1>[\s\S]*?<\/h1>/,"")+unten;}
+  return kopf+wkVorschau()+unten;
 }
 function wohnzimmerSicht(){
   return `<h1>Wohnzimmer</h1><div class="unter">Raumklima und Heizung · die Velux-Rollläden stehen auf der Wand im Velux-Menü</div>
@@ -833,12 +934,12 @@ function zeichne(){
   const w=document.getElementById("wurzel");w.innerHTML=rahmen(inhalt);
   w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;
     if(ansicht==="raum"){rtab="vorschau";reiter="";RAUMZEIT=0;lade();}
-    if(ansicht==="waschkueche") reiter="plan";
+    if(ansicht==="waschkueche"){rtab="vorschau";reiter="";WKZEIT=0;lade();}
     if(ansicht==="heizung"){HZZEIT=0;lade();} zeichne();});
   w.querySelectorAll("[data-rt]").forEach(a=>a.onclick=()=>{rtab=a.dataset.rt;entwurf=null;
     reiter=rtab==="lueftung"?"stand":rtab==="entfeuchter"?"plan":"";
-    if(rtab==="vorschau"){RAUMZEIT=0;lade();} zeichne();});
-  w.querySelectorAll("[data-g]").forEach(a=>a.onclick=()=>{ansicht="raum";rtab="entfeuchter";geraetId=a.dataset.g;reiter="plan";entwurf=null;zeichne();});
+    if(rtab==="vorschau"){RAUMZEIT=0;WKZEIT=0;lade();} zeichne();});
+  w.querySelectorAll("[data-g]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.g==="waschkueche"?"waschkueche":"raum";rtab="entfeuchter";geraetId=a.dataset.g;reiter="plan";entwurf=null;zeichne();});
   w.querySelectorAll("[data-r]").forEach(a=>a.onclick=()=>{reiter=a.dataset.r;entwurf=null;zeichne();});
   w.querySelectorAll("[data-h]").forEach(b=>b.onclick=async()=>{b.disabled=true;
     try{await api("api/hand",{id:b.dataset.id,aktion:b.dataset.h});meldung("Erledigt");await lade();}catch(e){meldung(e.message);}});
@@ -856,7 +957,7 @@ function zeichne(){
   if(sw) sw.onchange=()=>{entwurf.sensor_id=sw.value;entwurf.sensor_name=sw.value?sw.options[sw.selectedIndex].text:"";};
   w.querySelectorAll("[data-fe]").forEach(i=>i.onchange=()=>{const f=new Set(entwurf.fenster||[]);
     i.checked?f.add(i.dataset.fe):f.delete(i.dataset.fe);entwurf.fenster=[...f];});
-  if((ansicht==="raum"&&rtab==="entfeuchter"||ansicht==="waschkueche")&&reiter==="einst"&&SENSOREN===null){SENSOREN=[];api("api/sensoren").then(l=>{SENSOREN=l||[];zeichne();}).catch(()=>{});}
+  if((ansicht==="raum"||ansicht==="waschkueche")&&rtab==="entfeuchter"&&reiter==="einst"&&SENSOREN===null){SENSOREN=[];api("api/sensoren").then(l=>{SENSOREN=l||[];zeichne();}).catch(()=>{});}
   w.querySelectorAll("[data-wz]").forEach(i=>i.onchange=()=>{const m=i.value.match(/^(\d{1,2}):?(\d{2})?$/);
     if(m) entwurf.wach[i.dataset.wz][i.dataset.w]=Number(m[1])+Number(m[2]||0)/60; else meldung("Uhrzeit wie 9:30");});
   const hsp=document.getElementById("hspeichern");
@@ -870,7 +971,7 @@ function zeichne(){
   const vw=document.getElementById("verwerfen");if(vw) vw.onclick=()=>{entwurf=null;zeichne();};
   const hs=document.getElementById("hellsetzen");
   if(hs) hs.onclick=async()=>{try{await api("api/tablet",{hell_tag:Number(document.getElementById("hell").value)});meldung("Gilt binnen einer Minute");await lade();}catch(e){meldung(e.message);}};
-  if((ansicht==="raum"&&rtab==="entfeuchter"||ansicht==="waschkueche")&&reiter==="verlauf") verlaufLaden();
+  if((ansicht==="raum"||ansicht==="waschkueche")&&rtab==="entfeuchter"&&reiter==="verlauf") verlaufLaden();
 }
 
 /* Ansicht aus dem Adressanker, etwa steuerung#heizung, fuer Lesezeichen. */
