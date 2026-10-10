@@ -580,6 +580,8 @@ func main() {
 	go hr.laufe()
 	tu := neuesTuya(filepath.Join(dir, "tuya.json"), sag)
 	go tu.laufe()
+	bl := neuesBroadlink(filepath.Join(dir, "broadlink.json"), sag)
+	go bl.laufe()
 	if *vlx != "" {
 		na := neueNacht(filepath.Join(dir, "nacht.json"), *vlx, sag)
 		// Einmal heute Nacht, einmal morgen frueh auch fuer das Buero.
@@ -606,6 +608,7 @@ func main() {
 	lf.bediene(mux)
 	hr.bediene(mux)
 	tu.bediene(mux)
+	bl.bediene(mux)
 	kl.bediene(mux)
 	mux.HandleFunc("/api/heizung", func(w http.ResponseWriter, r *http.Request) {
 		a := z.fr.stand()

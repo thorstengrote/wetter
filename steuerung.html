@@ -110,7 +110,7 @@ const dauerText=m=>m<60?`${Math.round(m)} min`:`${z(m/60)} h`;
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 const FENSTER={"3":"Ben","5":"Wohnzimmer unten","15":"Wohnzimmer oben"};
-let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null, LF=null, LP=null, RAUM=null, RAUMZEIT=0, KL=null, HR=null, TU=null;
+let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null, LF=null, LP=null, RAUM=null, RAUMZEIT=0, KL=null, HR=null, TU=null, BL=null;
 let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null;
 
 function meldung(t){const m=document.getElementById("meldung");m.textContent=t;m.style.display="block";
@@ -164,6 +164,7 @@ async function lade(){
     KL=await api("api/klima");
     HR=await api("api/heizregel");
     TU=await api("api/tuya");
+    BL=await api("api/broadlink");
     if(ansicht==="heizung"&&Date.now()-HZZEIT>5*60e3){
       HZZEIT=Date.now();
       for(const r of HZ.raeume||[]) HZK[r.ventil.ain]=await api("api/heizung/verlauf?h=48&ain="+r.ventil.ain);
@@ -446,10 +447,12 @@ function tuyaKarte(){
   const zeile=(n,inhalt,knoepfe)=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0">
     <div><b>${esc(n)}</b> <span class="klein">${inhalt}</span></div><div class="knoepfe" style="margin:0">${knoepfe}</div></div>`;
   const rk=ids=>`<button data-tu="${ids}|open">▲</button><button data-tu="${ids}|lueften" title="Lüftungsstellung">≡</button><button data-tu="${ids}|stop">■</button><button data-tu="${ids}|close">▼</button>`;
-  return `<div class="karte geraet"><div class="kopf"><div><div class="name">Büro & Garten</div><div class="klein">Smart Life · direkt im Heimnetz</div></div>
+  return `<div class="karte geraet"><div class="kopf"><div><div class="name">Büro, Garten, Waschküche</div><div class="klein">Smart Life und Broadlink · direkt im Heimnetz</div></div>
       <span class="chip ${TU.every(g=>g.online||g.art==="cz")?"blau":""}">${TU.filter(g=>g.online).length} von ${TU.length} erreichbar</span></div>
     ${roll.length>1?zeile("Rollläden Büro","beide",rk(roll.map(g=>g.id).join(","))):""}
     ${roll.map(g=>zeile(g.name.replace("Rollladen ",""),g.online?(g.stand.befehl?`zuletzt ${befehl[g.stand.befehl]||g.stand.befehl} ${uhr(g.stand.befehl_zeit)}`:""):"nicht erreichbar",g.online?rk(g.id):"")).join("")}
+    ${(BL||[]).map(g=>{const an=g.stand.an,da=!!g.stand.ip&&!g.stand.fehler;return zeile(g.name,!da?(g.stand.fehler?esc(g.stand.fehler):"nicht gefunden"):an?"an":"aus",
+      da?`<button class="${an?"haupt":""}" data-bl="${g.mac}|${an?"aus":"an"}">${an?"Aus":"An"}</button>`:"");}).join("")}
     ${dosen.map(g=>{const an=g.stand.dps?.["1"];return zeile(g.name,!g.online?"offline":an===true?"an":an===false?"aus":"?",
       g.online?`<button class="${an?"haupt":""}" data-tu="${g.id}|${an?"aus":"an"}">${an?"Aus":"An"}</button>`:"");}).join("")}
     <div class="klein">≡ fährt die Lüftungsstellung an: von oben 24 s runter, von unten 6 s hoch, sonst erst ganz zu. Die Rollläden melden keine Stellung, nur den letzten Befehl.</div></div>`;
@@ -766,6 +769,8 @@ function zeichne(){
     try{await api("api/hand",{id:b.dataset.id,aktion:b.dataset.h});meldung("Erledigt");await lade();}catch(e){meldung(e.message);}});
   w.querySelectorAll("[data-tu]").forEach(b=>b.onclick=async()=>{const [ids,was]=b.dataset.tu.split("|");b.disabled=true;
     try{for(const id of ids.split(",")) await api("api/tuya",{id,was});meldung("Gesendet");await lade();}catch(e){meldung(e.message);zeichne();}});
+  w.querySelectorAll("[data-bl]").forEach(b=>b.onclick=async()=>{const [mac,was]=b.dataset.bl.split("|");b.disabled=true;
+    try{await api("api/broadlink",{mac,was});meldung("Gesendet");await lade();}catch(e){meldung(e.message);zeichne();}});
   w.querySelectorAll("[data-ko]").forEach(a=>a.onclick=async()=>{try{await api("api/klima",{standort:a.dataset.ko});meldung("Standort gespeichert");await lade();}catch(e){meldung(e.message);}});
   w.querySelectorAll("[data-kf]").forEach(b=>b.onclick=async()=>{w.querySelectorAll("[data-kf]").forEach(x=>x.disabled=true);
     try{await api("api/kellerfenster",{richtung:b.dataset.kf});meldung("Gesendet");await lade();}catch(e){meldung(e.message);zeichne();}});
