@@ -111,7 +111,7 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 
 const FENSTER={"3":"Ben","5":"Wohnzimmer unten","15":"Wohnzimmer oben"};
 let SENSOREN=null, FEUCHTE={}, HZ=null, HZK={}, HZZEIT=0, KF=null, LF=null, LP=null, RAUM=null, RAUMZEIT=0, KL=null, HR=null, TU=null, BL=null;
-let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null;
+let ST=null, PLAN={}, ansicht="uebersicht", geraetId=null, reiter="plan", pin="", entwurf=null, rtab="vorschau", HW=[];
 
 function meldung(t){const m=document.getElementById("meldung");m.textContent=t;m.style.display="block";
   clearTimeout(meldung.u);meldung.u=setTimeout(()=>m.style.display="none",3500);}
@@ -165,12 +165,14 @@ async function lade(){
     HR=await api("api/heizregel");
     TU=await api("api/tuya");
     BL=await api("api/broadlink");
+    try{ HW=(await api("solar.json")).hinweise||[]; }catch(e){ HW=[]; }
     if(ansicht==="heizung"&&Date.now()-HZZEIT>5*60e3){
       HZZEIT=Date.now();
       for(const r of HZ.raeume||[]) HZK[r.ventil.ain]=await api("api/heizung/verlauf?h=48&ain="+r.ventil.ain);
     }
-    if(ansicht==="raum"&&Date.now()-RAUMZEIT>5*60e3) await ladeRaum();
-    if(ansicht!=="pin"&&!((ansicht==="geraet"||ansicht==="lueftung")&&reiter==="einst")&&!(ansicht==="raum"&&reiter==="heiz")) zeichne();
+    if(ansicht==="raum"&&rtab==="vorschau"&&Date.now()-RAUMZEIT>5*60e3) await ladeRaum();
+    /* Beim Bearbeiten von Einstellungen nicht neu zeichnen, sonst sind die Eingaben weg. */
+    if(ansicht!=="pin"&&!(ansicht==="raum"&&(rtab==="heizung"||reiter==="einst"))) zeichne();
   }catch(e){ if(e.message!=="PIN") meldung("Keine Verbindung zum Tablet"); }
 }
 
@@ -228,22 +230,6 @@ function planSumme(plan,leistung){
 }
 
 /* ---------- Ansichten ---------- */
-function rahmen(inhalt){
-  const g=ST?.geraete||[];
-  const stand=ST?.jetzt?uhr(ST.jetzt.zeit):"–";
-  return `<div class="app"><nav>
-    <div class="marke">Haussteuerung<small>Messung ${stand}</small></div>
-    <a data-v="uebersicht" class="${ansicht==="uebersicht"?"an":""}">Übersicht</a>
-    <div class="gruppe">Geräte</div>
-    ${g.map(x=>`<a data-g="${x.cfg.id}" class="${ansicht==="geraet"&&geraetId===x.cfg.id?"an":""}">
-      <span class="punkt" style="background:${x.an?"var(--ein)":"var(--sehrleise)"}"></span>${esc(x.cfg.name)}</a>`).join("")}
-    <a data-v="tablet" class="${ansicht==="tablet"?"an":""}"><span class="punkt" style="background:var(--haus)"></span>Wandtablet</a>
-    <div class="gruppe">Haus</div>
-    <a data-v="heizung" class="${ansicht==="heizung"?"an":""}"><span class="punkt" style="background:#ff9f6b"></span>Heizung</a>
-    <a data-v="raum" class="${ansicht==="raum"?"an":""}"><span class="punkt" style="background:var(--pv)"></span>Spielekeller</a>
-    <a data-v="lueftung" class="${ansicht==="lueftung"?"an":""}"><span class="punkt" style="background:${LF?.phase==="offen"?"var(--ein)":"var(--luft)"}"></span>Lüftung</a>
-  </nav><main>${inhalt}</main></div>`;
-}
 function jetztLeiste(){
   const j=ST.jetzt||{},t=ST.tablet||{};
   const k=(n,f,w,u)=>`<div class="karte"><div class="t"><span class="punkt" style="background:${f}"></span>${n}</div><div class="zahl">${w}</div><div class="klein">${u}</div></div>`;
@@ -304,29 +290,7 @@ function kellerKarte(){
     <div><span class="zahl">${esc(KF.stellung||"unbekannt")}</span> <span class="klein">&nbsp;${l?`${esc(von[l.quelle]||l.quelle)} ${wann}`:"noch kein Befehl gesehen"}</span></div>
     <div class="klein">Stellung nach dem letzten Befehl, die Antriebe melden nichts zurück</div>
     ${LF?`<div class="klein">Lüftung ${LF.modus==="scharf"?"":"("+esc(LF.modus)+") "}· ${esc(LF.grund||"–")}</div>`:""}
-    <div class="knoepfe"><button data-kf="auf">▲ Auf</button><button data-kf="stop">■ Stop</button><button data-kf="ab">▼ Zu</button>
-      ${ansicht!=="lueftung"?`<button class="haupt" data-v="lueftung">Lüftung</button>`:""}</div></div>`;
-}
-function uebersicht(){
-  const g=ST.geraete||[],t=ST.tablet||{};
-  return `<h1>Übersicht</h1><div class="unter">${new Date(ST.zeit).toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"})} · Prognose ${ST.prognose_stunden?"von "+uhr(ST.prognose_zeit):"fehlt noch"}</div>
-    ${jetztLeiste()}
-    <div class="raster geraete">${g.map(geraetKarte).join("")}
-      <div class="karte geraet"><div class="kopf"><div><div class="name">Wandtablet</div><div class="klein">MediaPad T5 · Wächter</div></div>
-        <span class="chip blau">läuft</span></div>
-        <div><span class="zahl">${t.akku??"–"} %</span> <span class="klein">&nbsp;${t.strom_ma>0?"lädt":"entlädt"} ${Math.abs(t.strom_ma||0)} mA</span></div>
-        <div class="klein">Helligkeit tags ${t.hell_tag}, nachts 51 · Sparstufe ab 20 %</div>
-        <div class="knoepfe"><button data-v="tablet">Einstellen</button></div></div>
-      ${HZ&&HZ.raeume?.length?`<div class="karte geraet"><div class="kopf"><div><div class="name">Heizung</div><div class="klein">${HZ.raeume.length} Ventile · Spielkeller beim Lüften verstellt</div></div>
-        <span class="chip">${HZ.aussen!=null?"außen "+z(HZ.aussen)+" °C":"FRITZ!Box"}</span></div>
-        <div><span class="zahl">${HZ.raeume.filter(x=>x.ventil.fordert).length}</span> <span class="klein">&nbsp;Räume fordern Wärme</span></div>
-        <div class="klein">${HZ.raeume.filter(x=>x.ventil.fordert).map(x=>esc(x.ventil.name)).join(", ")||"alle zufrieden"}${HZ.raeume.some(x=>x.ventil.warm_ohne_heizung)?" · warm ohne Heizung: "+HZ.raeume.filter(x=>x.ventil.warm_ohne_heizung).map(x=>esc(x.ventil.name)).join(", "):""}</div>
-        <div class="knoepfe"><button data-v="heizung">Ansehen</button></div></div>`:""}
-      ${kellerKarte()}
-      ${klimaKarte()}
-      ${tuyaKarte()}
-    </div>
-    ${g.map(x=>`<div class="karte plan" style="margin-top:14px"><h2>${esc(x.cfg.name)} · die nächsten 7 Tage</h2>${planSvg(PLAN[x.cfg.id]?.plan||{},true)}${legende}</div>`).join("")}`;
+    <div class="knoepfe"><button data-kf="auf">▲ Auf</button><button data-kf="stop">■ Stop</button><button data-kf="ab">▼ Zu</button></div></div>`;
 }
 function geraetSicht(){
   const g=(ST.geraete||[]).find(x=>x.cfg.id===geraetId);if(!g) return "";
@@ -440,24 +404,6 @@ function heizungSicht(){
       "Warm ohne Heizung": in zwei Stunden mehr als ein Grad wärmer, ohne dass das Ventil gefordert hat, etwa durch den Kamin oder Sonne.</div>`;
 }
 /* Tuya-Geraete aus der Smart-Life-App, direkt im Heimnetz gesteuert. */
-function tuyaKarte(){
-  if(!TU||!TU.length) return "";
-  const roll=TU.filter(g=>g.art==="clkg"),dosen=TU.filter(g=>g.art==="cz");
-  const befehl={open:"auf",stop:"steht",close:"zu",lueften:"in Lüftungsstellung"};
-  const zeile=(n,inhalt,knoepfe)=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0">
-    <div><b>${esc(n)}</b> <span class="klein">${inhalt}</span></div><div class="knoepfe" style="margin:0">${knoepfe}</div></div>`;
-  const rk=ids=>`<button data-tu="${ids}|open">▲</button><button data-tu="${ids}|lueften" title="Lüftungsstellung">≡</button><button data-tu="${ids}|stop">■</button><button data-tu="${ids}|close">▼</button>`;
-  return `<div class="karte geraet"><div class="kopf"><div><div class="name">Büro, Garten, Waschküche</div><div class="klein">Smart Life und Broadlink · direkt im Heimnetz</div></div>
-      <span class="chip ${TU.every(g=>g.online||g.art==="cz")?"blau":""}">${TU.filter(g=>g.online).length} von ${TU.length} erreichbar</span></div>
-    ${roll.length>1?zeile("Rollläden Büro","beide",rk(roll.map(g=>g.id).join(","))):""}
-    ${roll.map(g=>zeile(g.name.replace("Rollladen ",""),g.online?(g.stand.befehl?`zuletzt ${befehl[g.stand.befehl]||g.stand.befehl} ${uhr(g.stand.befehl_zeit)}`:""):"nicht erreichbar",g.online?rk(g.id):"")).join("")}
-    ${(BL||[]).map(g=>{const an=g.stand.an,da=!!g.stand.ip&&!g.stand.fehler;return zeile(g.name,!da?(g.stand.fehler?esc(g.stand.fehler):"nicht gefunden"):an?"an":"aus",
-      da?`<button class="${an?"haupt":""}" data-bl="${g.mac}|${an?"aus":"an"}">${an?"Aus":"An"}</button>`:"");}).join("")}
-    ${dosen.map(g=>{const an=g.stand.dps?.["1"];return zeile(g.name,!g.online?"offline":an===true?"an":an===false?"aus":"?",
-      g.online?`<button class="${an?"haupt":""}" data-tu="${g.id}|${an?"aus":"an"}">${an?"Aus":"An"}</button>`:"");}).join("")}
-    <div class="klein">≡ fährt die Lüftungsstellung an: von oben 24 s runter, von unten 6 s hoch, sonst erst ganz zu. Die Rollläden melden keine Stellung, nur den letzten Befehl.</div></div>`;
-}
-
 /* Raumklima vom Velux-Sensor. Er gehoert ins Wohnzimmer und steuert dort die
    Velux-Lueftung, laesst sich aber zum Messen in den Keller ausleihen. */
 const co2Farbe=v=>v<1000?"var(--ein)":v<1400?"var(--pv)":"var(--netz)";
@@ -488,10 +434,8 @@ async function ladeRaum(){
   RAUM={hk:v?await api("api/heizung/verlauf?h=168&ain="+v.ain):[],ev:g?(await api("api/verlauf?id="+g.cfg.id)).laeufe||[]:[],
     kl:(await api("api/klima?tage=7&ort=spielekeller")).verlauf||[]};
 }
-function raumSicht(){
-  const kopf=`<h1>Spielekeller</h1><div class="unter">${reiter==="heiz"?"Heizung, eigene Regel statt FRITZ!Box-Zeitplan":"Links die letzten 48 Stunden, gemessen · rechts die nächsten 7 Tage, voraussichtlich"}</div>
-    <div class="tabs"><a data-r="vorschau" class="${reiter!=="heiz"?"an":""}">Vorschau</a><a data-r="heiz" class="${reiter==="heiz"?"an":""}">Heizung</a></div>`;
-  if(reiter==="heiz") return kopf+heizungEinst();
+function raumVorschau(){
+  const kopf=`<div class="unter">Links die letzten 48 Stunden, gemessen · rechts die nächsten 7 Tage, voraussichtlich</div>`;
   const g=raumGeraet(),v=raumVentil();
   if(!RAUM||!LP) return kopf+"<div class='klein'>lade…</div>";
   /* Geteilte Achse (Wunsch vom 07.10.2026): die letzten 48 Stunden nehmen
@@ -735,6 +679,126 @@ function lueftungEinst(){
     </div></div>
     <div class="knoepfe" style="justify-content:flex-end;margin-top:16px"><button id="verwerfen">Verwerfen</button><button class="haupt" id="lspeichern">Speichern</button></div>`;
 }
+/* ---------- Gliederung nach Raeumen (Wunsch vom 10.10.2026) ----------
+   Raeume: Spielekeller, Waschkueche, Buero, Wohnzimmer, Garten. Haus:
+   Energie, Heizung, Wandtablet. Geraete stehen in ihrem Raum. */
+const RAEUME=[
+  ["raum","Spielekeller"],["waschkueche","Waschküche"],["buero","Büro"],["wohnzimmer","Wohnzimmer"],["garten","Garten"]];
+const HAUS=[["energie","Energie"],["heizung","Heizung"],["tablet","Wandtablet"]];
+const ventilVon=teil=>(HZ?.raeume||[]).map(r=>r.ventil).find(v=>v.name.toLowerCase().replace("ü","ue").includes(teil));
+function ventilKarte(teil,titel){
+  const v=ventilVon(teil);if(!v) return "";
+  const [t,k]=hzStatus(v);
+  return `<div class="karte geraet"><div class="kopf"><div><div class="name">${esc(titel||"Heizung")}</div><div class="klein">Ventil ${esc(v.name)} · FRITZ!Box</div></div>
+      <span class="chip ${k}">${t}</span></div>
+    <div><span class="zahl">${z(v.ist)} °C</span> <span class="klein">&nbsp;soll ${sollText(v.soll)}</span></div>
+    <div class="klein">Batterie ${v.batterie} %${v.batterie_schwach?" · schwach":""}</div></div>`;
+}
+const tuZeile=(n,inhalt,knoepfe)=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0">
+    <div><b>${esc(n)}</b> <span class="klein">${inhalt}</span></div><div class="knoepfe" style="margin:0">${knoepfe}</div></div>`;
+const rkKnoepfe=ids=>`<button data-tu="${ids}|open">▲</button><button data-tu="${ids}|lueften" title="Lüftungsstellung">≡</button><button data-tu="${ids}|stop">■</button><button data-tu="${ids}|close">▼</button>`;
+const BEFEHL={open:"auf",stop:"steht",close:"zu",lueften:"in Lüftungsstellung"};
+function rolllaedenKarte(){
+  const roll=(TU||[]).filter(g=>g.art==="clkg");if(!roll.length) return "";
+  return `<div class="karte geraet"><div class="kopf"><div><div class="name">Rollläden</div><div class="klein">Smart Life · direkt im Heimnetz</div></div>
+      <span class="chip ${roll.every(g=>g.online)?"blau":"rot"}">${roll.filter(g=>g.online).length} von ${roll.length} erreichbar</span></div>
+    ${roll.length>1?tuZeile("Beide","",rkKnoepfe(roll.map(g=>g.id).join(","))):""}
+    ${roll.map(g=>tuZeile(g.name.replace("Rollladen ",""),g.online?(g.stand.befehl?`zuletzt ${BEFEHL[g.stand.befehl]||g.stand.befehl} ${uhr(g.stand.befehl_zeit)}`:""):"nicht erreichbar",g.online?rkKnoepfe(g.id):"")).join("")}
+    <div class="klein">≡ fährt die Lüftungsstellung an: von oben 24 s runter, von unten 6 s hoch, sonst erst ganz zu. Die Rollläden melden keine Stellung, nur den letzten Befehl. Auf der Wand stehen sie im Velux-Menü als Büro.</div></div>`;
+}
+function dosenKarte(titel,filter){
+  const tu=(TU||[]).filter(g=>g.art==="cz"&&filter(g.name)),bl=(BL||[]).filter(g=>filter(g.name));
+  if(!tu.length&&!bl.length) return "";
+  return `<div class="karte geraet"><div class="kopf"><div><div class="name">${esc(titel)}</div><div class="klein">Steckdosen · direkt im Heimnetz</div></div></div>
+    ${bl.map(g=>{const an=g.stand.an,da=!!g.stand.ip&&!g.stand.fehler;return tuZeile(g.name,!da?(g.stand.fehler?esc(g.stand.fehler):"nicht gefunden"):an?"an":"aus",
+      da?`<button class="${an?"haupt":""}" data-bl="${g.mac}|${an?"aus":"an"}">${an?"Aus":"An"}</button>`:"");}).join("")}
+    ${tu.map(g=>{const an=g.stand.dps?.["1"];return tuZeile(g.name,!g.online?"offline":an===true?"an":an===false?"aus":"?",
+      g.online?`<button class="${an?"haupt":""}" data-tu="${g.id}|${an?"aus":"an"}">${an?"Aus":"An"}</button>`:"");}).join("")}</div>`;
+}
+function bueroSicht(){
+  return `<h1>Büro</h1><div class="unter">Rollläden und Heizung</div>
+    <div class="raster geraete">${rolllaedenKarte()}${ventilKarte("buero")}</div>`;
+}
+function waschkuecheSicht(){
+  return `<h1>Waschküche</h1><div class="unter">Entfeuchter mit direktem Ablauf, Fühler aus dem Van</div>
+    <div class="raster geraete">${dosenKarte("Entfeuchter",n=>/waschk/i.test(n))}
+      <div class="karte geraet"><div class="name">Raumluft</div><div class="klein" style="line-height:1.6">Der SwitchBot "Waschküche Sensor" ist angelernt. Werte und eine eigene Regelung kommen,
+        sobald klar ist, ob der Entfeuchter nach Stromunterbrechung von selbst weiterläuft und wie viel Watt er hat.</div></div>
+      ${ventilKarte("waschk")}</div>`;
+}
+function wohnzimmerSicht(){
+  return `<h1>Wohnzimmer</h1><div class="unter">Raumklima und Heizung · die Velux-Rollläden stehen auf der Wand im Velux-Menü</div>
+    <div class="raster geraete">${klimaKarte()}${ventilKarte("wohnzimmer")}</div>`;
+}
+function gartenSicht(){
+  return `<h1>Garten</h1><div class="unter">Beleuchtung und Pool</div>
+    <div class="raster geraete">${dosenKarte("Steckdosen",n=>!/waschk/i.test(n))}</div>`;
+}
+function energieSicht(){
+  const g=ST.geraete||[];
+  return `<h1>Energie</h1><div class="unter">Prognose ${ST.prognose_stunden?"von "+uhr(ST.prognose_zeit):"fehlt noch"} · Einspeisung bringt 7,82 ct/kWh, Netzbezug kostet 24,55 ct/kWh</div>
+    ${jetztLeiste()}
+    ${g.map(x=>`<div class="karte plan" style="margin-top:14px"><h2>${esc(x.cfg.name)} · die nächsten 7 Tage</h2>${planSvg(PLAN[x.cfg.id]?.plan||{},true)}${legende}</div>`).join("")}`;
+}
+function kachel(v,name,zahl,zeilen,farbe){
+  return `<div class="karte geraet" data-v="${v}" style="cursor:pointer"><div class="kopf"><div class="name">${esc(name)}</div>
+      <span class="punkt" style="background:${farbe||"var(--sehrleise)"};width:10px;height:10px"></span></div>
+    <div><span class="zahl">${zahl}</span></div>${zeilen.filter(Boolean).map(t=>`<div class="klein">${t}</div>`).join("")}</div>`;
+}
+function uebersicht(){
+  const t=ST.tablet||{},g=raumGeraet(),i=LF?.innen;
+  const roll=(TU||[]).filter(x=>x.art==="clkg"),vg=(TU||[]).find(x=>/vorgarten/i.test(x.name)),bl=(BL||[])[0];
+  const vb=ventilVon("buero"),vw=ventilVon("wohnzimmer"),vk=ventilVon("waschk");
+  const kw=KL?.aktuell&&KL.standort==="wohnzimmer"?KL.aktuell:null;
+  const hinweise=(HW||[]).length?`<div class="stoerung" style="margin-bottom:14px">${HW.map(esc).join("<br>")}</div>`:"";
+  return `<h1>Übersicht</h1><div class="unter">${new Date(ST.zeit).toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"})}</div>
+    ${hinweise}${jetztLeiste()}
+    <h2 class="klein" style="text-transform:uppercase;letter-spacing:.06em;margin:18px 0 8px">Räume</h2>
+    <div class="raster geraete">
+      ${kachel("raum","Spielekeller",i?`${z(i.rh,0)} <small>%</small> · ${z(i.temp)} <small>°C</small>`:"–",
+        [LF?.co2?`CO₂ ${Math.round(LF.co2)} ppm`:"",`Fenster ${esc(KF?.stellung||"?")} · Entfeuchter ${g?.an?"an":"aus"} · Heizung ${HR?.ziel?z(HR.ziel,0)+" °C":"–"}`,esc(LF?.grund||"")],
+        LF?.phase==="offen"?"var(--luft)":g?.an?"var(--ein)":"var(--sehrleise)")}
+      ${kachel("waschkueche","Waschküche",bl?(bl.stand.an?"an":"aus"):"–",["Entfeuchter-Steckdose",vk?`${z(vk.ist)} °C am Ventil`:""],bl?.stand?.an?"var(--ein)":"var(--sehrleise)")}
+      ${kachel("buero","Büro",vb?`${z(vb.ist)} <small>°C</small>`:"–",[roll.some(r=>r.stand.befehl)?"Rollläden "+(roll.map(r=>BEFEHL[r.stand.befehl]||"?").filter((x,j,a)=>a.indexOf(x)===j).join(" / ")):roll.length?"Rollläden: seit dem Neustart kein Befehl":""],"var(--pv)")}
+      ${kachel("wohnzimmer","Wohnzimmer",kw?`${Math.round(kw.co2)} <small>ppm</small>`:vw?`${z(vw.ist)} <small>°C</small>`:"–",
+        [kw?`${z(kw.t)} °C · ${z(kw.rh,0)} %`:KL?.standort==="spielekeller"?"Velux-Sensor liegt im Keller":"",vw&&kw?`Ventil ${z(vw.ist)} °C`:""],kw?co2Farbe(kw.co2):"var(--sehrleise)")}
+      ${kachel("garten","Garten",vg?(vg.stand.dps?.["1"]?"Licht an":"Licht aus"):"–",["Pool Filter "+((TU||[]).find(x=>/pool/i.test(x.name))?.online?"erreichbar":"offline")],vg?.stand?.dps?.["1"]?"var(--pv)":"var(--sehrleise)")}
+    </div>
+    <h2 class="klein" style="text-transform:uppercase;letter-spacing:.06em;margin:18px 0 8px">Haus</h2>
+    <div class="raster geraete">
+      ${kachel("heizung","Heizung",HZ?.raeume?`${HZ.raeume.filter(x=>x.ventil.fordert).length} <small>fordern Wärme</small>`:"–",
+        [HZ?.aussen!=null?"außen "+z(HZ.aussen)+" °C":"",(HZ?.raeume||[]).filter(x=>x.ventil.fordert).map(x=>esc(x.ventil.name)).join(", ")],"#ff9f6b")}
+      ${kachel("energie","Energie",`${z(ST.jetzt?.pv,2)} <small>kW Sonne</small>`,[`Hausakku ${Math.round(ST.jetzt?.soc||0)} %`,ST.prognose_stunden?"Prognose von "+uhr(ST.prognose_zeit):"Prognose fehlt"],"var(--pv)")}
+      ${kachel("tablet","Wandtablet",`${t.akku??"–"} <small>%</small>`,[`${t.strom_ma>0?"lädt":"entlädt"} ${Math.abs(t.strom_ma||0)} mA`],"var(--haus)")}
+    </div>`;
+}
+function rahmen(inhalt){
+  const stand=ST?.jetzt?uhr(ST.jetzt.zeit):"–";
+  const a=(v,n,farbe)=>`<a data-v="${v}" class="${ansicht===v?"an":""}"><span class="punkt" style="background:${farbe}"></span>${n}</a>`;
+  const g=raumGeraet();
+  const farbe={raum:LF?.phase==="offen"?"var(--luft)":g?.an?"var(--ein)":"var(--sehrleise)",waschkueche:(BL||[])[0]?.stand?.an?"var(--ein)":"var(--sehrleise)",
+    buero:"var(--pv)",wohnzimmer:"var(--akku)",garten:"var(--ein)",energie:"var(--pv)",heizung:"#ff9f6b",tablet:"var(--haus)"};
+  return `<div class="app"><nav>
+    <div class="marke">Haussteuerung<small>Messung ${stand}</small></div>
+    <a data-v="uebersicht" class="${ansicht==="uebersicht"?"an":""}">Übersicht${(HW||[]).length?` <span class="chip rot" style="margin-left:auto">${HW.length}</span>`:""}</a>
+    <div class="gruppe">Räume</div>${RAEUME.map(([v,n])=>a(v,n,farbe[v])).join("")}
+    <div class="gruppe">Haus</div>${HAUS.map(([v,n])=>a(v,n,farbe[v])).join("")}
+  </nav><main>${inhalt}</main></div>`;
+}
+/* Spielekeller: Reiter Vorschau, Lueftung, Entfeuchter, Heizung. Die
+   Unteransichten bringen ihre eigenen Reiter mit (reiter), der Raum hat
+   seine (rtab). */
+function spielkellerSicht(){
+  const tabs=[["vorschau","Vorschau"],["lueftung","Lüftung"],["entfeuchter","Entfeuchter"],["heizung","Heizung"]];
+  const kopf=`<h1>Spielekeller</h1>
+    <div class="tabs">${tabs.map(([k,n])=>`<a data-rt="${k}" class="${rtab===k?"an":""}">${n}</a>`).join("")}</div>`;
+  const ohneTitel=h=>h.replace(/^\s*<h1>[\s\S]*?<\/h1>/,"");
+  if(rtab==="lueftung") return kopf+ohneTitel(lueftungSicht());
+  if(rtab==="entfeuchter"){ const g=raumGeraet(); if(g) geraetId=g.cfg.id; return kopf+ohneTitel(geraetSicht()); }
+  if(rtab==="heizung") return kopf+heizungEinst();
+  return kopf+raumVorschau();
+}
+
 function tabletSicht(){
   const t=ST.tablet||{};
   return `<h1>Wandtablet</h1><div class="unter">MediaPad T5 · Wächter wandwacht</div>
@@ -759,11 +823,17 @@ async function verlaufLaden(){
 
 function zeichne(){
   if(!ST) return;
-  const inhalt=ansicht==="raum"?raumSicht():ansicht==="geraet"?geraetSicht():ansicht==="tablet"?tabletSicht():ansicht==="heizung"?heizungSicht():ansicht==="lueftung"?lueftungSicht():uebersicht();
+  const sicht={raum:spielkellerSicht,waschkueche:waschkuecheSicht,buero:bueroSicht,wohnzimmer:wohnzimmerSicht,garten:gartenSicht,
+    energie:energieSicht,heizung:heizungSicht,tablet:tabletSicht}[ansicht]||uebersicht;
+  const inhalt=sicht();
   const w=document.getElementById("wurzel");w.innerHTML=rahmen(inhalt);
-  w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;if(ansicht==="lueftung")reiter="stand";if(ansicht==="raum")reiter="vorschau";
-    if(ansicht==="heizung"){HZZEIT=0;lade();} if(ansicht==="raum"){RAUMZEIT=0;lade();} zeichne();});
-  w.querySelectorAll("[data-g]").forEach(a=>a.onclick=()=>{ansicht="geraet";geraetId=a.dataset.g;reiter="plan";entwurf=null;zeichne();});
+  w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;
+    if(ansicht==="raum"){rtab="vorschau";reiter="";RAUMZEIT=0;lade();}
+    if(ansicht==="heizung"){HZZEIT=0;lade();} zeichne();});
+  w.querySelectorAll("[data-rt]").forEach(a=>a.onclick=()=>{rtab=a.dataset.rt;entwurf=null;
+    reiter=rtab==="lueftung"?"stand":rtab==="entfeuchter"?"plan":"";
+    if(rtab==="vorschau"){RAUMZEIT=0;lade();} zeichne();});
+  w.querySelectorAll("[data-g]").forEach(a=>a.onclick=()=>{ansicht="raum";rtab="entfeuchter";geraetId=a.dataset.g;reiter="plan";entwurf=null;zeichne();});
   w.querySelectorAll("[data-r]").forEach(a=>a.onclick=()=>{reiter=a.dataset.r;entwurf=null;zeichne();});
   w.querySelectorAll("[data-h]").forEach(b=>b.onclick=async()=>{b.disabled=true;
     try{await api("api/hand",{id:b.dataset.id,aktion:b.dataset.h});meldung("Erledigt");await lade();}catch(e){meldung(e.message);}});
@@ -781,7 +851,7 @@ function zeichne(){
   if(sw) sw.onchange=()=>{entwurf.sensor_id=sw.value;entwurf.sensor_name=sw.value?sw.options[sw.selectedIndex].text:"";};
   w.querySelectorAll("[data-fe]").forEach(i=>i.onchange=()=>{const f=new Set(entwurf.fenster||[]);
     i.checked?f.add(i.dataset.fe):f.delete(i.dataset.fe);entwurf.fenster=[...f];});
-  if(ansicht==="geraet"&&reiter==="einst"&&SENSOREN===null){SENSOREN=[];api("api/sensoren").then(l=>{SENSOREN=l||[];zeichne();}).catch(()=>{});}
+  if(ansicht==="raum"&&rtab==="entfeuchter"&&reiter==="einst"&&SENSOREN===null){SENSOREN=[];api("api/sensoren").then(l=>{SENSOREN=l||[];zeichne();}).catch(()=>{});}
   w.querySelectorAll("[data-wz]").forEach(i=>i.onchange=()=>{const m=i.value.match(/^(\d{1,2}):?(\d{2})?$/);
     if(m) entwurf.wach[i.dataset.wz][i.dataset.w]=Number(m[1])+Number(m[2]||0)/60; else meldung("Uhrzeit wie 9:30");});
   const hsp=document.getElementById("hspeichern");
@@ -795,11 +865,13 @@ function zeichne(){
   const vw=document.getElementById("verwerfen");if(vw) vw.onclick=()=>{entwurf=null;zeichne();};
   const hs=document.getElementById("hellsetzen");
   if(hs) hs.onclick=async()=>{try{await api("api/tablet",{hell_tag:Number(document.getElementById("hell").value)});meldung("Gilt binnen einer Minute");await lade();}catch(e){meldung(e.message);}};
-  if(ansicht==="geraet"&&reiter==="verlauf") verlaufLaden();
+  if(ansicht==="raum"&&rtab==="entfeuchter"&&reiter==="verlauf") verlaufLaden();
 }
 
 /* Ansicht aus dem Adressanker, etwa steuerung#heizung, fuer Lesezeichen. */
-if(["heizung","tablet","lueftung","raum"].includes(location.hash.slice(1))) ansicht=location.hash.slice(1);
+{const h=location.hash.slice(1);
+  if(h==="lueftung"){ansicht="raum";rtab="lueftung";reiter="stand";}
+  else if([...RAEUME,...HAUS].some(([v])=>v===h)) ansicht=h;}
 lade();
 setInterval(lade,30000);
 /* Auf der Wand meldet jede Beruehrung, dass noch jemand davor steht. */
