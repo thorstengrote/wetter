@@ -48,6 +48,7 @@ type kellerfenster struct {
 	gesehenMs  uint32 // juengstes uebernommenes Ereignis seit dem Start des D1 mini
 	erreicht   time.Time
 	fehler     string
+	fehlerSeit time.Time
 	rssi       int
 }
 
@@ -100,6 +101,7 @@ func (k *kellerfenster) lies() {
 	if err != nil {
 		if k.fehler == "" {
 			k.sag("Kellerfenster: nicht erreichbar: %v", err)
+			k.fehlerSeit = t
 		}
 		k.fehler = "nicht erreichbar"
 		return
@@ -226,6 +228,19 @@ func kfStellung(e []kfEreignis, jetzt time.Time) string {
 		return map[string]string{"auf": "offen", "ab": "zu"}[e[i].Richtung]
 	}
 	return "unbekannt"
+}
+
+// hinweise fuer die Wand: D1 mini laenger als 10 Minuten nicht erreichbar.
+func (k *kellerfenster) hinweise() []string {
+	if _, err := k.zugang(); err != nil {
+		return nil
+	}
+	k.Lock()
+	defer k.Unlock()
+	if k.fehler != "" && time.Since(k.fehlerSeit) > 10*time.Minute {
+		return []string{"Kellerfenster: D1 mini nicht erreichbar seit " + k.fehlerSeit.In(ort).Format("15:04")}
+	}
+	return nil
 }
 
 func (k *kellerfenster) bediene(mux *http.ServeMux) {

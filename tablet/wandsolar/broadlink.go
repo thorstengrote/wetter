@@ -38,15 +38,16 @@ type blGeraet struct {
 }
 
 type blStand struct {
-	IP        string    `json:"ip,omitempty"`
-	Typ       uint16    `json:"typ,omitempty"`
-	An        *bool     `json:"an,omitempty"`
-	Abgefragt time.Time `json:"abgefragt,omitempty"`
-	Fehler    string    `json:"fehler,omitempty"`
-	macRoh    []byte    // wie im Suchruf, so geht sie auch in jedes Paket
-	id        uint32
-	key       []byte
-	zaehler   uint16
+	IP         string    `json:"ip,omitempty"`
+	Typ        uint16    `json:"typ,omitempty"`
+	An         *bool     `json:"an,omitempty"`
+	Abgefragt  time.Time `json:"abgefragt,omitempty"`
+	Fehler     string    `json:"fehler,omitempty"`
+	FehlerSeit time.Time `json:"fehler_seit,omitempty"`
+	macRoh     []byte    // wie im Suchruf, so geht sie auch in jedes Paket
+	id         uint32
+	key        []byte
+	zaehler    uint16
 }
 
 type broadlink struct {
@@ -308,11 +309,26 @@ func (b *broadlink) frage(mac string) {
 	if err != nil {
 		if st.Fehler == "" {
 			b.sag("Broadlink: %s: %v", mac, err)
+			st.FehlerSeit = time.Now()
 		}
 		st.Fehler = err.Error()
 		return
 	}
 	st.An, st.Abgefragt, st.Fehler = &an, time.Now(), ""
+}
+
+// hinweise fuer die Wand: seit 15 Minuten keine Verbindung.
+func (b *broadlink) hinweise() []string {
+	b.Lock()
+	defer b.Unlock()
+	var h []string
+	for _, g := range b.geraete {
+		st := b.stand[strings.ToLower(g.MAC)]
+		if st != nil && st.Fehler != "" && time.Since(st.FehlerSeit) > 15*time.Minute {
+			h = append(h, g.Name+": nicht erreichbar seit "+st.FehlerSeit.In(ort).Format("15:04"))
+		}
+	}
+	return h
 }
 
 func (b *broadlink) laufe() {

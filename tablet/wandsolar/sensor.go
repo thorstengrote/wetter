@@ -44,6 +44,7 @@ type switchbot struct {
 	verlaufPfad string                   // gesichert, damit ein Neustart die Kurve nicht loescht
 	gesichert   time.Time
 	fehler      string
+	fehlerSeit  time.Time
 	sag         func(string, ...any)
 }
 
@@ -159,6 +160,9 @@ func (b *switchbot) lies(id string) {
 		if b.fehler != err.Error() {
 			b.sag("SwitchBot: %v", err)
 		}
+		if b.fehler == "" {
+			b.fehlerSeit = time.Now()
+		}
 		b.fehler = err.Error()
 		b.Unlock()
 		return
@@ -200,6 +204,16 @@ func (b *switchbot) kurve(id string) []messFeuchte {
 	b.Lock()
 	defer b.Unlock()
 	return append([]messFeuchte(nil), b.verlauf[id]...)
+}
+
+// hinweise fuer die Wand: die SwitchBot-Cloud antwortet seit 30 Minuten nicht.
+func (b *switchbot) hinweise() []string {
+	b.Lock()
+	defer b.Unlock()
+	if b.fehler != "" && time.Since(b.fehlerSeit) > 30*time.Minute {
+		return []string{"SwitchBot-Cloud gestört seit " + b.fehlerSeit.In(ort).Format("15:04")}
+	}
+	return nil
 }
 
 // laufe fragt alle 5 Minuten ab, waehrend gelueftet wird alle 2 (schnell),

@@ -544,6 +544,16 @@ func (l *lueftung) merkePunkt(lz *lueftLauf, w *messFeuchte, co2 float64) bool {
 
 func (l *lueftung) sichern() { schreibeJSON(l.standPfad, l.st) }
 
+// hinweise fuer die Wand: Fenster liessen sich nicht fahren.
+func (l *lueftung) hinweise() []string {
+	l.Lock()
+	defer l.Unlock()
+	if l.cfg.Modus == "scharf" && strings.Contains(l.grund, "gescheitert") {
+		return []string{"Kellerfenster: " + l.grund}
+	}
+	return nil
+}
+
 // lueftet: ob gerade gelueftet wird, fuer Heizung und Entfeuchter.
 func (l *lueftung) lueftet() bool {
 	l.Lock()

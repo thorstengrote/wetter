@@ -42,6 +42,7 @@ type tuyaGeraet struct {
 	// Lueftungsstellung (gestoppt am 07.10.2026 am rechten Rollladen):
 	// von ganz offen 24 s runter, von ganz zu 6 s hoch.
 	VonOben  float64 `json:"lueftung_von_oben,omitempty"`
+	Stumm    bool    `json:"stumm,omitempty"` // keine Warnung, etwa der Pool Filter im Winter
 	VonUnten float64 `json:"lueftung_von_unten,omitempty"`
 }
 
@@ -74,10 +75,11 @@ type tuya struct {
 	geraete []tuyaGeraet
 	stand   map[string]*tuyaStand
 	seq     uint32
+	start   time.Time
 }
 
 func neuesTuya(pfad string, sag func(string, ...any)) *tuya {
-	t := &tuya{pfad: pfad, sag: sag, stand: map[string]*tuyaStand{}}
+	t := &tuya{pfad: pfad, sag: sag, stand: map[string]*tuyaStand{}, start: time.Now()}
 	if roh, err := os.ReadFile(pfad); err == nil {
 		json.Unmarshal(roh, &t.geraete)
 	}
@@ -432,6 +434,31 @@ func (t *tuya) befehl(id, was string) error {
 		t.frage(id)
 	}
 	return nil
+}
+
+// hinweise fuer die Wand: Geraet seit 30 Minuten weder im Rundruf noch
+// erreichbar. Stummgeschaltete Geraete melden nichts.
+func (t *tuya) hinweise() []string {
+	t.Lock()
+	defer t.Unlock()
+	if time.Since(t.start) < 30*time.Minute {
+		return nil
+	}
+	var h []string
+	for _, g := range t.geraete {
+		st := t.stand[g.ID]
+		if g.Stumm || st == nil {
+			continue
+		}
+		if st.Gesehen.IsZero() || time.Since(st.Gesehen) > 30*time.Minute {
+			seit := "dem Start"
+			if !st.Gesehen.IsZero() {
+				seit = st.Gesehen.In(ort).Format("15:04")
+			}
+			h = append(h, g.Name+": nicht erreichbar seit "+seit)
+		}
+	}
+	return h
 }
 
 // rolllaeden: die IDs aller Rollladenschalter.

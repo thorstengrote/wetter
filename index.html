@@ -2459,15 +2459,31 @@ const SOLAR=(()=>{
 
   /* Hinweise der Haussteuerung, etwa ein voller Wassertank am
      Luftentfeuchter. Stehen rot in der Datumszeile, bis sie erledigt sind. */
+  /* Warnungen aus wandsolar: Batterien, verlorene Verbindungen, voller Tank,
+     gescheiterte Fahrten. Seit 10.10.2026 als Kasten ueber der Seite, damit
+     man sie im Vorbeigehen sieht. Antippen blendet genau diese Warnungen fuer
+     zwei Stunden aus; kommt eine neue dazu oder sind sie danach noch da,
+     erscheint der Kasten wieder. */
+  let hinweisWeg={}, hinweisJetzt=[];
   function zeigeHinweise(h){
+    hinweisJetzt=h;
     let el=document.getElementById("hausHinweis");
     if(!el){
-      el=document.createElement("span"); el.id="hausHinweis";
-      el.style.cssText="color:#ff8a7a;font-weight:650";
-      const z=document.getElementById("stand"); if(!z) return;
-      z.after(el);
+      el=document.createElement("div"); el.id="hausHinweis";
+      el.style.cssText="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:900;"+
+        "max-width:78vw;background:rgba(42,14,16,.95);border:2px solid #ff7b6b;border-radius:16px;"+
+        "padding:14px 22px;color:#ffd2cc;font-size:22px;line-height:1.35;box-shadow:0 8px 30px rgba(0,0,0,.55);"+
+        "cursor:pointer;-webkit-user-select:none;user-select:none";
+      el.addEventListener("click",ev=>{ev.stopPropagation();
+        const bis=Date.now()+2*3600e3; for(const t of hinweisJetzt) hinweisWeg[t]=bis; zeigeHinweise(hinweisJetzt);});
+      document.body.appendChild(el);
     }
-    el.textContent=h.length?" · "+h.join(" · "):"";
+    const jetzt=Date.now(), offen=h.filter(t=>!(hinweisWeg[t]>jetzt));
+    el.hidden=!offen.length;
+    el.innerHTML=offen.length?`<div style="display:flex;gap:14px;align-items:flex-start">
+      <div style="font-size:30px;line-height:1;color:#ff7b6b">⚠</div>
+      <div>${offen.map(t=>`<div>${t.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}</div>`).join("")}
+      <div style="font-size:14px;color:#c99;margin-top:6px">antippen: 2 Stunden ausblenden</div></div></div>`:"";
   }
   const frisch=()=>jetzt&&(Date.now()-standZeit)<ALT_MS;
 

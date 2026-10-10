@@ -137,22 +137,23 @@ type geraetStand struct {
 }
 
 type geraet struct {
-	cfg         geraetCfg
-	st          geraetStand
-	plan        plan
-	planZeit    time.Time
-	grund       string
-	ueberSeit   time.Time
-	mangelSeit  time.Time
-	freiSperre  time.Time // geplante freie Laeufe ausgesetzt bis
-	modusAlt    string
-	letzteKW    float64 // was der Shelly zuletzt gemessen hat
-	komp        bool    // Kompressor lief bei der letzten Messung
-	kompZuletzt time.Time
-	nass        bool // ueber der Obergrenze, bis 3 Punkte darunter
-	trocken     bool // unter der Untergrenze, bis 2 Punkte darueber
-	feuchte     *messFeuchte
-	fensterAuf  bool
+	cfg          geraetCfg
+	st           geraetStand
+	plan         plan
+	planZeit     time.Time
+	grund        string
+	ueberSeit    time.Time
+	mangelSeit   time.Time
+	freiSperre   time.Time // geplante freie Laeufe ausgesetzt bis
+	modusAlt     string
+	letzteKW     float64 // was der Shelly zuletzt gemessen hat
+	komp         bool    // Kompressor lief bei der letzten Messung
+	kompZuletzt  time.Time
+	nass         bool // ueber der Obergrenze, bis 3 Punkte darunter
+	trocken      bool // unter der Untergrenze, bis 2 Punkte darueber
+	feuchte      *messFeuchte
+	fensterAuf   bool
+	shellyFehler time.Time // seit wann der Shelly nicht antwortet
 }
 
 type steuerung struct {
@@ -745,6 +746,9 @@ func (s *steuerung) hinweise() []string {
 		if g.st.Stoerung != "" && g.cfg.Modus == "scharf" {
 			h = append(h, g.cfg.Name+": "+g.st.Stoerung)
 		}
+		if !g.shellyFehler.IsZero() && time.Since(g.shellyFehler) > 10*time.Minute {
+			h = append(h, g.cfg.Name+": Shelly nicht erreichbar seit "+g.shellyFehler.In(ort).Format("15:04"))
+		}
 		// Feuchtesensor: Batterie und Funkstille. Der Meter Plus laeuft mit
 		// zwei AAA-Zellen; SwitchBot meldet den Stand in Prozent.
 		if g.cfg.SensorID != "" && s.sb != nil {
@@ -782,8 +786,12 @@ func (s *steuerung) befehl(g *geraet, an bool) (float64, bool) {
 	}
 	if err != nil {
 		s.sag("%s: Shelly nicht erreichbar: %v", g.cfg.Name, err)
+		if g.shellyFehler.IsZero() {
+			g.shellyFehler = time.Now()
+		}
 		return 0, false
 	}
+	g.shellyFehler = time.Time{}
 	g.letzteKW = kw
 	return kw, true
 }

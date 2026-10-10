@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestTuyaVerschluesselung(t *testing.T) {
@@ -68,4 +70,14 @@ func TestTuyaEchtLesen(t *testing.T) {
 		}
 	}
 	t.Skip("Geraet nicht in der Liste")
+}
+
+func TestTuyaHinweise(t *testing.T) {
+	tu := &tuya{sag: t.Logf, start: time.Now().Add(-time.Hour), stand: map[string]*tuyaStand{
+		"a": {Gesehen: time.Now().Add(-40 * time.Minute)}, "b": {}, "c": {Gesehen: time.Now()}}}
+	tu.geraete = []tuyaGeraet{{Name: "Rollladen", ID: "a"}, {Name: "Pool", ID: "b", Stumm: true}, {Name: "Licht", ID: "c"}}
+	h := tu.hinweise()
+	if len(h) != 1 || !strings.HasPrefix(h[0], "Rollladen: nicht erreichbar") {
+		t.Fatalf("%v", h)
+	}
 }

@@ -237,6 +237,7 @@ type zustand struct {
 	st      *steuerung
 	fr      *fritz
 	kl      *raumklima
+	weitere []func() []string // Warnungen der uebrigen Module fuer die Wand
 }
 
 // laden holt den gespeicherten Tag zurueck, und zwar ohne Blick auf die Uhr.
@@ -396,6 +397,9 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 		}
 		if z.kl != nil {
 			h = append(h, z.kl.hinweise()...)
+		}
+		for _, f := range z.weitere {
+			h = append(h, f()...)
 		}
 		w.Write(z.json(h))
 	})
@@ -582,6 +586,7 @@ func main() {
 	go tu.laufe()
 	bl := neuesBroadlink(filepath.Join(dir, "broadlink.json"), sag)
 	go bl.laufe()
+	z.weitere = []func() []string{kf.hinweise, lf.hinweise, hr.hinweise, tu.hinweise, bl.hinweise, z.st.sb.hinweise}
 	if *vlx != "" {
 		na := neueNacht(filepath.Join(dir, "nacht.json"), *vlx, sag)
 		// Einmal heute Nacht, einmal morgen frueh auch fuer das Buero.

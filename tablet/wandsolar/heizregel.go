@@ -155,6 +155,16 @@ func (h *heizRegel) schritt(t time.Time) {
 	h.merke(ziel, grund)
 }
 
+// hinweise fuer die Wand.
+func (h *heizRegel) hinweise() []string {
+	h.Lock()
+	defer h.Unlock()
+	if h.cfg.Modus == "scharf" && (strings.Contains(h.grund, "nicht gestellt") || strings.Contains(h.grund, "nicht gefunden")) {
+		return []string{"Heizung Spielkeller: " + h.grund}
+	}
+	return nil
+}
+
 func (h *heizRegel) merke(ziel float64, grund string) {
 	h.Lock()
 	h.ziel, h.grund = ziel, grund
