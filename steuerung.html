@@ -172,7 +172,7 @@ async function lade(){
     }
     if(ansicht==="raum"&&rtab==="vorschau"&&Date.now()-RAUMZEIT>5*60e3) await ladeRaum();
     /* Beim Bearbeiten von Einstellungen nicht neu zeichnen, sonst sind die Eingaben weg. */
-    if(ansicht!=="pin"&&!(ansicht==="raum"&&(rtab==="heizung"||reiter==="einst"))) zeichne();
+    if(ansicht!=="pin"&&!(ansicht==="raum"&&(rtab==="heizung"||reiter==="einst"))&&!(ansicht==="waschkueche"&&reiter==="einst")) zeichne();
   }catch(e){ if(e.message!=="PIN") meldung("Keine Verbindung zum Tablet"); }
 }
 
@@ -296,7 +296,7 @@ function geraetSicht(){
   const g=(ST.geraete||[]).find(x=>x.cfg.id===geraetId);if(!g) return "";
   const kopf=`<h1>${esc(g.cfg.name)}</h1>${g.stoerung?`<div class="stoerung" style="margin:8px 0 12px"><b>${esc(g.stoerung)}</b>
       <span class="klein" style="color:#ffb3aa"> · seit ${uhr(g.stoerung_seit)}, neuer Versuch ${uhr(g.wiederholt)}</span>
-      <button data-h="geleert" data-id="${g.cfg.id}" style="margin-left:12px">Tank geleert</button></div>`:""}<div class="unter">Shelly ${esc(g.cfg.shelly_ip)} · ${g.gemessen_kw>0.05?"gemessen "+z(g.gemessen_kw,2)+" kW":"Leistung "+z(g.leistung_kw,2)+" kW"} · ${esc(g.grund)}</div>
+      <button data-h="geleert" data-id="${g.cfg.id}" style="margin-left:12px">Tank geleert</button></div>`:""}<div class="unter">${schalterText(g)} · ${g.gemessen_kw>0.05&&g.cfg.schalter!=="broadlink"?"gemessen "+z(g.gemessen_kw,2)+" kW":"Leistung "+z(g.leistung_kw,2)+" kW"} · ${esc(g.grund)}</div>
     <div class="tabs"><a data-r="plan" class="${reiter==="plan"?"an":""}">Plan</a><a data-r="einst" class="${reiter==="einst"?"an":""}">Einstellungen</a><a data-r="verlauf" class="${reiter==="verlauf"?"an":""}">Verlauf</a></div>`;
   if(reiter==="einst") return kopf+einstellungen(g);
   if(reiter==="verlauf") return kopf+`<div id="verlauf" class="karte">lade…</div>`;
@@ -322,11 +322,12 @@ function einstellungen(g){
     <div class="karte"><h2>Betrieb</h2>
       <div class="feld"><span class="n">Modus</span><span class="segment">${["aus","probe","scharf"].map(m=>`<a data-m="${m}" class="${c.modus===m?"an":""}">${{aus:"Aus",probe:"Probe",scharf:"Scharf"}[m]}</a>`).join("")}</span>
         <span class="e">Probe rechnet und protokolliert, schaltet aber nicht.</span></div>
-      <div class="feld"><span class="n">Shelly</span><span class="eing"><input data-c="shelly_ip" value="${esc(c.shelly_ip)}" style="width:140px"></span>
+      ${c.schalter==="broadlink"?`<div class="feld"><span class="n">Steckdose</span><span class="eing">Broadlink ${esc(c.broadlink_mac)}</span><span class="e">Misst keinen Strom. Es gilt die Leistung unten, Tank und Kompressor werden nicht überwacht.</span></div>`:""}
+      ${c.schalter==="broadlink"?"":`<div class="feld"><span class="n">Shelly</span><span class="eing"><input data-c="shelly_ip" value="${esc(c.shelly_ip)}" style="width:140px"></span>
         <span class="e">Wird über die MAC ${esc(c.shelly_mac)} wiedergefunden, falls sich die Adresse ändert.</span></div>
       <div class="feld"><span class="n">Leistung</span>${zahl("leistung_kw","kW",0.01)}
         <span class="e"><label>${haken("leistung_fest")} fest, sonst misst der Shelly sie und dieser Wert gilt nur bis dahin</label></span></div>
-      <div class="feld"><span class="n">Selbstabschaltung am Shelly</span>${zahl("totmann_min","min")}<span class="e">Falls das Tablet ausfällt.</span></div>
+      <div class="feld"><span class="n">Selbstabschaltung am Shelly</span>${zahl("totmann_min","min")}<span class="e">Falls das Tablet ausfällt.</span></div>`}
     </div>
     <div class="karte"><h2>Erlaubte Laufzeit</h2><table>${TAGE.map((t,i)=>`<tr><td style="width:36px">${t}</td>
       <td><span class="eing"><input class="z" data-zt="${i}" data-w="von" value="${hm(c.zeiten[i].von)}"> bis <input class="z" data-zt="${i}" data-w="bis" value="${hm(c.zeiten[i].bis)}"></span></td></tr>`).join("")}</table></div>
@@ -426,7 +427,9 @@ function klimaKarte(){
    aus ihren Plaenen, die Heizung wie in der Vorwoche (die FRITZ!Box gibt
    ihren Wochenplan nicht heraus), waehrend geplanter Lueftungen auf dem
    Lueftungswert. Der Taupunkt drinnen gilt als gleichbleibend. */
-const raumGeraet=()=>(ST?.geraete||[]).find(g=>g.cfg.sensor_id);
+const raumGeraet=()=>(ST?.geraete||[]).find(g=>g.cfg.id==="entfeuchter");
+const wkGeraet=()=>(ST?.geraete||[]).find(g=>g.cfg.id==="waschkueche");
+const schalterText=g=>g.cfg.schalter==="broadlink"?"Broadlink-Steckdose, keine Messung":"Shelly "+esc(g.cfg.shelly_ip);
 const raumVentil=()=>(HZ?.raeume||[]).map(r=>r.ventil).find(v=>LF&&v.name.toLowerCase().includes((LF.cfg.ventil_name||"").toLowerCase()));
 async function ladeRaum(){
   RAUMZEIT=Date.now();
@@ -720,11 +723,11 @@ function bueroSicht(){
     <div class="raster geraete">${rolllaedenKarte()}${ventilKarte("buero")}</div>`;
 }
 function waschkuecheSicht(){
-  return `<h1>Waschküche</h1><div class="unter">Entfeuchter mit direktem Ablauf, Fühler aus dem Van</div>
-    <div class="raster geraete">${dosenKarte("Entfeuchter",n=>/waschk/i.test(n))}
-      <div class="karte geraet"><div class="name">Raumluft</div><div class="klein" style="line-height:1.6">Der SwitchBot "Waschküche Sensor" ist angelernt. Werte und eine eigene Regelung kommen,
-        sobald klar ist, ob der Entfeuchter nach Stromunterbrechung von selbst weiterläuft und wie viel Watt er hat.</div></div>
-      ${ventilKarte("waschk")}</div>`;
+  const g=wkGeraet();
+  const unten=`<div class="raster geraete" style="margin-top:14px">${dosenKarte("Steckdose",n=>/waschk/i.test(n))}${ventilKarte("waschk")}</div>`;
+  if(!g) return `<h1>Waschküche</h1>`+unten;
+  geraetId=g.cfg.id;
+  return `<h1>Waschküche</h1>`+geraetSicht().replace(/^\s*<h1>[\s\S]*?<\/h1>/,"")+unten;
 }
 function wohnzimmerSicht(){
   return `<h1>Wohnzimmer</h1><div class="unter">Raumklima und Heizung · die Velux-Rollläden stehen auf der Wand im Velux-Menü</div>
@@ -758,7 +761,8 @@ function uebersicht(){
       ${kachel("raum","Spielekeller",i?`${z(i.rh,0)} <small>%</small> · ${z(i.temp)} <small>°C</small>`:"–",
         [LF?.co2?`CO₂ ${Math.round(LF.co2)} ppm`:"",`Fenster ${esc(KF?.stellung||"?")} · Entfeuchter ${g?.an?"an":"aus"} · Heizung ${HR?.ziel?z(HR.ziel,0)+" °C":"–"}`,esc(LF?.grund||"")],
         LF?.phase==="offen"?"var(--luft)":g?.an?"var(--ein)":"var(--sehrleise)")}
-      ${kachel("waschkueche","Waschküche",bl?(bl.stand.an?"an":"aus"):"–",["Entfeuchter-Steckdose",vk?`${z(vk.ist)} °C am Ventil`:""],bl?.stand?.an?"var(--ein)":"var(--sehrleise)")}
+      ${(()=>{const w=wkGeraet(),f=w?.feuchte;return kachel("waschkueche","Waschküche",f?`${z(f.rh,0)} <small>%</small> · ${z(f.temp)} <small>°C</small>`:"–",
+        [w?`Entfeuchter ${w.an?"an":"aus"} · ${esc(w.grund||"")}`:"",vk?`${z(vk.ist)} °C am Ventil`:""],w?.an?"var(--ein)":"var(--sehrleise)");})()}
       ${kachel("buero","Büro",vb?`${z(vb.ist)} <small>°C</small>`:"–",[roll.some(r=>r.stand.befehl)?"Rollläden "+(roll.map(r=>BEFEHL[r.stand.befehl]||"?").filter((x,j,a)=>a.indexOf(x)===j).join(" / ")):roll.length?"Rollläden: seit dem Neustart kein Befehl":""],"var(--pv)")}
       ${kachel("wohnzimmer","Wohnzimmer",kw?`${Math.round(kw.co2)} <small>ppm</small>`:vw?`${z(vw.ist)} <small>°C</small>`:"–",
         [kw?`${z(kw.t)} °C · ${z(kw.rh,0)} %`:KL?.standort==="spielekeller"?"Velux-Sensor liegt im Keller":"",vw&&kw?`Ventil ${z(vw.ist)} °C`:""],kw?co2Farbe(kw.co2):"var(--sehrleise)")}
@@ -776,7 +780,7 @@ function rahmen(inhalt){
   const stand=ST?.jetzt?uhr(ST.jetzt.zeit):"–";
   const a=(v,n,farbe)=>`<a data-v="${v}" class="${ansicht===v?"an":""}"><span class="punkt" style="background:${farbe}"></span>${n}</a>`;
   const g=raumGeraet();
-  const farbe={raum:LF?.phase==="offen"?"var(--luft)":g?.an?"var(--ein)":"var(--sehrleise)",waschkueche:(BL||[])[0]?.stand?.an?"var(--ein)":"var(--sehrleise)",
+  const farbe={raum:LF?.phase==="offen"?"var(--luft)":g?.an?"var(--ein)":"var(--sehrleise)",waschkueche:wkGeraet()?.an?"var(--ein)":"var(--sehrleise)",
     buero:"var(--pv)",wohnzimmer:"var(--akku)",garten:"var(--ein)",energie:"var(--pv)",heizung:"#ff9f6b",tablet:"var(--haus)"};
   return `<div class="app"><nav>
     <div class="marke">Haussteuerung<small>Messung ${stand}</small></div>
@@ -829,6 +833,7 @@ function zeichne(){
   const w=document.getElementById("wurzel");w.innerHTML=rahmen(inhalt);
   w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;
     if(ansicht==="raum"){rtab="vorschau";reiter="";RAUMZEIT=0;lade();}
+    if(ansicht==="waschkueche") reiter="plan";
     if(ansicht==="heizung"){HZZEIT=0;lade();} zeichne();});
   w.querySelectorAll("[data-rt]").forEach(a=>a.onclick=()=>{rtab=a.dataset.rt;entwurf=null;
     reiter=rtab==="lueftung"?"stand":rtab==="entfeuchter"?"plan":"";
@@ -851,7 +856,7 @@ function zeichne(){
   if(sw) sw.onchange=()=>{entwurf.sensor_id=sw.value;entwurf.sensor_name=sw.value?sw.options[sw.selectedIndex].text:"";};
   w.querySelectorAll("[data-fe]").forEach(i=>i.onchange=()=>{const f=new Set(entwurf.fenster||[]);
     i.checked?f.add(i.dataset.fe):f.delete(i.dataset.fe);entwurf.fenster=[...f];});
-  if(ansicht==="raum"&&rtab==="entfeuchter"&&reiter==="einst"&&SENSOREN===null){SENSOREN=[];api("api/sensoren").then(l=>{SENSOREN=l||[];zeichne();}).catch(()=>{});}
+  if((ansicht==="raum"&&rtab==="entfeuchter"||ansicht==="waschkueche")&&reiter==="einst"&&SENSOREN===null){SENSOREN=[];api("api/sensoren").then(l=>{SENSOREN=l||[];zeichne();}).catch(()=>{});}
   w.querySelectorAll("[data-wz]").forEach(i=>i.onchange=()=>{const m=i.value.match(/^(\d{1,2}):?(\d{2})?$/);
     if(m) entwurf.wach[i.dataset.wz][i.dataset.w]=Number(m[1])+Number(m[2]||0)/60; else meldung("Uhrzeit wie 9:30");});
   const hsp=document.getElementById("hspeichern");
@@ -865,7 +870,7 @@ function zeichne(){
   const vw=document.getElementById("verwerfen");if(vw) vw.onclick=()=>{entwurf=null;zeichne();};
   const hs=document.getElementById("hellsetzen");
   if(hs) hs.onclick=async()=>{try{await api("api/tablet",{hell_tag:Number(document.getElementById("hell").value)});meldung("Gilt binnen einer Minute");await lade();}catch(e){meldung(e.message);}};
-  if(ansicht==="raum"&&rtab==="entfeuchter"&&reiter==="verlauf") verlaufLaden();
+  if((ansicht==="raum"&&rtab==="entfeuchter"||ansicht==="waschkueche")&&reiter==="verlauf") verlaufLaden();
 }
 
 /* Ansicht aus dem Adressanker, etwa steuerung#heizung, fuer Lesezeichen. */

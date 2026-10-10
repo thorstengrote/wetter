@@ -443,8 +443,10 @@ func pruefeCfg(c geraetCfg) string {
 		return "Stunden je 7 Tage unplausibel"
 	case c.MinAnMin < 0 || c.MinAusMin < 0 || c.MinLaufMin < 0 || c.MaxLueckeTage < 0:
 		return "negative Zeiten"
-	case net.ParseIP(c.ShellyIP) == nil:
+	case c.Schalter == "" && net.ParseIP(c.ShellyIP) == nil:
 		return "Shelly-Adresse ungueltig"
+	case c.Schalter == "broadlink" && c.BroadlinkMAC == "":
+		return "MAC der Steckdose fehlt"
 	}
 	if c.SensorID != "" && (c.FeuchteUnten <= 0 || c.FeuchteOben > 100 || c.FeuchteUnten+5 > c.FeuchteOben) {
 		return "Feuchtegrenzen: unten mindestens 5 Punkte unter oben"

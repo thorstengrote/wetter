@@ -353,6 +353,14 @@ func (l *lueftung) entscheide(e lueftEingang) (aktion, grund string, sperre time
 			}
 			return "zu", fmt.Sprintf("Abstand nur noch %.1f K", tp-aus.Taupunkt), 0
 		}
+		// Aus einer CO2-Lueftung im Spalt wird eine Feuchte-Lueftung, sobald
+		// die Feuchte allein fuers Oeffnen reichen wuerde. Dann ganz auf, das
+		// trocknet staerker (Wunsch vom 10.10.2026: 9 Stunden nur im Spalt).
+		if lz != nil && lz.Spalt && tp-aus.Taupunkt >= c.AbstandK && e.Innen.RH > e.ZielRH &&
+			!(e.SonneFrei && c.SonneAbstand > 0 && tp-aus.Taupunkt < c.SonneAbstand) &&
+			!(e.EntfeuchterSonne && aus.Temp < c.SonneVorrang) {
+			return "voll", fmt.Sprintf("jetzt auch wegen Feuchte, Taupunkt draußen %.1f °C, drinnen %.1f °C", aus.Taupunkt, tp), 0
+		}
 		return "", fmt.Sprintf("lüftet seit %s", dauerKurz(dauer)), 0
 	}
 
@@ -479,6 +487,20 @@ func (l *lueftung) schritt() {
 			l.st.Laeufe = l.st.Laeufe[len(l.st.Laeufe)-100:]
 		}
 		l.sag("Lüftung: auf%s, %s", map[bool]string{true: "", false: " (Probe)"}[scharf], grund)
+		l.sichern()
+
+	case "voll":
+		lz := l.laufzeit()
+		if lz != nil && !lz.Probe {
+			if err := l.fahre("auf"); err != nil {
+				l.sag("Lüftung: ganz öffnen gescheitert: %v", err)
+				return
+			}
+		}
+		if lz != nil {
+			lz.Spalt, lz.Anlass = false, "feuchte"
+		}
+		l.sag("Lüftung: ganz auf, %s", grund)
 		l.sichern()
 
 	case "zu":

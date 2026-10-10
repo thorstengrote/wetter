@@ -536,7 +536,7 @@ func main() {
 		var id string
 		z.st.Lock()
 		for _, g := range z.st.geraete {
-			if g.cfg.SensorID != "" {
+			if g.cfg.SensorID != "" && g.cfg.ID == "entfeuchter" {
 				id, e.ZielRH = g.cfg.SensorID, g.cfg.FeuchteUnten
 				m := z.st.letzte
 				e.EntfeuchterSonne = g.st.An && m != nil && m.Netz > -0.05 && m.Akku > -0.05
@@ -585,6 +585,7 @@ func main() {
 	tu := neuesTuya(filepath.Join(dir, "tuya.json"), sag)
 	go tu.laufe()
 	bl := neuesBroadlink(filepath.Join(dir, "broadlink.json"), sag)
+	z.st.blSchalte = bl.schalteMAC
 	go bl.laufe()
 	z.weitere = []func() []string{kf.hinweise, lf.hinweise, hr.hinweise, tu.hinweise, bl.hinweise, z.st.sb.hinweise}
 	if *vlx != "" {

@@ -493,3 +493,32 @@ func TestWartetAufLueftung(t *testing.T) {
 		t.Fatalf("bei 72 %% gewartet: %s", p2.s.geraete[0].grund)
 	}
 }
+
+func TestWaschkuecheUeberBroadlink(t *testing.T) {
+	l := berlin()
+	p := neueSt(t, "scharf", time.Date(2026, 10, 10, 13, 0, 0, 0, l))
+	var wk *geraet
+	for _, g := range p.s.geraete {
+		if g.cfg.ID == "waschkueche" {
+			wk = g
+		}
+	}
+	if wk == nil {
+		t.Fatal("Waschkueche fehlt in der Standardliste")
+	}
+	wk.cfg.Modus, wk.modusAlt = "scharf", "scharf"
+	var geschaltet []bool
+	p.s.blSchalte = func(mac string, an bool) error { geschaltet = append(geschaltet, an); return nil }
+	if p.s.sb == nil {
+		p.s.sb = neuerSwitchbot("/nicht/da", func(string, ...any) {})
+	}
+	p.s.sb.werte[wk.cfg.SensorID] = messFeuchte{RH: 70, Zeit: time.Now()}
+	p.s.lueftPause.Store(true) // Spielekeller lueftet, die Waschkueche geht das nichts an
+	p.laufe(40, -0.4, 0, 5)
+	if !wk.st.An || len(geschaltet) == 0 || !geschaltet[0] {
+		t.Fatalf("bei 70 %% nicht an: %s %v", wk.grund, geschaltet)
+	}
+	if wk.st.Stoerung != "" {
+		t.Fatalf("Stoerung ohne Messung: %s", wk.st.Stoerung)
+	}
+}

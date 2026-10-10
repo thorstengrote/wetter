@@ -331,6 +331,19 @@ func (b *broadlink) hinweise() []string {
 	return h
 }
 
+// schalteMAC fuer die Steuerung: schalten und den Stand gleich nachziehen.
+func (b *broadlink) schalteMAC(mac string, an bool) error {
+	err := b.mitGeraet(mac, func(st *blStand) error { return st.schalte(an) })
+	if err == nil {
+		b.Lock()
+		if st := b.stand[strings.ToLower(mac)]; st != nil {
+			st.An, st.Abgefragt, st.Fehler = &an, time.Now(), ""
+		}
+		b.Unlock()
+	}
+	return err
+}
+
 func (b *broadlink) laufe() {
 	time.Sleep(20 * time.Second)
 	runde := 0

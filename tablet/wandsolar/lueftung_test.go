@@ -482,3 +482,28 @@ func TestNachTrockenerLuftMehrAbstand(t *testing.T) {
 		t.Fatalf("ohne Trockenende 55 %%: %q %q", a, g)
 	}
 }
+
+func TestSpaltWirdGanzAuf(t *testing.T) {
+	t0 := mittwoch(14, 0)
+	l := offeneLueftung(t0, "co2")
+	l.st.Laeufe[0].Spalt = true
+	var befehle []string
+	l.eingang = func() lueftEingang {
+		e := eingang(t0.Add(30*time.Minute), 20, 58, luftTag(t0, luftWert{Temp: 14, Taupunkt: 6}, nil))
+		e.CO2 = 800
+		return e
+	}
+	l.fahre = func(r string) error { befehle = append(befehle, r); return nil }
+	l.pause = func(bool) {}
+	l.standPfad = t.TempDir() + "/s.json"
+	l.schritt()
+	lz := l.laufzeit()
+	if len(befehle) != 1 || befehle[0] != "auf" || lz.Spalt || lz.Anlass != "feuchte" {
+		t.Fatalf("%v %+v", befehle, lz)
+	}
+	// Beim naechsten Schritt bleibt es dabei, kein weiterer Befehl
+	l.schritt()
+	if len(befehle) != 1 {
+		t.Fatalf("doppelt: %v", befehle)
+	}
+}

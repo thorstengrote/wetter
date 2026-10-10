@@ -90,6 +90,30 @@ type geraetCfg struct {
 	FeuchteOben   float64     `json:"feuchte_oben"`
 	FeuchteUnten  float64     `json:"feuchte_unten"`
 	Fenster       []string    `json:"fenster"` // Velux-Geraete des Raums
+	// Schalter: leer heisst Shelly mit Strommessung, "broadlink" eine
+	// Broadlink-Steckdose ohne Messung (Waschkueche, seit 10.10.2026). Dann
+	// gilt die Leistung vom Typenschild, und Kompressor und Tank werden nicht
+	// ueberwacht, der Entfeuchter dort hat einen Ablauf.
+	Schalter     string `json:"schalter,omitempty"`
+	BroadlinkMAC string `json:"broadlink_mac,omitempty"`
+}
+
+// standardWaschkueche: der Entfeuchter in der Waschkueche, 220 W, Ablauf ins
+// Abwasser, laeuft nach Stromunterbrechung von selbst weiter. Im Raum
+// schlaeft niemand, er darf rund um die Uhr; ohne Sonne nur ueber der
+// Obergrenze.
+func standardWaschkueche() geraetCfg {
+	t := zeitraum{0, 24}
+	return geraetCfg{
+		ID: "waschkueche", Name: "Entfeuchter Waschküche", Typ: "schalter", Modus: "scharf",
+		Schalter: "broadlink", BroadlinkMAC: "b4:43:0d:91:94:63",
+		LeistungKW: 0.22, LeistungFest: true, Zeiten: [7]zeitraum{t, t, t, t, t, t, t},
+		MaxH7: 30, MinH7: 5, MaxLueckeTage: 3, MinLaufMin: 30,
+		MinAnMin: 10, MinAusMin: 10, EinReserveW: 100, AusBezugW: 100,
+		Vorziehen: true, NetzErlaubt: true,
+		SensorID: "DD420606305A", SensorName: "Waschküche Sensor",
+		FeuchteOben: 65, FeuchteUnten: 55,
+	}
 }
 
 func standardEntfeuchter() geraetCfg {
@@ -162,7 +186,8 @@ type steuerung struct {
 	geraete            []*geraet
 	sag                func(string, ...any)
 	schalte            func(ip string, an bool, totmann int) (float64, error)
-	prognose           map[int64]float64 // Stundenbeginn -> kW, von der Wetterseite
+	blSchalte          func(mac string, an bool) error // Broadlink-Steckdosen
+	prognose           map[int64]float64               // Stundenbeginn -> kW, von der Wetterseite
 	prognoseZeit       time.Time
 	letzte             *messwert
 	stundenPV          func() map[int]float64 // gemessene Stundenmittel heute
@@ -238,7 +263,8 @@ func (s *steuerung) raumluft(g *geraet, t time.Time) {
 		}
 	}
 	// Die Kellerfenster melden keine Stellung, die Lueftung sagt es selbst.
-	if g.cfg.SensorID != "" && s.lueftPause.Load() {
+	// Sie betrifft nur den Entfeuchter im Spielekeller.
+	if g.cfg.ID == "entfeuchter" && s.lueftPause.Load() {
 		g.fensterAuf = true
 	}
 }
@@ -252,6 +278,13 @@ func neueSteuerung(cfgPfad, standPfad string, sag func(string, ...any)) *steueru
 	}
 	if len(cfgs) == 0 {
 		cfgs = []geraetCfg{standardEntfeuchter()}
+	}
+	hatWK := false
+	for _, c := range cfgs {
+		hatWK = hatWK || c.ID == "waschkueche"
+	}
+	if !hatWK {
+		cfgs = append(cfgs, standardWaschkueche())
 	}
 	staende := map[string]geraetStand{}
 	if roh, err := os.ReadFile(standPfad); err == nil {
@@ -504,7 +537,7 @@ func (s *steuerung) pruefeGeraet(g *geraet, m messwert, t time.Time) {
 	// Netzstrom, was die Lueftung umsonst erledigt. Mit Sonne laeuft er
 	// weiter, und ist die Luft sehr feucht, wartet er nicht.
 	wartet := ""
-	if b := s.lueftBald.Load(); b > 0 && g.feuchte != nil && g.feuchte.RH < cfg.FeuchteOben+5 {
+	if b := s.lueftBald.Load(); b > 0 && g.cfg.ID == "entfeuchter" && g.feuchte != nil && g.feuchte.RH < cfg.FeuchteOben+5 {
 		if bt := time.Unix(b, 0); bt.Sub(t) < 8*time.Hour {
 			wartet = "wartet auf die Lüftung um " + bt.In(ort).Format("15:04")
 			if !bt.After(t) {
@@ -747,7 +780,11 @@ func (s *steuerung) hinweise() []string {
 			h = append(h, g.cfg.Name+": "+g.st.Stoerung)
 		}
 		if !g.shellyFehler.IsZero() && time.Since(g.shellyFehler) > 10*time.Minute {
-			h = append(h, g.cfg.Name+": Shelly nicht erreichbar seit "+g.shellyFehler.In(ort).Format("15:04"))
+			was := "Shelly"
+			if g.cfg.Schalter == "broadlink" {
+				was = "Steckdose"
+			}
+			h = append(h, g.cfg.Name+": "+was+" nicht erreichbar seit "+g.shellyFehler.In(ort).Format("15:04"))
 		}
 		// Feuchtesensor: Batterie und Funkstille. Der Meter Plus laeuft mit
 		// zwei AAA-Zellen; SwitchBot meldet den Stand in Prozent.
@@ -768,6 +805,28 @@ func (s *steuerung) hinweise() []string {
 
 // befehl schickt den Schaltbefehl, sucht den Shelly notfalls neu.
 func (s *steuerung) befehl(g *geraet, an bool) (float64, bool) {
+	if g.cfg.Schalter == "broadlink" {
+		var err error
+		if s.blSchalte == nil {
+			err = fmt.Errorf("Broadlink nicht eingerichtet")
+		} else {
+			err = s.blSchalte(g.cfg.BroadlinkMAC, an)
+		}
+		if err != nil {
+			s.sag("%s: Steckdose nicht erreichbar: %v", g.cfg.Name, err)
+			if g.shellyFehler.IsZero() {
+				g.shellyFehler = time.Now()
+			}
+			return 0, false
+		}
+		g.shellyFehler = time.Time{}
+		kw := 0.0
+		if an {
+			kw = g.cfg.LeistungKW // keine Messung, Typenschild
+		}
+		g.letzteKW = kw
+		return kw, true
+	}
 	totmann := int(g.cfg.TotmannMin * 60)
 	if totmann <= 0 {
 		totmann = 900
