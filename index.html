@@ -2595,6 +2595,53 @@ const SOLAR=(()=>{
     return out;
   }
 
+  /* Waesche mit Sonne (Wunsch vom 11.10.2026): wann laufen Waschen oder
+     Trocknen heute und morgen ohne zusaetzlichen Netzstrom? Gerechnet wie
+     der Planer der Entfeuchter: ein Block von 2 Stunden mit 1 kW, mit nur
+     zwei Dritteln der vorhergesagten Sonne, und bis zum naechsten Morgen
+     8 Uhr. Akkustrom ist dabei erlaubt, wenn die Sonne ihn noch am selben
+     Tag wieder fuellt; macht der Block den Akku nachts frueher leer, zaehlt
+     das als Netzstrom. Erster zusammenhaengender Zeitraum je Tag, 7 bis 20 Uhr. */
+  const WASCH_KW=1.0, WASCH_H=2, WASCH_VORSICHT=0.67;
+  function waschFenster(){
+    const h0=new Date().getHours(), soc0=jetzt?Number(jetzt.soc||0):20, r=[];
+    for(let h=h0;h<24;h++) r.push({tag:0,h,pv:(prog[h]||0)*WASCH_VORSICHT});
+    for(let h=0;h<24;h++) r.push({tag:1,h,pv:(progM[h]||0)*WASCH_VORSICHT});
+    for(let h=0;h<8;h++) r.push({tag:2,h,pv:0});
+    const netz=start=>{let soc=soc0,b=0;
+      for(let i=0;i<r.length;i++){
+        const e=schritt(r[i].pv,HAUS[r[i].h]+(start>=0&&i>=start&&i<start+WASCH_H?WASCH_KW:0),soc);
+        soc=Math.max(0,Math.min(100,soc+e.akku/AKKU_KWH*100)); b+=e.bez;}
+      return b;};
+    const basis=netz(-1);
+    const gut=r.map((x,i)=>x.tag<2&&x.h>=7&&x.h+WASCH_H<=20&&netz(i)-basis<=0.15);
+    const fenster=d=>{
+      const idx=r.map((x,i)=>i).filter(i=>r[i].tag===d&&gut[i]);
+      if(!idx.length) return null;
+      let e=idx[0];
+      for(const i of idx.slice(1)){ if(i===e+1) e=i; else break; }
+      return {von:r[idx[0]].h,bis:r[e].h+WASCH_H};
+    };
+    return {heute:fenster(0),morgen:fenster(1)};
+  }
+  function waschZeile(sichtbar){
+    let el=document.getElementById("todayWash");
+    if(!el){
+      const x=document.getElementById("todayExtra"); if(!x) return;
+      el=document.createElement("div"); el.id="todayWash"; el.className="extra"; x.after(el);
+    }
+    const t=[];
+    if(sichtbar){
+      const f=waschFenster(), h0=new Date().getHours();
+      if(f.heute) t.push(f.heute.von<=h0?`jetzt–${f.heute.bis}`:`heute ${f.heute.von}–${f.heute.bis}`);
+      if(f.morgen) t.push(`morgen ${f.morgen.von}–${f.morgen.bis}`);
+    }
+    el.hidden=!t.length;
+    /* Eine Zeile, sonst wird der Kopf hoeher und die Seite laeuft unten raus */
+    el.style.cssText="max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9be7b0";
+    el.textContent=t.length?`Wäsche: ${t.join(" · ")}`:"";
+  }
+
   function bilanz(ST){
     let pv=0,haus=0,eigen=0,laden=0,entladen=0,ein=0,bez=0,bisher=0,spitze=0,luecke=0;
     for(const e of ST){
@@ -2920,6 +2967,7 @@ const SOLAR=(()=>{
     const el=document.getElementById("solar");
     const kopf=document.getElementById("kopf");
     if(!el) return;
+    waschZeile(frisch());
     if(!frisch()){ el.hidden=true; kopf.classList.add("ohne-solar"); return; }
     el.hidden=false; kopf.classList.remove("ohne-solar");
     /* Batterie und Flussbalken zeigen immer das Jetzt. Nur der Streifen
