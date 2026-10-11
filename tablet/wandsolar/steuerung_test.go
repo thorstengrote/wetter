@@ -524,15 +524,15 @@ func TestWaschkuecheUeberBroadlink(t *testing.T) {
 }
 
 // Rangfolge seit 10.10.2026: nachts aus dem Akku ist nicht frei, auch wenn
-// die Sonne ihn morgen wieder fuellt.
+// die Sonne ihn morgen wieder fuellt. Morgens kurz vor der Sonne schon.
 func TestNachtsAusDemAkkuNichtFrei(t *testing.T) {
 	l := berlin()
 	jetzt := time.Date(2026, 10, 10, 21, 0, 0, 0, l)
 	c := standardWaschkueche()
 	p := planFuer(jetzt, 90, pvWoche(jetzt, 8, 8, 8, 8, 8, 8, 8), c, nil, jetzt.AddDate(0, 0, -10))
 	for _, s := range p.Slots {
-		if s.An && s.Art == "frei" && s.PV*vorsicht < s.Haus+c.LeistungKW {
-			t.Fatalf("%v frei geplant ohne Ueberschuss: %+v", s.Zeit, s)
+		if s.An && s.Art == "frei" && (s.Zeit.Hour() >= 18 || s.Zeit.Hour() < 4) {
+			t.Fatalf("%v abends oder nachts aus dem Akku frei geplant: %+v", s.Zeit, s)
 		}
 	}
 	n := 0
@@ -543,5 +543,28 @@ func TestNachtsAusDemAkkuNichtFrei(t *testing.T) {
 	}
 	if n == 0 {
 		t.Fatal("an Sonnentagen gar nichts frei geplant")
+	}
+}
+
+// Morgens zwei Stunden vor dem Ueberschuss darf er aus dem Akku anlaufen.
+func TestAkkuKurzVorDerSonne(t *testing.T) {
+	l := berlin()
+	jetzt := time.Date(2026, 10, 11, 8, 0, 0, 0, l)
+	c := standardWaschkueche()
+	pv := map[int64]float64{}
+	for h := 0; h < 7*24; h++ {
+		x := jetzt.Add(time.Duration(h) * time.Hour)
+		pv[x.Unix()] = 0
+		if x.Hour() >= 10 && x.Hour() < 16 {
+			pv[x.Unix()] = 6
+		}
+	}
+	p := planFuer(jetzt, 60, pv, c, nil, jetzt.AddDate(0, 0, -10))
+	if !p.Slots[1].An || p.Slots[1].Art != "frei" {
+		t.Fatalf("8:30 vor sonnigem Vormittag nicht frei: %+v", p.Slots[1])
+	}
+	p = planFuer(jetzt, 22, pv, c, nil, jetzt.AddDate(0, 0, -10))
+	if p.Slots[0].An && p.Slots[0].Art == "frei" {
+		t.Fatalf("mit fast leerem Akku frei geplant: %+v", p.Slots[0])
 	}
 }

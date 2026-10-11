@@ -9,9 +9,12 @@ package main
 // auch Akkustrom, den die Sonne spaeter am Tag ohnehin wieder auffuellt. So
 // darf ein Geraet anlaufen, bevor der Akku voll ist, wenn die Prognose
 // genug Einspeisung fuer den Rest des Tages erwartet. Seit 10.10.2026 gilt
-// die Rangfolge Lueften, Ueberschuss, Akku, Netz: frei ist eine Halbstunde nur
-// noch, wenn die Sonne in ihr Haus und Geraet selbst traegt. Nachts aus dem
-// Akku, den morgen die Sonne wieder fuellt, ist nicht mehr frei. Gegen eine zu
+// die Rangfolge Lueften, Ueberschuss, Akku, Netz. Frei ist eine Halbstunde,
+// wenn die Sonne in ihr Haus und Geraet selbst traegt, oder wenn laut
+// Vorhersage binnen drei Stunden Ueberschuss kommt und der Akku bis dahin
+// ueber 20 % bleibt (Praezisierung vom 11.10.2026: dann ist Akkustrom wie
+// Ueberschuss). Abends aus dem Akku, den erst morgen die Sonne fuellt, ist
+// nicht frei; in der Nacht zum 11.10. lief er so um 3:24 leer. Gegen eine zu
 // freundliche Prognose rechnet der Planer dabei mit nur zwei Dritteln der
 // vorhergesagten Erzeugung, und fuer heute zusaetzlich mit dem Verhaeltnis
 // von gemessener zu vorhergesagter Erzeugung der bisherigen Stunden.
@@ -330,10 +333,37 @@ func (p *planer) frei(i int, soc []float64) bool {
 		_, ein, _ := simSchritt(p.pvV[i], last, soc[i])
 		return ein >= p.in.Leistung
 	}
-	if p.pvV[i] < p.slots[i].Haus+p.in.Leistung {
-		return false // der Akku muesste zuschiessen
+	if p.kosten(i, 1, soc) > freiSchwelle {
+		return false
 	}
-	return p.kosten(i, 1, soc) <= freiSchwelle
+	if p.pvV[i] >= p.slots[i].Haus+p.in.Leistung {
+		return true
+	}
+	return p.bald(i, soc[i])
+}
+
+const (
+	baldSlots   = 6  // drei Stunden
+	akkuReserve = 20 // Prozent bis zum Ueberschuss
+)
+
+// bald: kommt nach Slot i binnen drei Stunden Ueberschuss, und haelt der
+// Akku bis dahin ueber der Reserve, wenn das Geraet in Slot i laeuft?
+func (p *planer) bald(i int, soc float64) bool {
+	for j := i; j < len(p.slots) && j <= i+baldSlots; j++ {
+		if j > i && p.pvV[j] > p.slots[j].Haus {
+			return true
+		}
+		last := p.slots[j].Haus
+		if p.on[j] || j == i {
+			last += p.in.Leistung
+		}
+		soc, _, _ = simSchritt(p.pvV[j], last, soc)
+		if soc < akkuReserve {
+			return false
+		}
+	}
+	return false
 }
 
 func (p *planer) rechne() plan {
