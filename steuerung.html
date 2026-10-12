@@ -437,6 +437,7 @@ async function ladeRaum(){
   const g=raumGeraet(),v=raumVentil();
   RAUM={hk:v?await api("api/heizung/verlauf?h=168&ain="+v.ain):[],ev:g?(await api("api/verlauf?id="+g.cfg.id)).laeufe||[]:[],
     kl:(await api("api/klima?tage=7&ort=spielekeller")).verlauf||[]};
+  try{ const c=await api("api/co2schaetzung"); RAUM.cs=c.verlauf||[]; RAUM.csNacht=c.letzte_nacht; RAUM.csWert=c.wert; }catch(e){ RAUM.cs=[]; }
 }
 function raumVorschau(){
   const kopf=`<div class="unter">Links die letzten 48 Stunden, gemessen · rechts die nächsten 7 Tage, voraussichtlich</div>`;
@@ -467,7 +468,8 @@ function raumVorschau(){
 
   // Spuren
   const kl=(RAUM.kl||[]).map(p=>({t:ms(p.zeit),co2:p.co2})).filter(p=>p.t>=t0);
-  const spur=[["Temperatur",96],["Taupunkt",96],...(kl.length?[["CO₂",60]]:[]),["Lüftung",22],["Entfeuchter",22],["Heizung",22],["Sonne",36]];
+  const cs=(RAUM.cs||[]).map(p=>({t:ms(p.zeit),co2:p.schaetzung})).filter(p=>p.t>=t0);
+  const spur=[["Temperatur",96],["Taupunkt",96],...(kl.length||cs.length?[["CO₂",60]]:[]),["Lüftung",22],["Entfeuchter",22],["Heizung",22],["Sonne",36]];
   let y=30,Y={};for(const [n,h] of spur){Y[n]=[y,h];y+=h+12;}const H=y+4;
   let s="";
   // Schlafzeiten als Hintergrund
@@ -504,7 +506,10 @@ function raumVorschau(){
    s+=linie(innenT.map(p=>[p.t,p.tp]),yf,"#e8eef5");
    for(const p of aussen) if(p.regen>=0.2) s+=`<rect x="${x(p.t)}" y="${Y.Taupunkt[0]+Y.Taupunkt[1]-3}" width="${x(p.t+36e5)-x(p.t)}" height="3" fill="var(--haus)"/>`;}
   // CO2, nur solange der Velux-Sensor im Keller lag
-  if(kl.length){const [yy,h]=Y["CO₂"],hi=Math.max(1600,...kl.map(p=>p.co2)),lo=400,yf=v=>yy+(1-(v-lo)/(hi-lo))*h;
+  if(kl.length||cs.length){const [yy,h]=Y["CO₂"],hi=Math.max(1600,...kl.map(p=>p.co2),...cs.map(p=>p.co2)),lo=400,yf=v=>yy+(1-(v-lo)/(hi-lo))*h;
+    /* Schaetzung ohne Sensor, gestrichelt (Vergleich ab 12.10.2026) */
+    {let d="",vor=null;for(const p of cs){d+=(vor===null||p.t-vor>20*60e3?"M":"L")+x(p.t).toFixed(1)+" "+yf(p.co2).toFixed(1);vor=p.t;}
+     s+=`<path d="${d}" fill="none" stroke="#ffd166" stroke-width="1.4" stroke-dasharray="4 3" opacity=".9"/>`;}
     for(const g of [1000,1400]) s+=`<line x1="${links}" x2="${b-rechts}" y1="${yf(g)}" y2="${yf(g)}" stroke="${co2Farbe(g)}" stroke-dasharray="3 4" opacity=".5"/>`;
     let d="",vor=null;for(const p of kl){d+=(vor===null||p.t-vor>20*60e3?"M":"L")+x(p.t).toFixed(1)+" "+yf(p.co2).toFixed(1);vor=p.t;}
     s+=`<path d="${d}" fill="none" stroke="#e8eef5" stroke-width="1.6"/><text x="${links+4}" y="${yy+10}" fill="#5b6b7d" font-size="10">${Math.round(hi)} ppm</text>`;}
@@ -534,7 +539,8 @@ function raumVorschau(){
         <span><i style="background:#ffb38a"></i>Heiz-Soll</span><span><i style="background:var(--haus)"></i>Taupunkt draußen, Regen</span><span><i style="background:var(--ein);opacity:.4"></i>gut zum Lüften</span>
         <span><i style="background:var(--luft)"></i>Lüftung</span><span><i style="background:var(--ein)"></i>Entfeuchter mit Sonne</span><span><i style="background:var(--akku)"></i>aus dem Akku</span><span><i style="background:var(--netz)"></i>vom Netz</span>
         <span><i style="background:#ff7b6b"></i>Ventil forderte Wärme</span><span><i style="background:#0a1018;border:1px solid #253244"></i>Schlafzeit</span>
-        ${RAUM.kl?.length?`<span><i style="background:var(--ein)"></i>CO₂ 1.000 ppm</span><span><i style="background:var(--netz)"></i>1.400 ppm</span>`:""}</div>
+        ${RAUM.kl?.length?`<span><i style="background:var(--ein)"></i>CO₂ 1.000 ppm</span><span><i style="background:var(--netz)"></i>1.400 ppm</span>`:""}
+        ${RAUM.cs?.length?`<span><i style="background:#ffd166"></i>CO₂ geschätzt${RAUM.csNacht?.N?`, letzte Nacht im Mittel ${Math.round(RAUM.csNacht.abweichung)} ppm daneben`:""}</span>`:""}</div>
       <div class="klein" style="margin-top:10px">Kräftige Farben sind Gemessenes, blasse sind voraussichtlich. Die Vorschau ist eine Rechnung, keine Zusage:
         Wetter aus der Vorhersage, Entfeuchter aus seinem Plan, Lüftung in den Stunden, in denen die Vorhersage genug Taupunktabstand erwarten lässt.
         Die Heizung folgt der eigenen Regel: Komfort in der Wachzeit, Nachtwert in der Schlafzeit, beim Lüften ${hc?z(hc.lueften,0):"8"} °C.

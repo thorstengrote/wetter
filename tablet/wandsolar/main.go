@@ -590,6 +590,14 @@ func main() {
 	lf.wach = hr.wach
 	go lf.laufe()
 	go hr.laufe()
+	cs := neueCO2Schaetzung(filepath.Join(dir, "co2-schaetzung.json"), sag)
+	cs.echt = kl.co2Keller
+	cs.fenster = func() string {
+		s, _ := kf.stand()["stellung"].(string)
+		return kfFenster(s)
+	}
+	cs.schlaf = func(t time.Time) bool { return !hr.wach(t) }
+	go cs.laufe()
 	tu := neuesTuya(filepath.Join(dir, "tuya.json"), sag)
 	go tu.laufe()
 	bl := neuesBroadlink(filepath.Join(dir, "broadlink.json"), sag)
@@ -621,6 +629,7 @@ func main() {
 	kf.bediene(mux)
 	lf.bediene(mux)
 	hr.bediene(mux)
+	cs.bediene(mux)
 	tu.bediene(mux)
 	bl.bediene(mux)
 	kl.bediene(mux)
