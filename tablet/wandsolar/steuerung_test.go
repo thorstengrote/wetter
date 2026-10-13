@@ -568,3 +568,23 @@ func TestAkkuKurzVorDerSonne(t *testing.T) {
 		t.Fatalf("mit fast leerem Akku frei geplant: %+v", p.Slots[0])
 	}
 }
+
+// Fensterkontakt Waschkueche: offen heisst Pause, alter Stand zaehlt nicht.
+func TestKontaktPausiertEntfeuchter(t *testing.T) {
+	jetzt := time.Now().In(ort)
+	s := &steuerung{sb: &switchbot{kontakte: map[string]kontaktWert{}, werte: map[string]messFeuchte{}}}
+	g := &geraet{cfg: standardWaschkueche()}
+	s.sb.kontakte[waschkuecheKontakt] = kontaktWert{Offen: true, Seit: jetzt.Add(-time.Hour), Zeit: jetzt}
+	s.raumluft(g, jetzt)
+	if !g.fensterAuf {
+		t.Fatal("offenes Fenster nicht erkannt")
+	}
+	s.sb.kontakte[waschkuecheKontakt] = kontaktWert{Offen: true, Seit: jetzt.Add(-time.Hour), Zeit: jetzt.Add(-time.Hour)}
+	s.raumluft(g, jetzt)
+	if g.fensterAuf {
+		t.Fatal("veralteter Kontaktstand zaehlt")
+	}
+	if g.cfg.Raum() != "Waschküche" {
+		t.Fatalf("Raum: %q", g.cfg.Raum())
+	}
+}

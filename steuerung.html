@@ -810,7 +810,7 @@ function wkVorschau(){
   const ratenText=raten.an!=null&&raten.aus!=null?`Gelernt aus den letzten Tagen: mit Entfeuchter ${rate(raten.an)}, ohne ${rate(raten.aus)}.`
     :`Für die Feuchte voraus fehlt noch Messzeit (an ${z(raten.stdAn,1)} h, aus ${z(raten.stdAus,1)} h, je eine Stunde nötig).`;
   return kopf+`<div class="raster" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px">
-      <div class="karte"><h2>Raumluft jetzt</h2><div class="zahl">${f?z(f.rh,0)+" <small>%</small>":"–"}</div><div class="klein">${f?z(f.temp)+" °C · Taupunkt "+z(taupunktJs(f.temp,f.rh))+" °C":""}${f?.batterie?" · Fühlerbatterie "+f.batterie+" %":""}</div></div>
+      <div class="karte"><h2>Raumluft jetzt</h2><div class="zahl">${f?z(f.rh,0)+" <small>%</small>":"–"}</div><div class="klein">${f?z(f.temp)+" °C · Taupunkt "+z(taupunktJs(f.temp,f.rh))+" °C":""}${f?.batterie?" · Fühlerbatterie "+f.batterie+" %":""}${g.kontakt?`<br>Fenster ${g.kontakt.offen?"offen seit "+uhr(g.kontakt.seit):"zu"}`:""}</div></div>
       <div class="karte"><h2>Entfeuchter</h2><div class="zahl" style="font-size:20px">${g.an?"an":"aus"}</div><div class="klein">${esc(g.grund||"")}</div></div>
       <div class="karte"><h2>Geplant</h2><div class="zahl">${z(nE)} <small>h</small></div><div class="klein">in den nächsten 7 Tagen${nN?`, davon ${z(nN)} h aus Akku oder Netz`:""}</div></div>
       <div class="karte"><h2>Heizung</h2><div class="zahl" style="font-size:20px">${v?z(v.ist)+" °C":"–"}</div><div class="klein">${v?`Ventil ${sollText(v.soll)}`:"kein Ventil gefunden"}</div></div>
@@ -870,7 +870,7 @@ function uebersicht(){
         [LF?.co2?`CO₂ ${Math.round(LF.co2)} ppm`:"",`Fenster ${esc(KF?.stellung||"?")} · Entfeuchter ${g?.an?"an":"aus"} · Heizung ${HR?.ziel?z(HR.ziel,0)+" °C":"–"}`,esc(LF?.grund||"")],
         LF?.phase==="offen"?"var(--luft)":g?.an?"var(--ein)":"var(--sehrleise)")}
       ${(()=>{const w=wkGeraet(),f=w?.feuchte;return kachel("waschkueche","Waschküche",f?`${z(f.rh,0)} <small>%</small> · ${z(f.temp)} <small>°C</small>`:"–",
-        [w?`Entfeuchter ${w.an?"an":"aus"} · ${esc(w.grund||"")}`:"",vk?`${z(vk.ist)} °C am Ventil`:""],w?.an?"var(--ein)":"var(--sehrleise)");})()}
+        [w?`Entfeuchter ${w.an?"an":"aus"} · ${esc(w.grund||"")}`:"",w?.kontakt?`Fenster ${w.kontakt.offen?"offen seit "+uhr(w.kontakt.seit):"zu"}`:"",vk?`${z(vk.ist)} °C am Ventil`:""],w?.an?"var(--ein)":"var(--sehrleise)");})()}
       ${kachel("buero","Büro",vb?`${z(vb.ist)} <small>°C</small>`:"–",[roll.some(r=>r.stand.befehl)?"Rollläden "+(roll.map(r=>BEFEHL[r.stand.befehl]||"?").filter((x,j,a)=>a.indexOf(x)===j).join(" / ")):roll.length?"Rollläden: seit dem Neustart kein Befehl":""],"var(--pv)")}
       ${kachel("wohnzimmer","Wohnzimmer",kw?`${Math.round(kw.co2)} <small>ppm</small>`:vw?`${z(vw.ist)} <small>°C</small>`:"–",
         [kw?`${z(kw.t)} °C · ${z(kw.rh,0)} %`:KL?.standort==="spielekeller"?"Velux-Sensor liegt im Keller":"",vw&&kw?`Ventil ${z(vw.ist)} °C`:""],kw?co2Farbe(kw.co2):"var(--sehrleise)")}

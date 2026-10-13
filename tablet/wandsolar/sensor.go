@@ -40,6 +40,8 @@ type switchbot struct {
 	liste       []map[string]string
 	listeZeit   time.Time
 	werte       map[string]messFeuchte
+	kontakte    map[string]kontaktWert   // Fensterkontakte, seit 13.10.2026
+	kontaktIDs  func() []string          // jede Minute abgefragt
 	verlauf     map[string][]messFeuchte // 48 Stunden je Sensor
 	verlaufPfad string                   // gesichert, damit ein Neustart die Kurve nicht loescht
 	gesichert   time.Time
@@ -65,6 +67,7 @@ func neuerSwitchbot(pfad string, sag func(string, ...any)) *switchbot {
 	tr := &http.Transport{DialContext: d.DialContext, TLSHandshakeTimeout: 10 * time.Second}
 	b := &switchbot{pfad: pfad, client: &http.Client{Timeout: 15 * time.Second, Transport: tr},
 		werte: map[string]messFeuchte{}, verlauf: map[string][]messFeuchte{}, sag: sag,
+		kontakte:    map[string]kontaktWert{},
 		verlaufPfad: filepath.Join(filepath.Dir(pfad), "sensor-verlauf.json")}
 	if roh, err := os.ReadFile(b.verlaufPfad); err == nil {
 		json.Unmarshal(roh, &b.verlauf)
@@ -154,6 +157,7 @@ func (b *switchbot) lies(id string) {
 		Humidity    float64 `json:"humidity"`
 		Temperature float64 `json:"temperature"`
 		Battery     int     `json:"battery"`
+		OpenState   string  `json:"openState"` // Kontaktsensor: open, close, timeOutNotClose
 	}
 	if err := b.rufe("/devices/"+id+"/status", &st); err != nil {
 		b.Lock()
@@ -165,6 +169,10 @@ func (b *switchbot) lies(id string) {
 		}
 		b.fehler = err.Error()
 		b.Unlock()
+		return
+	}
+	if st.OpenState != "" {
+		b.merkeKontakt(id, st.OpenState != "close", st.Battery)
 		return
 	}
 	w := messFeuchte{RH: st.Humidity, Temp: st.Temperature, Batt: st.Battery, Zeit: time.Now().In(ort)}
@@ -230,6 +238,12 @@ func (b *switchbot) laufe(ids func() []string, schnell func() bool) {
 		if time.Since(zuletzt) >= takt-5*time.Second {
 			zuletzt = time.Now()
 			for _, id := range ids() {
+				b.lies(id)
+			}
+		}
+		// Fensterkontakte jede Minute: 1.440 Abrufe am Tag je Kontakt
+		if b.kontaktIDs != nil {
+			for _, id := range b.kontaktIDs() {
 				b.lies(id)
 			}
 		}

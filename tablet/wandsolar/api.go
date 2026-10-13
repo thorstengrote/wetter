@@ -212,6 +212,11 @@ func (s *steuerung) bediene(mux *http.ServeMux, seitenDir string) {
 				"stoerung": g.st.Stoerung, "stoerung_seit": g.st.StoerSeit, "wiederholt": g.st.Wiederholt,
 				"kompressor": g.komp, "kompressor_kw": g.st.KompKW,
 				"feuchte": g.feuchte, "nass": g.nass, "trocken": g.trocken, "fenster_auf": g.fensterAuf}
+			if g.cfg.KontaktID != "" && s.sb != nil {
+				if k, ok := s.sb.kontakt(g.cfg.KontaktID); ok {
+					e["kontakt"] = k
+				}
+			}
 			if !n.IsZero() {
 				e["naechster"] = n
 			}

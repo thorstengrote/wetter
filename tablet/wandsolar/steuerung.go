@@ -102,12 +102,22 @@ type geraetCfg struct {
 	// ueberwacht, der Entfeuchter dort hat einen Ablauf.
 	Schalter     string `json:"schalter,omitempty"`
 	BroadlinkMAC string `json:"broadlink_mac,omitempty"`
+	// KontaktID: SwitchBot-Fensterkontakt des Raums. Offen heisst Pause.
+	KontaktID string `json:"kontakt_id,omitempty"`
+}
+
+// Raum: Name fuer Hinweise, "Entfeuchter Waschküche" wird "Waschküche".
+func (c geraetCfg) Raum() string {
+	return strings.TrimSpace(strings.TrimPrefix(c.Name, "Entfeuchter"))
 }
 
 // standardWaschkueche: der Entfeuchter in der Waschkueche, 220 W, Ablauf ins
 // Abwasser, laeuft nach Stromunterbrechung von selbst weiter. Im Raum
 // schlaeft niemand, er darf rund um die Uhr; ohne Sonne nur ueber der
 // Obergrenze.
+// waschkuecheKontakt: SwitchBot-Kontakt "Fenstersensor" am Fenster der Waschkueche.
+const waschkuecheKontakt = "B0E9FE7F49DC"
+
 // schimmelRH: ab hier warnt die Wand, wenn es zwei Stunden so bleibt.
 const schimmelRH = 70
 
@@ -120,7 +130,7 @@ func standardWaschkueche() geraetCfg {
 		MaxH7: 30, MinH7: 5, MaxLueckeTage: 3, MinLaufMin: 30,
 		MinAnMin: 10, MinAusMin: 10, EinReserveW: 100, AusBezugW: 100,
 		Vorziehen: true, NetzErlaubt: true,
-		SensorID: "DD420606305A", SensorName: "Waschküche Sensor",
+		SensorID: "DD420606305A", SensorName: "Waschküche Sensor", KontaktID: waschkuecheKontakt,
 		FeuchteOben: 65, FeuchteUnten: 55,
 	}
 }
@@ -277,6 +287,11 @@ func (s *steuerung) raumluft(g *geraet, t time.Time) {
 			}
 		}
 	}
+	if g.cfg.KontaktID != "" && s.sb != nil {
+		if k, ok := s.sb.kontakt(g.cfg.KontaktID); ok && k.Offen {
+			g.fensterAuf = true
+		}
+	}
 	// Die Kellerfenster melden keine Stellung, die Lueftung sagt es selbst.
 	// Sie betrifft nur den Entfeuchter im Spielekeller.
 	if g.cfg.ID == "entfeuchter" && s.lueftPause.Load() {
@@ -300,6 +315,11 @@ func neueSteuerung(cfgPfad, standPfad string, sag func(string, ...any)) *steueru
 	}
 	if !hatWK {
 		cfgs = append(cfgs, standardWaschkueche())
+	}
+	for i := range cfgs {
+		if cfgs[i].ID == "waschkueche" && cfgs[i].KontaktID == "" {
+			cfgs[i].KontaktID = waschkuecheKontakt // nachgeruestet am 13.10.2026
+		}
 	}
 	staende := map[string]geraetStand{}
 	if roh, err := os.ReadFile(standPfad); err == nil {
@@ -808,6 +828,7 @@ func (s *steuerung) hinweise() []string {
 		if g.st.Stoerung != "" && g.cfg.Modus == "scharf" {
 			h = append(h, g.cfg.Name+": "+g.st.Stoerung)
 		}
+		h = append(h, s.kontaktHinweise(g, time.Now().In(ort))...)
 		if !g.schimmelSeit.IsZero() && time.Since(g.schimmelSeit) > 2*time.Hour && g.feuchte != nil {
 			h = append(h, fmt.Sprintf("%s: Schimmelgefahr, Raumluft %.0f %% seit %s", g.cfg.Name, g.feuchte.RH,
 				g.schimmelSeit.In(ort).Format("02.01. 15:04")))
