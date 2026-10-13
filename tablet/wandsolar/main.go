@@ -238,6 +238,7 @@ type zustand struct {
 	fr      *fritz
 	kl      *raumklima
 	weitere []func() []string // Warnungen der uebrigen Module fuer die Wand
+	lueften func() *wkHinweis // Waschkueche lueften, als Pille oben an der Wand
 }
 
 // laden holt den gespeicherten Tag zurueck, und zwar ohne Blick auf die Uhr.
@@ -328,6 +329,7 @@ type ausgabe struct {
 	HeuteKwh float64                       `json:"heute_kwh"`
 	Stunden  map[string]map[string]float64 `json:"stunden"`
 	Hinweise []string                      `json:"hinweise,omitempty"`
+	Lueften  *wkHinweis                    `json:"lueften,omitempty"`
 }
 
 func rund(v float64, stellen int) float64 {
@@ -344,7 +346,7 @@ func copysign(v, z float64) float64 {
 	return v
 }
 
-func (z *zustand) json(hinweise []string) []byte {
+func (z *zustand) json(hinweise []string, lueften *wkHinweis) []byte {
 	z.Lock()
 	defer z.Unlock()
 	if z.letzte == nil {
@@ -361,6 +363,7 @@ func (z *zustand) json(hinweise []string) []byte {
 		HeuteKwh: rund(m.Heute, 2),
 		Stunden:  map[string]map[string]float64{},
 		Hinweise: hinweise,
+		Lueften:  lueften,
 	}
 	for k, s := range z.tag.Stunden {
 		if s.N == 0 {
@@ -401,7 +404,11 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 		for _, f := range z.weitere {
 			h = append(h, f()...)
 		}
-		w.Write(z.json(h))
+		var lh *wkHinweis
+		if z.lueften != nil {
+			lh = z.lueften()
+		}
+		w.Write(z.json(h, lh))
 	})
 	// Die Velux-Steuerung laeuft als eigener Dienst in hapwatch auf 8098.
 	// Sie hier durchzureichen kostet nichts und spart der Seite den zweiten
@@ -526,6 +533,11 @@ func main() {
 	go z.st.sb.laufe(z.st.sensorIDs, z.st.lueftPause.Load)
 	z.fr = neueFritz(filepath.Join(dir, "fritz.json"), filepath.Join(dir, "heizung-verlauf.json"), sag)
 	go z.fr.laufe()
+	wk := neueWkLueften(filepath.Join(dir, "wk-lueften.json"), z.st, sag)
+	wk.ventil = func() (ventil, bool) { return z.fr.ventilMit("waschk") }
+	wk.setze = z.fr.setzeSoll
+	z.lueften = wk.aktuell
+	go wk.laufe()
 	kf := neueKellerfenster(filepath.Join(dir, "kellerfenster.json"), filepath.Join(dir, "kellerfenster-verlauf.json"), sag)
 	go kf.laufe()
 	kl := neuesKlima(*vlx, filepath.Join(dir, "klima.json"), filepath.Join(dir, "klima-verlauf.json"), sag)

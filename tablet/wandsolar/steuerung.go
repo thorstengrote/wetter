@@ -219,6 +219,7 @@ type steuerung struct {
 	luft               map[int64]luftWert // Taupunkt, Regen, Boeen je Stunde, von der Wetterseite
 	lueftPause         atomic.Bool        // die Lueftung hat die Fenster offen
 	lueftBald          atomic.Int64       // Unix-Zeit der naechsten Lueftung heute, 0 ohne
+	wkVerifiziert      atomic.Bool        // Raumluft bestaetigt das offene Fenster der Waschkueche
 }
 
 // aussenJetzt: Aussentemperatur der laufenden Stunde, nil ohne Prognose.
@@ -288,7 +289,13 @@ func (s *steuerung) raumluft(g *geraet, t time.Time) {
 		}
 	}
 	if g.cfg.KontaktID != "" && s.sb != nil {
-		if k, ok := s.sb.kontakt(g.cfg.KontaktID); ok && k.Offen {
+		// Dem Kontakt nur begrenzt glauben: die Cloud liefert bei verlorenem
+		// Sensor den alten Stand weiter (13.10.2026). Nach drei Stunden nur,
+		// wenn die Raumluft das offene Fenster bestaetigt, und bei sehr
+		// feuchter Luft nie, Schimmel geht vor.
+		if k, ok := s.sb.kontakt(g.cfg.KontaktID); ok && k.Offen &&
+			(t.Sub(k.Seit) < wkGlaubeOffen || s.wkVerifiziert.Load()) &&
+			!(g.feuchte != nil && g.feuchte.RH >= g.cfg.FeuchteOben+5) {
 			g.fensterAuf = true
 		}
 	}

@@ -53,7 +53,7 @@ func (s *steuerung) kontaktIDs() []string {
 	return ids
 }
 
-// kontaktHinweise: offenes Fenster, das nichts mehr bringt oder Waerme kostet.
+// kontaktHinweise: Batterie des Kontakts.
 func (s *steuerung) kontaktHinweise(g *geraet, jetzt time.Time) []string {
 	if g.cfg.KontaktID == "" || s.sb == nil {
 		return nil
@@ -67,15 +67,7 @@ func (s *steuerung) kontaktHinweise(g *geraet, jetzt time.Time) []string {
 	if k.Batt > 0 && k.Batt <= sensorBattGrenze {
 		h = append(h, fmt.Sprintf("Fensterkontakt %s: Batterie wechseln (%d %%)", raum, k.Batt))
 	}
-	if !k.Offen || jetzt.Sub(k.Seit) < 30*time.Minute {
-		return h
-	}
-	aus, ausOk := luftZu(s.luft, jetzt)
-	if g.feuchte != nil && ausOk && aus.Taupunkt >= taupunkt(g.feuchte.Temp, g.feuchte.RH)-1 {
-		return append(h, fmt.Sprintf("%s: Fenster zu, draußen ist die Luft feuchter (Taupunkt %.0f °C)", raum, aus.Taupunkt))
-	}
-	if ausOk && aus.Temp < 12 && jetzt.Sub(k.Seit) >= 2*time.Hour {
-		return append(h, fmt.Sprintf("%s: Fenster offen seit %s, draußen %.0f °C", raum, k.Seit.In(ort).Format("15:04"), aus.Temp))
-	}
+	// Offen, schliessen, lueften: steht als Pille oben an der Wand, siehe
+	// waschlueften.go, nicht im roten Warnkasten.
 	return h
 }

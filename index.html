@@ -122,6 +122,17 @@ header.ohne-solar{grid-template-columns:auto auto minmax(0,1fr)}
   border-radius:999px;background:rgba(18,84,48,.88);border:1.5px solid #5fd38d;color:#eafff0;
   box-shadow:0 2px 10px rgba(0,0,0,.35);line-height:1.15}
 .waschpille[hidden]{display:none}
+/* Waschkueche lueften, im Feld neben der Waesche (Wunsch vom 13.10.2026) */
+.current{flex-wrap:wrap;align-content:center}
+#lueftzeile{flex-basis:100%;display:flex}
+#lueftzeile[hidden]{display:none}
+.lueftpille{display:inline-flex;align-items:center;gap:9px;margin-bottom:6px;padding:6px 14px 6px 10px;
+  border-radius:999px;border:1.5px solid;box-shadow:0 2px 10px rgba(0,0,0,.35);line-height:1.15}
+.lueftpille b{font-size:16px;font-weight:750;white-space:nowrap}
+.lueftpille small{display:block;font-size:12.5px;font-weight:600;white-space:nowrap;opacity:.85}
+.lueftpille.empfehlung{background:rgba(16,70,110,.9);border-color:#6ec1ff;color:#e6f4ff}
+.lueftpille.offen{background:rgba(30,52,80,.9);border-color:#8fb8ff;color:#e6efff}
+.lueftpille.schliessen{background:rgba(120,62,8,.92);border-color:#ffb347;color:#fff1de}
 .waschpille svg{flex:none}
 .waschpille b{font-size:16px;font-weight:750;white-space:nowrap}
 .waschpille small{display:block;font-size:12.5px;font-weight:600;color:#b9f0cb;white-space:nowrap}
@@ -544,6 +555,7 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
   </div>
 
   <div class="zelle current">
+    <div id="lueftzeile" hidden></div>
     <div class="icon" id="nowIcon">--</div>
     <div class="tempspalte"><div class="temp" id="nowTemp">--&deg;</div>
       <span class="pille" id="nowcast" hidden></span></div>
@@ -2459,6 +2471,7 @@ const SOLAR=(()=>{
         mess=d.stunden||{};
         heuteKwh=Number(d.heute_kwh||0);
         zeigeHinweise(d.hinweise||[]);
+        zeigeLueften(d.lueften);
         standZeit=d.zeit?new Date(d.zeit).getTime():Date.now();
         break;
       }catch(e){ /* naechste Quelle */ }
@@ -2473,6 +2486,20 @@ const SOLAR=(()=>{
      man sie im Vorbeigehen sieht. Antippen blendet genau diese Warnungen fuer
      zwei Stunden aus; kommt eine neue dazu oder sind sie danach noch da,
      erscheint der Kasten wieder. */
+  /* Waschkueche: lueften, offen, schliessen. Rechnet wandsolar
+     (waschlueften.go), hier nur die Pille. */
+  function zeigeLueften(h){
+    const el=document.getElementById("lueftzeile"); if(!el) return;
+    el.hidden=!h;
+    if(!h){ el.innerHTML=""; return; }
+    const farbe={empfehlung:"#6ec1ff",offen:"#8fb8ff",schliessen:"#ffb347"}[h.art]||"#8fb8ff";
+    /* Fenster als Strichzeichnung, beim Schliessen mit Pfeil */
+    const ikon=`<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="${farbe}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4" y="3" width="16" height="18" rx="1.5"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="4" y1="12" x2="20" y2="12"/>
+      ${h.art==="schliessen"?'<path d="M15 8l-3 3-3-3" />':''}</svg>`;
+    const e=t=>String(t).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    el.innerHTML=`<div class="lueftpille ${e(h.art)}">${ikon}<div><b>${e(h.text)}</b>${h.unter?`<small>${e(h.unter)}</small>`:""}</div></div>`;
+  }
   let hinweisWeg={}, hinweisJetzt=[];
   function zeigeHinweise(h){
     hinweisJetzt=h;
