@@ -118,23 +118,29 @@ header.ohne-solar{grid-template-columns:auto auto minmax(0,1fr)}
 .pille.gewitter{color:#ffe08a}
 .pille[hidden]{display:none}
 /* Waesche mit Sonne, ueber dem Ortsnamen (Wunsch vom 12.10.2026: auffaellig) */
-.waschpille{display:inline-flex;align-items:center;gap:9px;margin-bottom:8px;padding:6px 14px 6px 10px;
+.waschpille{display:inline-flex;align-items:center;gap:7px;margin-bottom:8px;padding:5px 12px 5px 8px;
   border-radius:999px;background:rgba(18,84,48,.88);border:1.5px solid #5fd38d;color:#eafff0;
   box-shadow:0 2px 10px rgba(0,0,0,.35);line-height:1.15}
 .waschpille[hidden]{display:none}
 /* Waschkueche lueften, im Feld neben der Waesche (Wunsch vom 13.10.2026) */
-.current{flex-wrap:wrap;align-content:center}
-#lueftzeile{flex-basis:100%;display:flex}
+/* Eigene Zeile ueber Symbol und Temperatur. width 0 plus min-width 100 %:
+   die Zeile nimmt die Breite des Feldes, macht es aber nicht breiter. */
+.current{flex-wrap:wrap;align-content:center;row-gap:0}
+#lueftzeile{flex:0 0 100%;width:0;min-width:100%;display:flex}
+.lueftpille{max-width:100%;box-sizing:border-box}
 #lueftzeile[hidden]{display:none}
 .lueftpille{display:inline-flex;align-items:center;gap:9px;margin-bottom:6px;padding:6px 14px 6px 10px;
   border-radius:999px;border:1.5px solid;box-shadow:0 2px 10px rgba(0,0,0,.35);line-height:1.15}
 .lueftpille b{font-size:16px;font-weight:750;white-space:nowrap}
-.lueftpille small{display:block;font-size:12.5px;font-weight:600;white-space:nowrap;opacity:.85}
+.lueftpille small{display:block;font-size:12.5px;font-weight:600;opacity:.85}
 .lueftpille.empfehlung{background:rgba(16,70,110,.9);border-color:#6ec1ff;color:#e6f4ff}
 .lueftpille.offen{background:rgba(30,52,80,.9);border-color:#8fb8ff;color:#e6efff}
 .lueftpille.schliessen{background:rgba(120,62,8,.92);border-color:#ffb347;color:#fff1de}
 .waschpille svg{flex:none}
-.waschpille b{font-size:16px;font-weight:750;white-space:nowrap}
+/* Nicht breiter als Uhrzeit und Datum, sonst wird das Feld breiter und
+   drueckt den Tagesbericht in den Solarblock (13.10.2026). Lieber zwei Zeilen. */
+.waschpille b{font-size:15px;font-weight:750;white-space:nowrap}
+.waschpille b span{font-weight:600;color:#b9f0cb}
 .waschpille small{display:block;font-size:12.5px;font-weight:600;color:#b9f0cb;white-space:nowrap}
 .pille .mi{width:13px;height:13px}
 .current .details{font-size:12.5px;line-height:18px;color:#c9d2dc;white-space:nowrap}
@@ -2665,16 +2671,19 @@ const SOLAR=(()=>{
     const t=[];
     if(sichtbar){
       const f=waschFenster(), h0=new Date().getHours();
-      if(f.heute) t.push(f.heute.von<=h0?`jetzt bis ${f.heute.bis} Uhr`:`heute ${f.heute.von}–${f.heute.bis} Uhr`);
-      if(f.morgen) t.push(`morgen ${f.morgen.von}–${f.morgen.bis} Uhr`);
+      if(f.heute) t.push(f.heute.von<=h0?["jetzt",`bis ${f.heute.bis} Uhr`]:["heute",`${f.heute.von}–${f.heute.bis} Uhr`]);
+      if(f.morgen) t.push(["morgen",`${f.morgen.von}–${f.morgen.bis} Uhr`]);
     }
     el.hidden=!t.length;
     if(!t.length){ el.innerHTML=""; return; }
     /* Waschmaschine als Strichzeichnung */
-    const ikon=`<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#9be7b0" stroke-width="1.7" stroke-linecap="round">
+    const ikon=`<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#9be7b0" stroke-width="1.7" stroke-linecap="round">
       <rect x="3.5" y="2.5" width="17" height="19" rx="2.5"/><line x1="3.5" y1="7" x2="20.5" y2="7"/>
       <circle cx="12" cy="14" r="4.6"/><path d="M8.6 14.6c1.2-.9 2.3.9 3.4 0s2.2-.9 3.4 0"/><circle cx="7" cy="4.8" r=".6" fill="#9be7b0"/></svg>`;
-    el.innerHTML=`${ikon}<div><b>Wäsche ${t[0]}</b>${t[1]?`<small>${t[1]}</small>`:""}</div>`;
+    /* Zwei kurze Zeilen statt einer langen, damit die Pille nicht breiter
+       wird als Uhrzeit und Datum (13.10.2026: sonst rutschte der
+       Tagesbericht in den Solarblock) */
+    el.innerHTML=`${ikon}<div><b>Wäsche ${t[0][0]}</b><b style="display:block"><span>${t[0][1]}</span></b>${t[1]?`<small>${t[1][0]} ${t[1][1]}</small>`:""}</div>`;
   }
 
   function bilanz(ST){
