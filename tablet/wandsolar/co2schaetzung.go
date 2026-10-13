@@ -11,9 +11,13 @@ package main
 //
 //   dC/dt = Quelle * schlaeft - Luftwechsel(Fenster) * (C - 420)
 //
-// Angepasst an fuenf Naechte vom 07. bis 12.10.2026: Quelle 250 ppm je
-// Stunde (rund 11 l CO2 in 46 m³), Luftwechsel zu 0,15, Spalt 0,3, ganz auf
-// 2 je Stunde. Mittlere Abweichung 100 bis 260 ppm je Nacht. Der groesste
+// Angepasst an sechs Naechte vom 07. bis 13.10.2026 (Daten und Rechnung im
+// Repo wandtablet unter kalibrierung/): Quelle 200 ppm je Stunde, Luftwechsel
+// zu 0,1, Spalt 0,2, ganz auf 0,7 je Stunde. Die Kellerfenster in ihren
+// abgedeckten Schaechten tauschen auch ganz offen wenig Luft. Mittlere
+// Abweichung 110 bis 280 ppm je Nacht, wenn die Nacht beim echten Wert
+// beginnt. Frei laufend fehlt der Abend: wer vorher im Raum gespielt hat,
+// bringt CO2 in die Nacht mit, das die Schaetzung nicht kennt. Der groesste
 // Fehler ist die Schlafzeit: am 08.10. ging Ben erst gegen 1 Uhr ins Bett,
 // die Schaetzung nimmt die Zeiten der Heizregel.
 //
@@ -32,10 +36,10 @@ import (
 
 const (
 	co2Aussen   = 420.0
-	co2Quelle   = 250.0 // ppm je Stunde, ein Schlaefer
-	co2LwZu     = 0.15  // Luftwechsel je Stunde
-	co2LwSpalt  = 0.3
-	co2LwAuf    = 2.0
+	co2Quelle   = 200.0 // ppm je Stunde, ein Schlaefer
+	co2LwZu     = 0.1   // Luftwechsel je Stunde
+	co2LwSpalt  = 0.2
+	co2LwAuf    = 0.7             // 13.10.: ganze Nacht offen und trotzdem um 1.000 ppm
 	co2Takt     = 5 * time.Minute // Vergleichspunkte
 	co2Behalten = 14 * 24 * time.Hour
 )
@@ -52,7 +56,7 @@ type co2Stand struct {
 	Wert    float64    `json:"wert"`
 	Zeit    time.Time  `json:"zeit"`
 	Verlauf []co2Punkt `json:"verlauf"`
-	Bericht time.Time  `json:"bericht"` // letzter Nachtbericht
+	Bericht time.Time  `json:"bericht"` // Ende der zuletzt berichteten Nacht
 }
 
 type co2Schaetzung struct {
@@ -148,14 +152,15 @@ func (c *co2Schaetzung) schritt(t time.Time) {
 // berichte: einmal am Vormittag, wenn die Schlafzeit vorbei ist, die Nacht
 // zusammenfassen.
 func (c *co2Schaetzung) berichte(t time.Time) {
-	if c.schlaf(t) || t.Sub(c.st.Bericht) < 12*time.Hour {
+	if c.schlaf(t) {
 		return
 	}
 	v := nachtVergleich(c.st.Verlauf, t)
-	if v.N < 12 {
+	// Jede Nacht nur einmal (12.10.: abends noch einmal dieselbe Nacht)
+	if v.N < 12 || !v.Bis.After(c.st.Bericht) {
 		return
 	}
-	c.st.Bericht = t
+	c.st.Bericht = v.Bis
 	c.sag("CO₂-Schätzung letzte Nacht: mittlere Abweichung %.0f ppm, höchster Wert gemessen %.0f, geschätzt %.0f",
 		v.Abw, v.MaxEcht, v.MaxSchaetz)
 }

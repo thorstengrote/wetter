@@ -12,11 +12,12 @@ func TestCO2SchaetzungRichtung(t *testing.T) {
 	schlaf := func(time.Time) bool { return true }
 	c.rechne(t0, "zu", schlaf, 600)
 	c.rechne(t0.Add(4*time.Hour), "zu", schlaf, 0)
-	if c.st.Wert < 1150 || c.st.Wert > 1400 { // Gleichgewicht 2087, nach 4 h 1271
+	if c.st.Wert < 1100 || c.st.Wert > 1500 { // steigt deutlich
 		t.Fatalf("4 h zu mit Schlaefer: %.0f", c.st.Wert)
 	}
+	vorher := c.st.Wert
 	c.rechne(t0.Add(6*time.Hour), "auf", schlaf, 0)
-	if c.st.Wert > 600 {
+	if c.st.Wert > vorher-200 || c.st.Wert > 900 { // Gleichgewicht offen mit Schlaefer 706
 		t.Fatalf("2 h ganz auf: %.0f", c.st.Wert)
 	}
 }
