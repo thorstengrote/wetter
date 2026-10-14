@@ -553,7 +553,6 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 <header id="kopf" class="ohne-solar">
   <div class="zelle">
     <div>
-      <div class="waschpille" id="waschpille" hidden></div>
       <div class="place">Uedorf</div>
       <div class="clock" id="clock">--:--</div>
       <div class="date"><span id="date"></span><span id="stand"></span></div>
@@ -3011,7 +3010,6 @@ const SOLAR=(()=>{
     const el=document.getElementById("solar");
     const kopf=document.getElementById("kopf");
     if(!el) return;
-    waschZeile(frisch());
     if(!frisch()){ el.hidden=true; kopf.classList.add("ohne-solar"); return; }
     el.hidden=false; kopf.classList.remove("ohne-solar");
     /* Batterie und Flussbalken zeigen immer das Jetzt. Nur der Streifen
