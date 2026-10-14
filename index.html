@@ -91,7 +91,6 @@ header.ohne-solar{grid-template-columns:auto auto minmax(0,1fr)}
 /* Drei Stufen im ganzen Banner: Titel 17, grosse Zahlen 36, alle Nebenzeilen
    12,5 mit 18 Pixeln Zeilenhoehe. Vorher waren es acht Stile mit drei fast
    gleichen kleinen Groessen. */
-.place{font-size:17px;font-weight:700;line-height:22px}
 .clock{font-size:36px;font-weight:750;line-height:40px}
 .date{font-size:12.5px;line-height:18px;color:var(--muted);white-space:nowrap}
 .date .stand{color:#8b97a6}
@@ -111,7 +110,17 @@ header.ohne-solar{grid-template-columns:auto auto minmax(0,1fr)}
 .current .icon{display:flex;align-items:center}
 .current .icon .wicon{width:58px;height:58px;max-height:100%;display:block}
 .current .temp{font-size:36px;font-weight:750;line-height:40px}
-.tempspalte{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+/* Uhrzeit und Temperatur stehen genau in der Mitte ihres Feldes und damit
+   auf einer Hoehe (14.10.2026). Drei Zeilen 1fr / Wert / 1fr: was darunter
+   steht (Datum, Regenpille), haengt in der unteren Zeile und schiebt nicht. */
+.uhrblock,.tempspalte{align-self:stretch;display:grid;grid-template-rows:1fr auto 1fr;justify-items:start}
+.uhrblock>*,.tempspalte>*{grid-row:2}
+.uhrblock>.date,.tempspalte>.pille{grid-row:3;align-self:start}
+/* Die Regenpille ist breiter als "11°". Ausserhalb des Flusses, damit sie
+   die Spalte nicht verbreitert und die Details nicht schiebt. 8 Pixel
+   Abstand: die drei Detailzeilen enden knapp ueber ihr. */
+.tempspalte{position:relative}
+.tempspalte>.pille{position:absolute;left:0;top:8px;white-space:nowrap}
 /* Was das Radar ueber Uedorf fuer die naechsten zwei Stunden sieht */
 .pille{display:inline-flex;align-items:center;gap:5px;background:rgba(8,14,24,.62);border-radius:7px;
   padding:3px 8px;font-size:12px;font-weight:700;white-space:nowrap;color:#bfe0ff}
@@ -163,7 +172,7 @@ svg.hg{width:100%;height:100%}
 /* Auf dem Himmel ist alle Schrift weiss, wie bei WetterOnline. Graue
    Nebenzeilen wuerden auf dem hellen Blau untergehen. */
 header.himmel .date, header.himmel .date .stand, header.himmel .details,
-header.himmel .sub, header.himmel .extra, header.himmel .place,
+header.himmel .sub, header.himmel .extra,
 header.himmel .clock, header.himmel .temp, header.himmel .summary{color:#fff}
 header.himmel{border-color:rgba(255,255,255,.28)}
 header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
@@ -546,8 +555,7 @@ header.himmel .zelle + .zelle{border-left-color:rgba(255,255,255,.30)}
 <header id="kopf" class="ohne-solar">
   <div class="zelle">
     <div class="waschpille" id="waschpille" hidden></div>
-    <div>
-      <div class="place">Uedorf</div>
+    <div class="uhrblock">
       <div class="clock" id="clock">--:--</div>
       <div class="date"><span id="date"></span><span id="stand"></span></div>
     </div>
