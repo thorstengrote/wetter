@@ -38,10 +38,14 @@ type raumklima struct {
 	web                         *http.Client
 	Standort                    string    `json:"standort"` // wohnzimmer, spielekeller
 	Seit                        time.Time `json:"seit"`     // seit wann dort
-	verlauf                     []klimaPunkt
-	letzter                     *klimaPunkt
-	gesichert                   time.Time
-	fehler                      string
+	// Ende der Messzeit im Keller; leer heisst eine Woche ab Seit. Am
+	// 14.10.2026 bis Montag 19.10. verlaengert: die Schaetzung soll erst
+	// ein paar Naechte mit Handys und Atemfeuchte zeigen.
+	MessBis   time.Time `json:"mess_bis,omitempty"`
+	verlauf   []klimaPunkt
+	letzter   *klimaPunkt
+	gesichert time.Time
+	fehler    string
 }
 
 var klimaOrte = map[string]string{"wohnzimmer": "Wohnzimmer", "spielekeller": "Spielekeller"}
@@ -134,7 +138,11 @@ func (k *raumklima) hinweise() []string {
 		return nil
 	}
 	var h []string
-	if !k.Seit.IsZero() && time.Since(k.Seit) >= 7*24*time.Hour {
+	ende := k.MessBis
+	if ende.IsZero() && !k.Seit.IsZero() {
+		ende = k.Seit.Add(7 * 24 * time.Hour)
+	}
+	if !ende.IsZero() && !time.Now().Before(ende) {
 		h = append(h, "Messwoche vorbei: Velux-Sensor zurück ins Wohnzimmer, Velux-Automatik wieder einschalten")
 	}
 	letzte := k.Seit
@@ -162,7 +170,8 @@ func (k *raumklima) bediene(mux *http.ServeMux) {
 	mux.HandleFunc("/api/klima", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			var a struct {
-				Standort string `json:"standort"`
+				Standort string    `json:"standort"`
+				MessBis  time.Time `json:"mess_bis"`
 			}
 			if json.NewDecoder(io.LimitReader(r.Body, 256)).Decode(&a) != nil || klimaOrte[a.Standort] == "" {
 				http.Error(w, "standort wohnzimmer oder spielekeller", 400)
@@ -170,19 +179,25 @@ func (k *raumklima) bediene(mux *http.ServeMux) {
 			}
 			k.Lock()
 			if k.Standort != a.Standort {
-				k.Seit = time.Now().In(ort)
+				k.Seit, k.MessBis = time.Now().In(ort), time.Time{}
 			}
 			k.Standort = a.Standort
-			schreibeJSON(k.cfgPfad, map[string]any{"standort": k.Standort, "seit": k.Seit})
+			if !a.MessBis.IsZero() {
+				k.MessBis = a.MessBis
+			}
+			schreibeJSON(k.cfgPfad, map[string]any{"standort": k.Standort, "seit": k.Seit, "mess_bis": k.MessBis})
 			schreibeJSON(k.verlaufPfad, k.verlauf)
 			k.Unlock()
 			k.sag("Raumklima: Velux-Sensor steht jetzt im %s", klimaOrte[a.Standort])
+			if !a.MessBis.IsZero() {
+				k.sag("Raumklima: Messzeit bis %s", a.MessBis.In(ort).Format("02.01. 15:04"))
+			}
 			w.WriteHeader(204)
 			return
 		}
 		k.Lock()
 		defer k.Unlock()
-		a := map[string]any{"standort": k.Standort, "orte": klimaOrte, "seit": k.Seit}
+		a := map[string]any{"standort": k.Standort, "orte": klimaOrte, "seit": k.Seit, "mess_bis": k.MessBis}
 		if k.letzter != nil {
 			a["aktuell"] = k.letzter
 		}
