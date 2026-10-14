@@ -21,6 +21,15 @@ package main
 // Fehler ist die Schlafzeit: am 08.10. ging Ben erst gegen 1 Uhr ins Bett,
 // die Schaetzung nimmt die Zeiten der Heizregel.
 //
+// Seit 14.10.2026 zaehlt die Quelle Personen statt Schlafzeiten: jedes Handy
+// am Spielkeller-Repeater ist eine (anwesenheit.go). In der Nacht davor ging
+// es erst nach Mitternacht los, und zu zweit: 500 ppm je Stunde statt 200.
+// Kein Handy dort beweist nicht, dass niemand da ist. Dann entscheidet die
+// Atemfeuchte (anwesenheit.go): steigt sie bei ruhendem Entfeuchter, ist
+// eine Person da, und die Zeit bis zum Erkennen wird nachgeholt; steht sie
+// still, niemand. Sagt auch die Feuchte nichts, gilt die Schlafzeit mit
+// einer Person (Wunsch vom 14.10.2026).
+//
 // Die Schaetzung laeuft frei, ohne sich am echten Wert festzuhalten. Nur so
 // zeigt der Vergleich, wie sie ohne Sensor taugen wuerde.
 
@@ -50,6 +59,9 @@ type co2Punkt struct {
 	Echt    float64   `json:"echt,omitempty"` // 0 ohne Sensor
 	Fenster string    `json:"fenster"`
 	Schlaf  bool      `json:"schlaf,omitempty"`
+	// Handys am Spielkeller-Repeater, fehlt ohne Mesh-Daten
+	Personen *int   `json:"personen,omitempty"`
+	Quelle   string `json:"quelle,omitempty"` // handy, feuchte, schlafzeit
 }
 
 type co2Stand struct {
@@ -69,6 +81,12 @@ type co2Schaetzung struct {
 	echt    func() float64         // echter Wert, 0 ohne
 	fenster func() string          // zu, spalt, auf
 	schlaf  func(t time.Time) bool // schlaeft jemand im Raum?
+	// Personen im Raum, false ohne frische Daten. nil: nur Schlafzeit.
+	personen func(t time.Time) (int, bool)
+	// Raumluft und Entfeuchter, false ohne Messung. nil: keine Atemfeuchte.
+	raum   func() (rh, temp float64, entf, ok bool)
+	atem   atem
+	atemDa bool // letzte Entscheidung der Feuchte, fuers Nachholen
 }
 
 func neueCO2Schaetzung(pfad string, sag func(string, ...any)) *co2Schaetzung {
@@ -102,8 +120,8 @@ func kfFenster(stellung string) string {
 }
 
 // rechne fuehrt die Schaetzung bis t fort, in Minutenschritten. Fenster und
-// Schlaf gelten fuer die ganze Spanne, der Takt ist kurz genug.
-func (c *co2Schaetzung) rechne(t time.Time, fenster string, schlaf func(time.Time) bool, echt float64) {
+// Quelle (ppm je Stunde) gelten fuer die ganze Spanne, der Takt ist kurz genug.
+func (c *co2Schaetzung) rechne(t time.Time, fenster string, quelle func(time.Time) float64, echt float64) {
 	if c.st.Zeit.IsZero() || t.Sub(c.st.Zeit) > 6*time.Hour {
 		// Anfang oder lange Pause: mit dem echten Wert beginnen, sonst
 		// mit dem, was nach Nacht oder Tag zu erwarten ist.
@@ -116,10 +134,7 @@ func (c *co2Schaetzung) rechne(t time.Time, fenster string, schlaf func(time.Tim
 	lw := co2Luftwechsel(fenster)
 	for c.st.Zeit.Before(t) {
 		dt := math.Min(1, t.Sub(c.st.Zeit).Minutes())
-		q := 0.0
-		if schlaf(c.st.Zeit) {
-			q = co2Quelle
-		}
+		q := quelle(c.st.Zeit)
 		c.st.Wert += (q - lw*(c.st.Wert-co2Aussen)) * dt / 60
 		c.st.Zeit = c.st.Zeit.Add(time.Duration(dt * float64(time.Minute)))
 	}
@@ -131,15 +146,60 @@ func (c *co2Schaetzung) schritt(t time.Time) {
 		return
 	}
 	f, e := c.fenster(), c.echt()
+	var pers *int
+	if c.personen != nil {
+		if n, ok := c.personen(t); ok {
+			pers = &n
+		}
+	}
+	// Raumluft vor dem eigenen Schloss holen, raum() nimmt das der Steuerung
+	var rh, temp float64
+	var entf, mess bool
+	if c.raum != nil {
+		rh, temp, entf, mess = c.raum()
+	}
 	c.Lock()
 	defer c.Unlock()
 	if t.Before(c.st.Zeit) {
 		c.st = co2Stand{}
 	}
-	c.rechne(t, f, c.schlaf, e)
+	if mess {
+		c.atem.merke(t, rh, temp, entf)
+	}
+	atemDa, atemSicher := c.atem.zeigt(t)
+	art := "schlafzeit"
+	switch {
+	case pers != nil && *pers > 0:
+		art = "handy"
+	case atemSicher:
+		art = "feuchte"
+		if atemDa && !c.atemDa {
+			c.st.Wert += co2Quelle * atemNachholen // seit dem Hinlegen schon vergangen
+		}
+		c.atemDa = atemDa
+	}
+	if art != "feuchte" {
+		c.atemDa = art == "handy" || c.schlaf(t)
+	}
+	quelle := func(z time.Time) float64 {
+		switch art {
+		case "handy":
+			return co2Quelle * float64(*pers)
+		case "feuchte":
+			if atemDa {
+				return co2Quelle
+			}
+			return 0
+		}
+		if c.schlaf(z) {
+			return co2Quelle
+		}
+		return 0
+	}
+	c.rechne(t, f, quelle, e)
 	if n := len(c.st.Verlauf); n == 0 || t.Sub(c.st.Verlauf[n-1].Zeit) >= co2Takt-10*time.Second {
 		c.st.Verlauf = append(c.st.Verlauf, co2Punkt{Zeit: t, Schaetz: math.Round(c.st.Wert), Echt: e,
-			Fenster: f, Schlaf: c.schlaf(t)})
+			Fenster: f, Schlaf: c.schlaf(t), Personen: pers, Quelle: art})
 		grenze := t.Add(-co2Behalten)
 		for len(c.st.Verlauf) > 0 && c.st.Verlauf[0].Zeit.Before(grenze) {
 			c.st.Verlauf = c.st.Verlauf[1:]

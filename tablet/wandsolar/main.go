@@ -610,6 +610,29 @@ func main() {
 		return kfFenster(s)
 	}
 	cs.schlaf = func(t time.Time) bool { return !hr.wach(t) }
+	an := neueAnwesenheit(filepath.Join(dir, "anwesenheit.json"), z.fr, sag)
+	an.shelly = func() string {
+		z.st.Lock()
+		defer z.st.Unlock()
+		for _, g := range z.st.geraete {
+			if g.cfg.ID == "entfeuchter" {
+				return g.cfg.ShellyIP
+			}
+		}
+		return ""
+	}
+	cs.personen = an.personen
+	cs.raum = func() (rh, temp float64, entf, ok bool) {
+		z.st.Lock()
+		defer z.st.Unlock()
+		for _, g := range z.st.geraete {
+			if g.cfg.ID == "entfeuchter" && g.feuchte != nil && time.Since(g.feuchte.Zeit) < 20*time.Minute {
+				return g.feuchte.RH, g.feuchte.Temp, g.st.An, true
+			}
+		}
+		return 0, 0, false, false
+	}
+	go an.laufe()
 	go cs.laufe()
 	tu := neuesTuya(filepath.Join(dir, "tuya.json"), sag)
 	go tu.laufe()
@@ -643,6 +666,7 @@ func main() {
 	lf.bediene(mux)
 	hr.bediene(mux)
 	cs.bediene(mux)
+	an.bediene(mux)
 	tu.bediene(mux)
 	bl.bediene(mux)
 	kl.bediene(mux)

@@ -9,7 +9,7 @@ import (
 func TestCO2SchaetzungRichtung(t *testing.T) {
 	c := &co2Schaetzung{}
 	t0 := time.Date(2026, 10, 12, 23, 0, 0, 0, berlin())
-	schlaf := func(time.Time) bool { return true }
+	schlaf := func(time.Time) float64 { return co2Quelle }
 	c.rechne(t0, "zu", schlaf, 600)
 	c.rechne(t0.Add(4*time.Hour), "zu", schlaf, 0)
 	if c.st.Wert < 1100 || c.st.Wert > 1500 { // steigt deutlich
