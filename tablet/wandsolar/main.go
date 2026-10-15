@@ -643,6 +643,28 @@ func main() {
 	}
 	go an.laufe()
 	go cs.laufe()
+	lp := neuesLastprofil(dir)
+	lp.extra = func() lastExtra {
+		var x lastExtra
+		z.st.Lock()
+		defer z.st.Unlock()
+		for _, g := range z.st.geraete {
+			kw := 0.0
+			if g.st.An {
+				kw = g.st.LeistungKW
+			}
+			switch g.cfg.ID {
+			case "entfeuchter":
+				x.EntfKeller = kw
+			case "waschkueche":
+				x.EntfWk, x.WkFenster = kw, g.fensterAuf
+				if g.feuchte != nil && time.Since(g.feuchte.Zeit) < 20*time.Minute {
+					x.WkRH, x.WkTemp = g.feuchte.RH, g.feuchte.Temp
+				}
+			}
+		}
+		return x
+	}
 	tu := neuesTuya(filepath.Join(dir, "tuya.json"), sag)
 	go tu.laufe()
 	bl := neuesBroadlink(filepath.Join(dir, "broadlink.json"), sag)
@@ -675,6 +697,7 @@ func main() {
 	lf.bediene(mux)
 	hr.bediene(mux)
 	cs.bediene(mux)
+	lp.bediene(mux)
 	an.bediene(mux)
 	tu.bediene(mux)
 	bl.bediene(mux)
@@ -739,6 +762,7 @@ func main() {
 			fehler = 0
 		}
 		z.nimm(m)
+		lp.nimm(m)
 		z.st.pruefe(m)
 	}
 	messen()
