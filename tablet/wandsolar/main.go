@@ -632,6 +632,15 @@ func main() {
 		}
 		return 0, 0, false, false
 	}
+	cs.aussen = func(t time.Time) (float64, bool) {
+		z.st.Lock()
+		w, ok := luftZu(z.st.luft, t)
+		z.st.Unlock()
+		if !ok {
+			return 0, false
+		}
+		return absFeuchte(w.Temp, w.Taupunkt), true
+	}
 	go an.laufe()
 	go cs.laufe()
 	tu := neuesTuya(filepath.Join(dir, "tuya.json"), sag)

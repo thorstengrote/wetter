@@ -30,6 +30,16 @@ package main
 // still, niemand. Sagt auch die Feuchte nichts, gilt die Schlafzeit mit
 // einer Person (Wunsch vom 14.10.2026).
 //
+// Die Kellerfenster melden ihre Stellung nur aus den Fahrbefehlen. In der
+// Nacht zum 15.10.2026 galten sie nach einem Neustart als offen und waren zu:
+// CO2 stieg auf 2.440 ppm, die Feuchte im selben Takt (Korrelation 0,96),
+// obwohl die Luft draussen 2,6 g/m³ trockener war. Offen haette der Raum
+// knapp 2 g/m³ je Stunde verlieren muessen. Darum prueft die Schaetzung die
+// gemeldete Stellung an der Feuchte: steigt sie, wo sie bei offenem Fenster
+// deutlich fallen muesste, rechnet das Modell mit zu und das Protokoll
+// meldet es einmal (Wunsch vom 15.10.2026). Nachgerechnet haette das die
+// Abweichung der Nacht von 924 auf 289 ppm gesenkt.
+//
 // Die Schaetzung laeuft frei, ohne sich am echten Wert festzuhalten. Nur so
 // zeigt der Vergleich, wie sie ohne Sensor taugen wuerde.
 
@@ -51,6 +61,15 @@ const (
 	co2LwAuf    = 0.7             // 13.10.: ganze Nacht offen und trotzdem um 1.000 ppm
 	co2Takt     = 5 * time.Minute // Vergleichspunkte
 	co2Behalten = 14 * 24 * time.Hour
+	// Fensterpruefung: verliert der Raum bei der gemeldeten Stellung
+	// mindestens co2FensterZweifel g/m³ je Stunde an die trockenere Luft
+	// draussen, muesste die Feuchte ueber co2FensterSpanne deutlich fallen.
+	// Ein Schlaefer bringt netto nur 0,1 bis 0,2 g/m³ je Stunde. Faellt sie
+	// nicht (hoechstens co2FensterFaellt), ist das Fenster zu. Zwei Stunden,
+	// weil der Sensor ganze Prozent liefert, 0,17 g/m³ bei 20 °C.
+	co2FensterZweifel = 0.6
+	co2FensterSpanne  = 2 * time.Hour
+	co2FensterFaellt  = -0.1
 )
 
 type co2Punkt struct {
@@ -62,6 +81,8 @@ type co2Punkt struct {
 	// Handys am Spielkeller-Repeater, fehlt ohne Mesh-Daten
 	Personen *int   `json:"personen,omitempty"`
 	Quelle   string `json:"quelle,omitempty"` // handy, feuchte, schlafzeit
+	// Stellung, mit der das Modell rechnet, wenn die Feuchte der Meldung widerspricht
+	FensterLuft string `json:"fenster_luft,omitempty"`
 }
 
 type co2Stand struct {
@@ -87,6 +108,12 @@ type co2Schaetzung struct {
 	raum   func() (rh, temp float64, entf, ok bool)
 	atem   atem
 	atemDa bool // letzte Entscheidung der Feuchte, fuers Nachholen
+	// Absolute Feuchte draussen in g/m³, false ohne Wetter. nil: keine Pruefung.
+	// Nimmt das Schloss der Steuerung, darum vor dem eigenen holen.
+	aussen      func(t time.Time) (float64, bool)
+	fensterWar  string
+	fensterSeit time.Time
+	zweifel     bool // Feuchte widerspricht der gemeldeten Stellung
 }
 
 func neueCO2Schaetzung(pfad string, sag func(string, ...any)) *co2Schaetzung {
@@ -158,6 +185,10 @@ func (c *co2Schaetzung) schritt(t time.Time) {
 	if c.raum != nil {
 		rh, temp, entf, mess = c.raum()
 	}
+	aus, ausOk := 0.0, false
+	if c.aussen != nil {
+		aus, ausOk = c.aussen(t)
+	}
 	c.Lock()
 	defer c.Unlock()
 	if t.Before(c.st.Zeit) {
@@ -166,6 +197,10 @@ func (c *co2Schaetzung) schritt(t time.Time) {
 	if mess {
 		c.atem.merke(t, rh, temp, entf)
 	}
+	if f != c.fensterWar {
+		c.fensterWar, c.fensterSeit = f, t
+	}
+	fLuft := c.pruefeFenster(t, f, aus, ausOk)
 	atemDa, atemSicher := c.atem.zeigt(t)
 	art := "schlafzeit"
 	switch {
@@ -196,10 +231,14 @@ func (c *co2Schaetzung) schritt(t time.Time) {
 		}
 		return 0
 	}
-	c.rechne(t, f, quelle, e)
+	fModell := f
+	if fLuft != "" {
+		fModell = fLuft
+	}
+	c.rechne(t, fModell, quelle, e)
 	if n := len(c.st.Verlauf); n == 0 || t.Sub(c.st.Verlauf[n-1].Zeit) >= co2Takt-10*time.Second {
 		c.st.Verlauf = append(c.st.Verlauf, co2Punkt{Zeit: t, Schaetz: math.Round(c.st.Wert), Echt: e,
-			Fenster: f, Schlaf: c.schlaf(t), Personen: pers, Quelle: art})
+			Fenster: f, Schlaf: c.schlaf(t), Personen: pers, Quelle: art, FensterLuft: fLuft})
 		grenze := t.Add(-co2Behalten)
 		for len(c.st.Verlauf) > 0 && c.st.Verlauf[0].Zeit.Before(grenze) {
 			c.st.Verlauf = c.st.Verlauf[1:]
@@ -207,6 +246,26 @@ func (c *co2Schaetzung) schritt(t time.Time) {
 		c.berichte(t)
 		schreibeJSON(c.pfad, c.st)
 	}
+}
+
+// pruefeFenster: "zu", wenn die Feuchte nicht faellt, obwohl sie bei der
+// gemeldeten Stellung deutlich fallen muesste, sonst "". Die Stellung muss
+// schon die ganze Messspanne gelten, sonst stammt der Anstieg von vorher.
+func (c *co2Schaetzung) pruefeFenster(t time.Time, f string, aus float64, ausOk bool) string {
+	urteil, verlust := "", 0.0
+	d, innen, ok := c.atem.anstieg(t, co2FensterSpanne)
+	if f != "zu" && ausOk && ok && t.Sub(c.fensterSeit) >= co2FensterSpanne+15*time.Minute {
+		verlust = co2Luftwechsel(f) * (innen - aus)
+		if d >= co2FensterFaellt && verlust >= co2FensterZweifel {
+			urteil = "zu"
+		}
+	}
+	if urteil != "" && !c.zweifel {
+		c.sag("Kellerfenster gemeldet %s, die Raumluft spricht für zu: Feuchte in %.0f Stunden %+.2f g/m³, offen müsste sie um %.1f g/m³ je Stunde fallen",
+			map[string]string{"auf": "offen", "spalt": "im Spalt"}[f], co2FensterSpanne.Hours(), d, verlust)
+	}
+	c.zweifel = urteil != ""
+	return urteil
 }
 
 // berichte: einmal am Vormittag, wenn die Schlafzeit vorbei ist, die Nacht

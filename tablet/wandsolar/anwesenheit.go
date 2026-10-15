@@ -391,26 +391,27 @@ func (a *atem) merke(t time.Time, rh, temp float64, entf bool) {
 	}
 }
 
-// zeigt: jemand da? sicher=false, wenn die Feuchte nichts sagt (zu wenig
-// Werte, Entfeuchter lief, Anstieg zwischen den Schwellen).
-func (a *atem) zeigt(t time.Time) (da, sicher bool) {
-	if len(a.punkte) == 0 || t.Sub(a.punkte[0].Zeit) < atemFenster+15*time.Minute {
-		return false, false
+// anstieg: Aenderung der absoluten Feuchte ueber die Spanne in g/m³ und
+// der letzte Wert. ok=false bei zu wenig Werten oder wenn der Entfeuchter
+// lief. Die Spanne darf hoechstens atemBehalten-15 Minuten sein.
+func (a *atem) anstieg(t time.Time, spanne time.Duration) (d, letzt float64, ok bool) {
+	if len(a.punkte) == 0 || t.Sub(a.punkte[0].Zeit) < spanne+15*time.Minute {
+		return 0, 0, false
 	}
 	var alt, neu []float64
 	for _, p := range a.punkte {
 		if p.Entf && t.Sub(p.Zeit) <= atemEntfPause {
-			return false, false
+			return 0, 0, false
 		}
 		switch d := t.Sub(p.Zeit); {
 		case d <= 15*time.Minute:
 			neu = append(neu, p.Abs)
-		case d >= atemFenster && d <= atemFenster+15*time.Minute:
+		case d >= spanne && d <= spanne+15*time.Minute:
 			alt = append(alt, p.Abs)
 		}
 	}
 	if len(alt) == 0 || len(neu) == 0 {
-		return false, false
+		return 0, 0, false
 	}
 	mittel := func(v []float64) float64 {
 		s := 0.0
@@ -419,7 +420,16 @@ func (a *atem) zeigt(t time.Time) (da, sicher bool) {
 		}
 		return s / float64(len(v))
 	}
-	switch d := mittel(neu) - mittel(alt); {
+	return mittel(neu) - mittel(alt), a.punkte[len(a.punkte)-1].Abs, true
+}
+
+// zeigt: jemand da? sicher=false, wenn die Feuchte nichts sagt (zu wenig
+// Werte, Entfeuchter lief, Anstieg zwischen den Schwellen).
+func (a *atem) zeigt(t time.Time) (da, sicher bool) {
+	d, _, ok := a.anstieg(t, atemFenster)
+	switch {
+	case !ok:
+		return false, false
 	case d >= atemSteigt:
 		return true, true
 	case d <= atemStill:
