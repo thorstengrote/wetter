@@ -461,7 +461,7 @@ function raumVorschau(){
     else if(!hc||hc.modus==="aus") heiz.push({t,s:null});
     else heiz.push({t,s:inLueftung(t)?hc.lueften:ruhe(t)?hc.nacht:hc.komfort,f:false});}
   const fe=FEUCHTE[g?.cfg.id]||[];
-  const innenT=fe.filter(p=>ms(p.zeit)>=t0).map(p=>({t:ms(p.zeit),temp:p.temp,tp:taupunktJs(p.temp,p.rh)}));
+  const innenT=fe.filter(p=>ms(p.zeit)>=t0).map(p=>({t:ms(p.zeit),temp:p.temp,rh:p.rh,tp:taupunktJs(p.temp,p.rh)}));
   const aussen=(LP.stunden||[]).filter(c=>c.daten).map(c=>({t:ms(c.zeit),temp:c.temp,tp:c.taupunkt,regen:c.regen,geeignet:c.geeignet}));
   const slots=(PLAN[g?.cfg.id]?.plan?.slots||[]).map(s=>({t:ms(s.zeit),an:s.an,q:s.quelle,pv:s.pv}));
   const evVergangen=(RAUM.ev||[]).filter(l=>!l.probe&&(gueltig(l.bis)?ms(l.bis):jetzt)>t0).map(l=>{const m=l.min||{};const q=["netz","akku","sonne"].find(k=>(m[k]||0)>0.5)||"sonne";return [ms(l.von),gueltig(l.bis)?ms(l.bis):jetzt,q];});
@@ -469,7 +469,7 @@ function raumVorschau(){
   // Spuren
   const kl=(RAUM.kl||[]).map(p=>({t:ms(p.zeit),co2:p.co2})).filter(p=>p.t>=t0);
   const cs=(RAUM.cs||[]).map(p=>({t:ms(p.zeit),co2:p.schaetzung})).filter(p=>p.t>=t0);
-  const spur=[["Temperatur",96],["Taupunkt",96],...(kl.length||cs.length?[["CO₂",60]]:[]),["Lüftung",22],["Entfeuchter",22],["Heizung",22],["Sonne",36]];
+  const spur=[["Temperatur",96],["Taupunkt",96],["Feuchte",70],...(kl.length||cs.length?[["CO₂",60]]:[]),["Lüftung",22],["Entfeuchter",22],["Heizung",22],["Sonne",36]];
   let y=30,Y={};for(const [n,h] of spur){Y[n]=[y,h];y+=h+12;}const H=y+4;
   let s="";
   // Schlafzeiten als Hintergrund
@@ -505,6 +505,17 @@ function raumVorschau(){
    s+=linie([[Math.max(jetzt,t0),tpIn],[t1,tpIn]],yf,"#e8eef5","2 4");
    s+=linie(innenT.map(p=>[p.t,p.tp]),yf,"#e8eef5");
    for(const p of aussen) if(p.regen>=0.2) s+=`<rect x="${x(p.t)}" y="${Y.Taupunkt[0]+Y.Taupunkt[1]-3}" width="${x(p.t+36e5)-x(p.t)}" height="3" fill="var(--haus)"/>`;}
+  /* Relative Feuchte drinnen (Wunsch vom 15.10.2026): links gemessen, rechts
+     gestrichelt der letzte Wert, so wie Taupunkt und Temperatur drinnen als
+     gleichbleibend gelten. Das Band sind die Grenzen des Entfeuchters. */
+  if(innenT.length){const ob=g?.cfg.feuchte_oben,un=g?.cfg.feuchte_unten,w=[...innenT.map(p=>p.rh),...[ob,un].filter(v=>v>0)];
+   const [yf,lo,hi]=skala(w,Y.Feuchte),letzt=innenT[innenT.length-1];
+   if(ob>0&&un>0) s+=`<rect x="${links}" y="${yf(ob)}" width="${iw}" height="${yf(un)-yf(ob)}" fill="var(--ein)" opacity=".08"/>`
+     +`<line x1="${links}" x2="${b-rechts}" y1="${yf(ob)}" y2="${yf(ob)}" stroke="var(--netz)" stroke-dasharray="3 4" opacity=".5"/>`
+     +`<line x1="${links}" x2="${b-rechts}" y1="${yf(un)}" y2="${yf(un)}" stroke="var(--haus)" stroke-dasharray="3 4" opacity=".5"/>`;
+   s+=`<text x="${links+4}" y="${Y.Feuchte[0]+10}" fill="#5b6b7d" font-size="10">${hi} %</text><text x="${links+4}" y="${Y.Feuchte[0]+Y.Feuchte[1]-2}" fill="#5b6b7d" font-size="10">${lo} %</text>`;
+   s+=linie([[jetzt,letzt.rh],[t1,letzt.rh]],yf,"#e8eef5","2 4");
+   s+=linie(innenT.map(p=>[p.t,p.rh]),yf,"#e8eef5");}
   // CO2, nur solange der Velux-Sensor im Keller lag
   if(kl.length||cs.length){const [yy,h]=Y["CO₂"],hi=Math.max(1600,...kl.map(p=>p.co2),...cs.map(p=>p.co2)),lo=400,yf=v=>yy+(1-(v-lo)/(hi-lo))*h;
     /* Schaetzung ohne Sensor, gestrichelt (Vergleich ab 12.10.2026) */
@@ -538,13 +549,13 @@ function raumVorschau(){
       <div class="legende"><span><i style="background:#e8eef5"></i>drinnen, gemessen; gestrichelt angenommen</span><span><i style="background:#8b97a6"></i>draußen, Vorhersage</span>
         <span><i style="background:#ffb38a"></i>Heiz-Soll</span><span><i style="background:var(--haus)"></i>Taupunkt draußen, Regen</span><span><i style="background:var(--ein);opacity:.4"></i>gut zum Lüften</span>
         <span><i style="background:var(--luft)"></i>Lüftung</span><span><i style="background:var(--ein)"></i>Entfeuchter mit Sonne</span><span><i style="background:var(--akku)"></i>aus dem Akku</span><span><i style="background:var(--netz)"></i>vom Netz</span>
-        <span><i style="background:#ff7b6b"></i>Ventil forderte Wärme</span><span><i style="background:#0a1018;border:1px solid #253244"></i>Schlafzeit</span>
+        <span><i style="background:#ff7b6b"></i>Ventil forderte Wärme</span>${g?.cfg.feuchte_oben?`<span><i style="background:var(--netz)"></i>Feuchte ${g.cfg.feuchte_oben} %, Entfeuchter notfalls mit Netz</span><span><i style="background:var(--haus)"></i>${g.cfg.feuchte_unten} %, darunter aus</span>`:""}<span><i style="background:#0a1018;border:1px solid #253244"></i>Schlafzeit</span>
         ${RAUM.kl?.length?`<span><i style="background:var(--ein)"></i>CO₂ 1.000 ppm</span><span><i style="background:var(--netz)"></i>1.400 ppm</span>`:""}
         ${RAUM.cs?.length?`<span><i style="background:#ffd166"></i>CO₂ geschätzt${RAUM.csNacht?.N?`, letzte Nacht im Mittel ${Math.round(RAUM.csNacht.abweichung)} ppm daneben`:""}</span>`:""}</div>
       <div class="klein" style="margin-top:10px">Kräftige Farben sind Gemessenes, blasse sind voraussichtlich. Die Vorschau ist eine Rechnung, keine Zusage:
         Wetter aus der Vorhersage, Entfeuchter aus seinem Plan, Lüftung in den Stunden, in denen die Vorhersage genug Taupunktabstand erwarten lässt.
         Die Heizung folgt der eigenen Regel: Komfort in der Wachzeit, Nachtwert in der Schlafzeit, beim Lüften ${hc?z(hc.lueften,0):"8"} °C.
-        Den Taupunkt drinnen nimmt die Vorschau als gleichbleibend an, CO₂ lässt sich nicht vorhersagen.</div></div>`;
+        Taupunkt und Feuchte drinnen nimmt die Vorschau als gleichbleibend an, CO₂ lässt sich nicht vorhersagen.</div></div>`;
 }
 function heizungEinst(){
   if(!HR) return "<div class='klein'>lade…</div>";
@@ -820,7 +831,7 @@ function wkVorschau(){
         <span><i style="background:var(--netz)"></i>Obergrenze ${z(c.feuchte_oben,0)} %</span><span><i style="background:var(--ein)"></i>Untergrenze ${z(c.feuchte_unten,0)} %</span>
         <span><i style="background:#ffb38a"></i>am Ventil</span><span><i style="background:var(--haus)"></i>Regen</span>
         <span><i style="background:var(--ein)"></i>Entfeuchter mit Sonne</span><span><i style="background:var(--akku)"></i>aus dem Akku</span><span><i style="background:var(--netz)"></i>vom Netz</span>
-        <span><i style="background:#ff7b6b"></i>Ventil forderte Wärme</span></div>
+        <span><i style="background:#ff7b6b"></i>Ventil forderte Wärme</span>${g?.cfg.feuchte_oben?`<span><i style="background:var(--netz)"></i>Feuchte ${g.cfg.feuchte_oben} %, Entfeuchter notfalls mit Netz</span><span><i style="background:var(--haus)"></i>${g.cfg.feuchte_unten} %, darunter aus</span>`:""}</div>
       <div class="klein" style="margin-top:10px">Kräftige Farben sind Gemessenes, blasse sind voraussichtlich. Die Vorschau ist eine Rechnung, keine Zusage:
         Wetter aus der Vorhersage, Entfeuchter aus seinem Plan. ${ratenText}
         Die Rechnung kennt keine Wäsche auf der Leine und kein offenes Fenster.</div></div>`;
