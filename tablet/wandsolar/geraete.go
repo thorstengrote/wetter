@@ -30,6 +30,9 @@ package main
 //     nicht gefunden, die kleineren Panasonic-Modelle haben 1,45 kW. Taktet
 //     wie der Grill und ist von ihm kaum zu trennen.
 //   - Wasserkocher Kenwood kMix SKM 034, in Europa um 2,2 kW.
+//   - Filterkaffeemaschine Moccamaster Select: Heizelement um 1,5 kW, eine
+//     volle Kanne bruehen dauert etwa 6 Minuten, danach haelt die
+//     Warmhalteplatte mit weniger als 100 W (unter der kleinsten Stufe).
 //   - Spuelmaschine Smeg ST2FABBL: 0,81 kWh je Spuelgang, Eco beim
 //     Schwestermodell gut 4 Stunden.
 //   - Trockner Beko DPU 8306 GXE, Waermepumpe, 8 kg, in der Waschkueche.
@@ -237,8 +240,12 @@ func erkenne(p []lastProbe, pk []lastPunkt) []geLauf {
 		case len(g) >= 3 && h >= 1200 && h <= 3800 && erst >= 4 && mm(z.Sub(a)) >= 15:
 			lauf.Geraet, lauf.Sicher = "Backofen", "wahrscheinlich"
 			lauf.Merkmale = fmt.Sprintf("heizt %.0f min durch, dann %d Takte", erst, len(g)-1)
+		// Kaffeemaschine: ein Block um 1,5 kW, einige Minuten Bruehen
+		case len(g) == 1 && h >= 1300 && h < 1800 && erst >= 3 && erst <= 10:
+			lauf.Geraet, lauf.Sicher = "Kaffeemaschine", "moeglich"
+			lauf.Merkmale = fmt.Sprintf("%.1f min Brühen", erst)
 		// Wasserkocher: ein kurzer hoher Block
-		case len(g) == 1 && h >= 1600 && h <= 3200 && erst >= 0.5 && erst <= 6:
+		case len(g) == 1 && h >= 1800 && h <= 3200 && erst >= 0.5 && erst <= 6:
 			lauf.Geraet, lauf.Sicher = "Wasserkocher", "moeglich"
 			lauf.Merkmale = fmt.Sprintf("%.1f min", erst)
 		// Heizstab um 2 kW: Wasch- oder Spuelmaschine

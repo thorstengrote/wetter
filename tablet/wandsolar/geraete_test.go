@@ -21,6 +21,8 @@ func TestGeraeteErkennen(t *testing.T) {
 	m := func(n float64) time.Duration { return time.Duration(n * float64(time.Minute)) }
 	// 06:30 Wasserkocher
 	an(m(30), m(3), 2200)
+	// 07:00 Kaffee
+	an(m(60), m(6), 1500)
 	// 08:00 Spuelmaschine: zwei Heizphasen
 	an(m(120), m(15), 2000)
 	an(m(195), m(10), 2000)
@@ -55,14 +57,14 @@ func TestGeraeteErkennen(t *testing.T) {
 		namen = append(namen, x.Von.In(ort).Format("15:04")+" "+x.Geraet)
 	}
 	alle := strings.Join(namen, " | ")
-	for _, soll := range []string{"06:30 Wasserkocher", "08:00 Spülmaschine", "11:00 Backofen",
+	for _, soll := range []string{"06:30 Wasserkocher", "07:00 Kaffeemaschine", "08:00 Spülmaschine", "11:00 Backofen",
 		"13:00 OptiGrill oder Heißluftfritteuse", "15:00 Trockner"} {
 		if !strings.Contains(alle, soll) {
 			t.Errorf("fehlt %q in %s", soll, alle)
 		}
 	}
-	if len(l) != 5 {
-		t.Errorf("%d Laeufe statt 5: %s", len(l), alle)
+	if len(l) != 6 {
+		t.Errorf("%d Laeufe statt 6: %s", len(l), alle)
 	}
 }
 
