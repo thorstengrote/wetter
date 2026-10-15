@@ -29,6 +29,7 @@ package main
 //   - Heissluftfritteuse Panasonic NF-BC1000 (9,6 l, zwei Zonen): Leistung
 //     nicht gefunden, die kleineren Panasonic-Modelle haben 1,45 kW. Taktet
 //     wie der Grill und ist von ihm kaum zu trennen.
+//   - Wasserkocher Kenwood kMix SKM 034, in Europa um 2,2 kW.
 //   - Spuelmaschine Smeg ST2FABBL: 0,81 kWh je Spuelgang, Eco beim
 //     Schwestermodell gut 4 Stunden.
 //   - Trockner Beko DPU 8306 GXE, Waermepumpe, 8 kg, in der Waschkueche.
