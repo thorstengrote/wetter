@@ -172,6 +172,7 @@ async function lade(){
     }
     if(ansicht==="raum"&&rtab==="vorschau"&&Date.now()-RAUMZEIT>5*60e3) await ladeRaum();
     if(ansicht==="waschkueche"&&rtab==="vorschau"&&Date.now()-WKZEIT>5*60e3) await ladeWK();
+    if(ansicht==="geraete"&&Date.now()-GEZEIT>60e3) await ladeGeraete();
     /* Beim Bearbeiten von Einstellungen nicht neu zeichnen, sonst sind die Eingaben weg. */
     if(ansicht!=="pin"&&!(ansicht==="raum"&&(rtab==="heizung"||reiter==="einst"))&&!(ansicht==="waschkueche"&&reiter==="einst")) zeichne();
   }catch(e){ if(e.message!=="PIN") meldung("Keine Verbindung zum Tablet"); }
@@ -706,7 +707,7 @@ function lueftungEinst(){
    Energie, Heizung, Wandtablet. Geraete stehen in ihrem Raum. */
 const RAEUME=[
   ["raum","Spielekeller"],["waschkueche","Waschküche"],["buero","Büro"],["wohnzimmer","Wohnzimmer"],["garten","Garten"]];
-const HAUS=[["energie","Energie"],["heizung","Heizung"],["tablet","Wandtablet"]];
+const HAUS=[["energie","Energie"],["geraete","Geräte"],["heizung","Heizung"],["tablet","Wandtablet"]];
 const ventilVon=teil=>(HZ?.raeume||[]).map(r=>r.ventil).find(v=>v.name.toLowerCase().replace("ü","ue").includes(teil));
 function ventilKarte(teil,titel){
   const v=ventilVon(teil);if(!v) return "";
@@ -900,7 +901,7 @@ function rahmen(inhalt){
   const a=(v,n,farbe)=>`<a data-v="${v}" class="${ansicht===v?"an":""}"><span class="punkt" style="background:${farbe}"></span>${n}</a>`;
   const g=raumGeraet();
   const farbe={raum:LF?.phase==="offen"?"var(--luft)":g?.an?"var(--ein)":"var(--sehrleise)",waschkueche:wkGeraet()?.an?"var(--ein)":"var(--sehrleise)",
-    buero:"var(--pv)",wohnzimmer:"var(--akku)",garten:"var(--ein)",energie:"var(--pv)",heizung:"#ff9f6b",tablet:"var(--haus)"};
+    buero:"var(--pv)",wohnzimmer:"var(--akku)",garten:"var(--ein)",energie:"var(--pv)",geraete:"var(--akzent)",heizung:"#ff9f6b",tablet:"var(--haus)"};
   return `<div class="app"><nav>
     <div class="marke">Haussteuerung<small>Messung ${stand}</small></div>
     <a data-v="uebersicht" class="${ansicht==="uebersicht"?"an":""}">Übersicht${(HW||[]).length?` <span class="chip rot" style="margin-left:auto">${HW.length}</span>`:""}</a>
@@ -922,6 +923,56 @@ function spielkellerSicht(){
   return kopf+raumVorschau();
 }
 
+/* ---------- Geraete in der Hauslast (Wunsch vom 15.10.2026) ----------
+   Hauslast der letzten 24 Stunden im 10-Sekunden-Takt, darunter die
+   erkannten Laeufe und die benannten. Benennen geht direkt hier: Geraet
+   waehlen, "laeuft jetzt", spaeter "ist aus". */
+let GE=null, GEROH=[], GEMIN=[], GEZEIT=0, GEWAHL="Backofen";
+const GELISTE=["Backofen","OptiGrill","Heißluftfritteuse","Wasserkocher","Kaffeemaschine","Spülmaschine","Waschmaschine","Trockner","Wärmepumpe","Beamer","Brunnenpumpe","Sonstiges"];
+const geFarbe=n=>/Backofen/.test(n)?"#ff9f6b":/Grill|Fritteuse/.test(n)?"#ffb38a":/Wasserkocher|Kaffee/.test(n)?"#ffd166":/Spül/.test(n)?"#63b3ff":/Wasch/.test(n)?"#4fd6c9":/Trockner/.test(n)?"#3ddc97":/Wärmepumpe/.test(n)?"#ff7b6b":/Beamer/.test(n)?"#b48cff":/Brunnen/.test(n)?"#4f8cff":"#8b97a6";
+async function ladeGeraete(){
+  GEZEIT=Date.now();
+  GE=await api("api/geraete?h=24");
+  GEROH=(await api("api/lastprofil?h=24&roh=1")).proben||[];
+  GEMIN=(await api("api/lastprofil?h=24")).punkte||[];
+}
+function geraeteSicht(){
+  const kopf=`<h1>Geräte</h1><div class="unter">Erkannt aus der Hauslast, alle 10 Sekunden gemessen. Noch im Versuch, die Grenzen stellen benannte Läufe ein.</div>`;
+  if(!GE) return kopf+"<div class='klein'>lade…</div>";
+  const laeufe=GE.laeufe||[],marken=GE.marken||[],gueltig=d=>d&&!String(d).startsWith("0001");
+  const offen=marken.filter(m=>!gueltig(m.bis));
+  const jetzt=Date.now(),t0=jetzt-24*36e5,b=1100,links=50,rechts=14,iw=b-links-rechts,H=230,ko=20,kh=130;
+  const x=t=>links+(t-t0)/(jetzt-t0)*iw;
+  const mx=Math.max(1000,...GEROH.map(p=>p.w),...GEMIN.map(p=>p.max*1000));const hoch=Math.ceil(mx/1000)*1000;
+  const y=w=>ko+kh-w/hoch*kh;
+  let s="";
+  for(let w=0;w<=hoch;w+=1000) s+=`<line x1="${links}" x2="${b-rechts}" y1="${y(w)}" y2="${y(w)}" stroke="#1f2a38"/><text x="${links-6}" y="${y(w)+4}" fill="#5b6b7d" font-size="10" text-anchor="end">${w/1000} kW</text>`;
+  for(let t=Math.ceil(t0/36e5)*36e5;t<jetzt;t+=36e5){const h=new Date(t).getHours();
+    if(h%3===0) s+=`<line x1="${x(t)}" x2="${x(t)}" y1="${ko}" y2="${H-18}" stroke="#1f2a38"/><text x="${x(t)}" y="${H-4}" fill="#5b6b7d" font-size="10" text-anchor="middle">${h} Uhr</text>`;}
+  /* Minutenmittel, wo es noch keine 10-Sekunden-Proben gibt */
+  {const ab=GEROH.length?GEROH[0].t*1000:jetzt;let d="",vor=null;
+   for(const p of GEMIN){const t=new Date(p.zeit).getTime();if(t<t0||t>=ab)continue;d+=(vor===null||t-vor>180e3?"M":"L")+x(t).toFixed(1)+" "+y(p.haus*1000).toFixed(1);vor=t;}
+   s+=`<path d="${d}" fill="none" stroke="#8b97a6" stroke-width="1"/>`;}
+  {let d="",vor=null;for(const p of GEROH){const t=p.t*1000;if(t<t0)continue;d+=(vor===null||t-vor>120e3?"M":"L")+x(t).toFixed(1)+" "+y(p.w).toFixed(1);vor=t;}
+   s+=`<path d="${d}" fill="none" stroke="#e8eef5" stroke-width="1"/>`;}
+  const balken=(l,yy,op)=>{const a=Math.max(new Date(l.von).getTime(),t0),e=gueltig(l.bis)?new Date(l.bis).getTime():jetzt;
+    return `<rect x="${x(a)}" y="${yy}" width="${Math.max(2,x(e)-x(a))}" height="14" rx="2" fill="${geFarbe(l.geraet)}" opacity="${op}"><title>${esc(l.geraet)} ${uhr(a)} bis ${uhr(e)}</title></rect>`;};
+  for(const l of laeufe) s+=balken(l,ko+kh+10,l.sicher==="moeglich"?.5:.9);
+  for(const m of marken) if((gueltig(m.bis)?new Date(m.bis).getTime():jetzt)>t0) s+=balken(m,ko+kh+28,1);
+  s+=`<text x="${links-6}" y="${ko+kh+21}" fill="#5b6b7d" font-size="10" text-anchor="end">erkannt</text><text x="${links-6}" y="${ko+kh+39}" fill="#5b6b7d" font-size="10" text-anchor="end">benannt</text>`;
+  const svg=`<svg viewBox="0 0 ${b} ${H}" style="display:block;width:100%;height:auto;min-width:700px">${s}</svg>`;
+  const zeile=l=>{const a=new Date(l.von),e=gueltig(l.bis)?new Date(l.bis):null,m=((e||new Date())-a)/60000;
+    return `<tr><td>${tag(a)}</td><td>${uhr(a)} bis ${e?uhr(e):"jetzt"}</td><td><span class="punkt" style="background:${geFarbe(l.geraet)}"></span> ${esc(l.geraet)}</td>
+      <td class="r">${dauerText(m)}</td><td class="r">${l.kwh!=null?z(l.kwh,2)+" kWh":""}</td><td class="klein">${esc(l.sicher||"")}</td><td class="klein">${esc(l.merkmale||l.notiz||"")}</td></tr>`;};
+  return kopf+`<div class="karte" style="margin-bottom:14px"><h2>Gerät benennen</h2>
+      <div class="feld"><span class="n">Gerät</span><span class="eing"><select id="gewahl">${GELISTE.map(n=>`<option ${n===GEWAHL?"selected":""}>${n}</option>`).join("")}</select></span>
+        <span class="e">Beim Einschalten „läuft jetzt“ drücken, beim Ausschalten „ist aus“. Am besten, wenn sonst nichts Großes läuft.</span></div>
+      <div class="knoepfe" style="justify-content:flex-end"><button class="haupt" id="gean">läuft jetzt</button>${offen.map(m=>`<button data-geaus="${esc(m.geraet)}">${esc(m.geraet)} ist aus</button>`).join("")}</div></div>
+    <div class="karte plan" style="margin-bottom:14px"><h2>Hauslast, letzte 24 Stunden</h2><div style="overflow-x:auto">${svg}</div>
+      <div class="klein" style="margin-top:8px">Oben die gemessene Last, grau als Minutenmittel, weiß alle 10 Sekunden. Darunter die erkannten Läufe, blass wo die Erkennung unsicher ist, und die benannten.</div></div>
+    <div class="karte"><h2>Erkannte Läufe</h2>${laeufe.length?`<table><tr><th>Tag</th><th>Zeit</th><th>Gerät</th><th class="r">Dauer</th><th class="r">Energie</th><th>Sicherheit</th><th>Merkmale</th></tr>${laeufe.slice().reverse().map(zeile).join("")}</table>`:`<div class="klein">Noch nichts erkannt.</div>`}</div>
+    ${marken.length?`<div class="karte" style="margin-top:14px"><h2>Benannte Läufe</h2><table><tr><th>Tag</th><th>Zeit</th><th>Gerät</th><th class="r">Dauer</th><th></th><th></th><th></th></tr>${marken.slice().reverse().map(zeile).join("")}</table></div>`:""}`;
+}
 function tabletSicht(){
   const t=ST.tablet||{};
   return `<h1>Wandtablet</h1><div class="unter">MediaPad T5 · Wächter wandwacht</div>
@@ -947,13 +998,14 @@ async function verlaufLaden(){
 function zeichne(){
   if(!ST) return;
   const sicht={raum:spielkellerSicht,waschkueche:waschkuecheSicht,buero:bueroSicht,wohnzimmer:wohnzimmerSicht,garten:gartenSicht,
-    energie:energieSicht,heizung:heizungSicht,tablet:tabletSicht}[ansicht]||uebersicht;
+    energie:energieSicht,geraete:geraeteSicht,heizung:heizungSicht,tablet:tabletSicht}[ansicht]||uebersicht;
   const inhalt=sicht();
   const w=document.getElementById("wurzel");w.innerHTML=rahmen(inhalt);
   w.querySelectorAll("[data-v]").forEach(a=>a.onclick=()=>{ansicht=a.dataset.v;entwurf=null;
     if(ansicht==="raum"){rtab="vorschau";reiter="";RAUMZEIT=0;lade();}
     if(ansicht==="waschkueche"){rtab="vorschau";reiter="";WKZEIT=0;lade();}
-    if(ansicht==="heizung"){HZZEIT=0;lade();} zeichne();});
+    if(ansicht==="heizung"){HZZEIT=0;lade();}
+    if(ansicht==="geraete"){GEZEIT=0;lade();} zeichne();});
   w.querySelectorAll("[data-rt]").forEach(a=>a.onclick=()=>{rtab=a.dataset.rt;entwurf=null;
     reiter=rtab==="lueftung"?"stand":rtab==="entfeuchter"?"plan":"";
     if(rtab==="vorschau"){RAUMZEIT=0;WKZEIT=0;lade();} zeichne();});
@@ -990,6 +1042,10 @@ function zeichne(){
   const hs=document.getElementById("hellsetzen");
   if(hs) hs.onclick=async()=>{try{await api("api/tablet",{hell_tag:Number(document.getElementById("hell").value)});meldung("Gilt binnen einer Minute");await lade();}catch(e){meldung(e.message);}};
   if((ansicht==="raum"||ansicht==="waschkueche")&&rtab==="entfeuchter"&&reiter==="verlauf") verlaufLaden();
+  const gw=document.getElementById("gewahl");
+  if(gw){gw.onchange=()=>{GEWAHL=gw.value;};
+    document.getElementById("gean").onclick=async()=>{try{await api("api/geraete/marke",{geraet:GEWAHL});meldung(GEWAHL+" läuft, gemerkt");GEZEIT=0;await lade();}catch(e){meldung(e.message);}};
+    document.querySelectorAll("[data-geaus]").forEach(k=>k.onclick=async()=>{try{await api("api/geraete/marke",{geraet:k.dataset.geaus,ende:true});meldung(k.dataset.geaus+" aus, gemerkt");GEZEIT=0;await lade();}catch(e){meldung(e.message);}});}
 }
 
 /* Ansicht aus dem Adressanker, etwa steuerung#heizung, fuer Lesezeichen. */

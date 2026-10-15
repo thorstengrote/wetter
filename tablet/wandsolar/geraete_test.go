@@ -36,6 +36,8 @@ func TestGeraeteErkennen(t *testing.T) {
 	for k := 0; k < 8; k++ {
 		an(m(427+2*float64(k)), m(1), 2000)
 	}
+	// 14:00 Brunnenpumpe, 25 min
+	an(m(480), m(25), 1300)
 	// 15:00 Trockner: 2 h um 650 W, Waschkueche wird waermer
 	an(m(540), m(120), 650)
 	var p []lastProbe
@@ -58,13 +60,13 @@ func TestGeraeteErkennen(t *testing.T) {
 	}
 	alle := strings.Join(namen, " | ")
 	for _, soll := range []string{"06:30 Wasserkocher", "07:00 Kaffeemaschine", "08:00 Spülmaschine", "11:00 Backofen",
-		"13:00 OptiGrill oder Heißluftfritteuse", "15:00 Trockner"} {
+		"13:00 OptiGrill oder Heißluftfritteuse", "14:00 Brunnenpumpe", "15:00 Trockner"} {
 		if !strings.Contains(alle, soll) {
 			t.Errorf("fehlt %q in %s", soll, alle)
 		}
 	}
-	if len(l) != 6 {
-		t.Errorf("%d Laeufe statt 6: %s", len(l), alle)
+	if len(l) != 7 {
+		t.Errorf("%d Laeufe statt 7: %s", len(l), alle)
 	}
 }
 

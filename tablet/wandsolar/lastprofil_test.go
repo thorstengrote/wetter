@@ -29,3 +29,23 @@ func TestLastprofilMinuten(t *testing.T) {
 		t.Fatalf("nach Neustart %d Punkte, %d Proben", len(neu.punkte), len(neu.roh))
 	}
 }
+
+// Nach einem Neustart mit falscher Uhr: die Dateien kommen mit der ersten
+// gueltigen Probe.
+func TestLastprofilSpaetLaden(t *testing.T) {
+	dir := t.TempDir()
+	l := neuesLastprofil(dir)
+	t0 := time.Now().In(ort).Truncate(time.Minute).Add(-10 * time.Minute)
+	for i := 0; i < 5; i++ {
+		l.nimm(messwert{Zeit: t0.Add(time.Duration(i) * 30 * time.Second), Haus: 0.3})
+	}
+	neu := &lastprofil{dir: dir} // wie mit Uhr im Jahr 2022 gestartet
+	neu.nimm(messwert{Zeit: time.Date(2022, 1, 1, 0, 0, 0, 0, ort), Haus: 0.3})
+	if len(neu.roh) != 0 {
+		t.Fatal("mit falscher Uhr geladen")
+	}
+	neu.nimm(messwert{Zeit: t0.Add(5 * time.Minute), Haus: 0.3})
+	if len(neu.roh) != 6 || len(neu.punkte) != 2 {
+		t.Fatalf("%d Proben, %d Minuten", len(neu.roh), len(neu.punkte))
+	}
+}

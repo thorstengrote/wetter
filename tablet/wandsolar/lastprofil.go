@@ -69,6 +69,7 @@ type lastprofil struct {
 	extra   func() lastExtra // nimmt das Schloss der Steuerung, nil in Tests
 	offen   lastPunkt        // laufende Minute
 	offenDa bool
+	geladen bool
 }
 
 func lastDatei(dir string, t time.Time) string {
@@ -81,7 +82,18 @@ func rohDatei(dir string, t time.Time) string {
 
 func neuesLastprofil(dir string) *lastprofil {
 	l := &lastprofil{dir: dir}
-	heute := time.Now().In(ort)
+	if t := time.Now().In(ort); t.Year() >= 2026 {
+		l.lade(t)
+	}
+	return l
+}
+
+// lade: die Tagesdateien der letzten zwei Wochen. Erst mit gestellter Uhr:
+// nach einem Neustart steht sie kurz im Jahr 2022, dann faende sich nichts
+// (15.10.2026: so gingen die Werte seit 15:17 aus dem Speicher verloren).
+func (l *lastprofil) lade(heute time.Time) {
+	l.geladen = true
+	dir := l.dir
 	for i := lastTage; i >= 0; i-- {
 		f, err := os.Open(lastDatei(dir, heute.AddDate(0, 0, -i)))
 		if err != nil {
@@ -107,7 +119,6 @@ func neuesLastprofil(dir string) *lastprofil {
 		}
 	}
 	l.aufraeumen(heute)
-	return l
 }
 
 // aufraeumen: Tagesdateien aelter als lastTage loeschen.
@@ -157,6 +168,9 @@ func (l *lastprofil) nimm(m messwert) {
 	minute := m.Zeit.Truncate(time.Minute)
 	l.Lock()
 	defer l.Unlock()
+	if !l.geladen {
+		l.lade(m.Zeit)
+	}
 	if l.offenDa && !minute.Equal(l.offen.Zeit) {
 		l.offen.Haus = math.Round(l.summe/float64(l.n)*1000) / 1000
 		l.punkte = append(l.punkte, l.offen)

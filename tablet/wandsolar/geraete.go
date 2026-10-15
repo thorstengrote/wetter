@@ -43,6 +43,9 @@ package main
 //   - Beamer ViewSonic PX700HD, 310 W, abends ueber Stunden; mit der PS5
 //     (um 200 W beim Spielen) gut 500 W. Allein ist die PS5 unter der
 //     kleinsten Stufe.
+//   - Brunnenpumpe ZDS QPGo.P.5-8.30, 4-Zoll-Unterwasserpumpe: 0,75 kW an
+//     der Welle, aus dem Netz 230 V mal 5,8 A mal cos 0,98, rund 1,3 kW.
+//     Laeuft beim Bewaessern lange am Stueck.
 //   - Kuehlschrank Siemens: taktet um 100 W, bleibt in der Grundlast.
 //   - Entfeuchter Spielekeller am Shelly und Pro Breeze 12 l in der
 //     Waschkueche: kennt die Steuerung, ihre Leistung wird abgezogen.
@@ -274,10 +277,14 @@ func erkenne(p []lastProbe, pk []lastPunkt) []geLauf {
 					lauf.Merkmale += fmt.Sprintf(", Waschküche danach +%.1f K, +%.0f %%", dT, dRH)
 				}
 			}
+		// Brunnenpumpe: Motor um 1,3 kW, laenger am Stueck
+		case len(g) <= 2 && h >= 1050 && h <= 1600 && erst > 10:
+			lauf.Geraet, lauf.Sicher = "Brunnenpumpe", "moeglich"
+			lauf.Merkmale = fmt.Sprintf("%.0f min um %.1f kW", erst, h/1000)
 		// Kurze Last um 1 kW: Mikrowelle, Toaster, Haartrockner
 		case len(g) <= 2 && h >= 600 && h < 1600 && erst <= 10:
 			lauf.Geraet, lauf.Sicher = "Kleingerät um 1 kW", "moeglich"
-			lauf.Merkmale = fmt.Sprintf("%.1f min, Mikrowelle, Toaster oder Haartrockner", erst)
+			lauf.Merkmale = fmt.Sprintf("%.1f min, Mikrowelle, Toaster, Haartrockner oder kurz die Brunnenpumpe", erst)
 		default:
 			lauf.Geraet, lauf.Sicher = fmt.Sprintf("unbekannt, %.1f kW", h/1000), "moeglich"
 			lauf.Merkmale = fmt.Sprintf("%d Blöcke, erster %.0f min", len(g), erst)
