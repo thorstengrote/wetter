@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"sync"
 	"time"
 )
@@ -59,8 +60,18 @@ func neueKellerfenster(pfad, verlaufPfad string, sag func(string, ...any)) *kell
 		web: &http.Client{Timeout: 8 * time.Second}}
 	if roh, err := os.ReadFile(verlaufPfad); err == nil {
 		json.Unmarshal(roh, &k.ereignisse)
+		kfSortiere(k.ereignisse)
 	}
 	return k
+}
+
+// kfSortiere nach Zeit. Nach einem Neustart liefert der D1 mini alte
+// Ereignisse noch einmal; standen sie hinter einem neueren, galt der alte
+// Befehl als Stellung. Am 14.10.2026 hielt die Lueftung so das Fenster fuer
+// offen, obwohl sie es um 9:40 geschlossen hatte, und liess Ben die Nacht
+// ueber bei 2.500 ppm schlafen.
+func kfSortiere(e []kfEreignis) {
+	sort.SliceStable(e, func(i, j int) bool { return e[i].Zeit.Before(e[j].Zeit) })
 }
 
 func (k *kellerfenster) zugang() (kfZugang, error) {
@@ -133,6 +144,7 @@ func (k *kellerfenster) lies() {
 		neu = true
 	}
 	if neu {
+		kfSortiere(k.ereignisse)
 		if len(k.ereignisse) > 100 {
 			k.ereignisse = k.ereignisse[len(k.ereignisse)-100:]
 		}

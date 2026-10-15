@@ -30,3 +30,13 @@ func TestKfStellung(t *testing.T) {
 		}
 	}
 }
+
+// 14.10.2026: ein alter "auf" kam nach dem neueren "ab" in die Liste.
+func TestKellerfensterSortiert(t *testing.T) {
+	t0 := time.Date(2026, 10, 14, 8, 0, 0, 0, berlin())
+	e := []kfEreignis{{Zeit: t0.Add(100 * time.Minute), Richtung: "ab"}, {Zeit: t0, Richtung: "auf"}}
+	kfSortiere(e)
+	if s := kfStellung(e, t0.Add(20*time.Hour)); s != "zu" {
+		t.Fatalf("Stellung %s", s)
+	}
+}
