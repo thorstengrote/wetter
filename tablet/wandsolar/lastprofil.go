@@ -12,12 +12,16 @@ package main
 // Feuchte dort darauf antworten. Die Entfeuchter stehen mit ihrer Leistung
 // dabei, damit man sie abziehen kann.
 //
+// Dazu jede Probe einzeln, alle 10 Sekunden (lastroh-*.csv, Sekunde und
+// Watt), fuer Takt und Rampen der Geraete.
+//
 // Je Tag eine Datei, jede Minute eine Zeile angehaengt: zwei Wochen am Stueck
 // alle paar Minuten neu zu schreiben, waeren Hunderte MB am Tag auf dem Flash.
 
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"os"
@@ -49,10 +53,17 @@ type lastExtra struct {
 	WkFenster                        bool
 }
 
+// lastProbe: eine Messung, Unix-Sekunde und Watt.
+type lastProbe struct {
+	T int64 `json:"t"`
+	W int   `json:"w"`
+}
+
 type lastprofil struct {
 	sync.Mutex
-	dir     string // lastprofil-JJJJ-MM-TT.jsonl
+	dir     string // lastprofil-JJJJ-MM-TT.jsonl, lastroh-JJJJ-MM-TT.csv
 	punkte  []lastPunkt
+	roh     []lastProbe
 	summe   float64
 	n       int
 	extra   func() lastExtra // nimmt das Schloss der Steuerung, nil in Tests
@@ -62,6 +73,10 @@ type lastprofil struct {
 
 func lastDatei(dir string, t time.Time) string {
 	return filepath.Join(dir, "lastprofil-"+t.Format("2006-01-02")+".jsonl")
+}
+
+func rohDatei(dir string, t time.Time) string {
+	return filepath.Join(dir, "lastroh-"+t.Format("2006-01-02")+".csv")
 }
 
 func neuesLastprofil(dir string) *lastprofil {
@@ -80,6 +95,16 @@ func neuesLastprofil(dir string) *lastprofil {
 			}
 		}
 		f.Close()
+		if f, err := os.Open(rohDatei(dir, heute.AddDate(0, 0, -i))); err == nil {
+			sc := bufio.NewScanner(f)
+			for sc.Scan() {
+				var p lastProbe
+				if _, err := fmt.Sscanf(sc.Text(), "%d,%d", &p.T, &p.W); err == nil {
+					l.roh = append(l.roh, p)
+				}
+			}
+			f.Close()
+		}
 	}
 	l.aufraeumen(heute)
 	return l
@@ -87,11 +112,14 @@ func neuesLastprofil(dir string) *lastprofil {
 
 // aufraeumen: Tagesdateien aelter als lastTage loeschen.
 func (l *lastprofil) aufraeumen(t time.Time) {
-	alt := "lastprofil-" + t.AddDate(0, 0, -lastTage).Format("2006-01-02") + ".jsonl"
-	namen, _ := filepath.Glob(filepath.Join(l.dir, "lastprofil-*.jsonl"))
-	for _, n := range namen {
-		if b := filepath.Base(n); strings.Compare(b, alt) < 0 {
-			os.Remove(n)
+	grenze := t.AddDate(0, 0, -lastTage).Format("2006-01-02")
+	for _, muster := range []string{"lastprofil-*.jsonl", "lastroh-*.csv"} {
+		namen, _ := filepath.Glob(filepath.Join(l.dir, muster))
+		for _, n := range namen {
+			b := filepath.Base(n)
+			if tag := b[strings.Index(b, "-")+1 : strings.LastIndex(b, ".")]; tag < grenze {
+				os.Remove(n)
+			}
 		}
 	}
 }
@@ -107,6 +135,12 @@ func (l *lastprofil) anhaengen(p lastPunkt) {
 	}
 	f.Write(append(roh, '\n'))
 	f.Close()
+}
+
+// probe: eine einzelne Messung des Hausverbrauchs, aus dem schnellen Takt
+// oder der vollen Messung. Geht in die Rohdaten und ins Minutenmittel.
+func (l *lastprofil) probe(t time.Time, haus float64) {
+	l.nimm(messwert{Zeit: t, Haus: haus})
 }
 
 // nimm: eine Probe des Wechselrichters. Eine Minute wird abgeschlossen,
@@ -137,6 +171,11 @@ func (l *lastprofil) nimm(m messwert) {
 			i++
 		}
 		l.punkte = l.punkte[i:]
+		j := 0
+		for j < len(l.roh) && l.roh[j].T < grenze.Unix() {
+			j++
+		}
+		l.roh = l.roh[j:]
 	}
 	if !l.offenDa {
 		l.offen = lastPunkt{Zeit: minute}
@@ -144,12 +183,19 @@ func (l *lastprofil) nimm(m messwert) {
 	}
 	l.summe += m.Haus
 	l.n++
+	p := lastProbe{m.Zeit.Unix(), int(math.Round(m.Haus * 1000))}
+	l.roh = append(l.roh, p)
+	if f, err := os.OpenFile(rohDatei(l.dir, m.Zeit), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		fmt.Fprintf(f, "%d,%d\n", p.T, p.W)
+		f.Close()
+	}
 	l.offen.Max = math.Max(l.offen.Max, math.Round(m.Haus*1000)/1000)
 	l.offen.EntfKeller, l.offen.EntfWk = x.EntfKeller, x.EntfWk
 	l.offen.WkRH, l.offen.WkTemp, l.offen.WkFenster = x.WkRH, x.WkTemp, x.WkFenster
 }
 
-// bediene: /api/lastprofil?h=48, Standard die letzten 24 Stunden.
+// bediene: /api/lastprofil?h=48, Standard die letzten 24 Stunden, mit
+// &roh=1 die Einzelproben statt der Minuten.
 func (l *lastprofil) bediene(mux *http.ServeMux) {
 	mux.HandleFunc("/api/lastprofil", func(w http.ResponseWriter, r *http.Request) {
 		h, err := strconv.Atoi(r.URL.Query().Get("h"))
@@ -159,6 +205,16 @@ func (l *lastprofil) bediene(mux *http.ServeMux) {
 		ab := time.Now().Add(-time.Duration(h) * time.Hour)
 		l.Lock()
 		defer l.Unlock()
+		if r.URL.Query().Get("roh") != "" {
+			roh := []lastProbe{}
+			for _, p := range l.roh {
+				if p.T >= ab.Unix() {
+					roh = append(roh, p)
+				}
+			}
+			jsonAntwort(w, map[string]any{"proben": roh})
+			return
+		}
 		aus := []lastPunkt{}
 		for _, p := range l.punkte {
 			if !p.Zeit.Before(ab) {

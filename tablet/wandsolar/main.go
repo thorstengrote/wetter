@@ -210,6 +210,20 @@ func (d *dongle) messe() (messwert, error) {
 	return m, nil
 }
 
+// messeHaus: nur der Hausverbrauch, fuer den schnellen Takt zwischen den
+// vollen Messungen. Zwei kleine Anfragen statt drei grosser.
+func (d *dongle) messeHaus() (float64, error) {
+	a, err := d.lies(32080, 2)
+	if err != nil {
+		return 0, err
+	}
+	b, err := d.lies(37113, 2)
+	if err != nil {
+		return 0, err
+	}
+	return float64(i32(a, 32080, 32080)-i32(b, 37113, 37113)) / 1000, nil
+}
+
 // ---------------------------------------------------------------- Stunden
 
 // Je Stunde die Summe der Proben, damit die Seite die Vergangenheit als
@@ -456,15 +470,16 @@ func (z *zustand) bediene(mux *http.ServeMux) {
 
 func main() {
 	var (
-		wr    = flag.String("wr", "192.168.2.136:502", "Adresse des SDongle")
-		hoere = flag.String("hoere", "127.0.0.1:8099", "wo der Dienst lauscht")
-		seite = flag.String("seite", "/data/local/tmp/wand/index.html", "die Wetterseite")
-		daten = flag.String("daten", "/data/local/tmp/wand/tag.json", "Stundenwerte")
-		takt  = flag.Duration("takt", 30*time.Second, "Abstand zwischen zwei Messungen")
-		prot  = flag.String("log", "", "Protokolldatei, leer heisst Standardfehler")
-		vlx   = flag.String("velux", "http://127.0.0.1:8098", "Steuerdienst in hapwatch, leer schaltet ihn ab")
-		einm  = flag.Bool("einmal", false, "einmal messen und beenden")
-		lan   = flag.String("lan", ":8090", "Zugang aus dem WLAN fuer die Steuerung, leer schaltet ihn ab")
+		wr       = flag.String("wr", "192.168.2.136:502", "Adresse des SDongle")
+		hoere    = flag.String("hoere", "127.0.0.1:8099", "wo der Dienst lauscht")
+		seite    = flag.String("seite", "/data/local/tmp/wand/index.html", "die Wetterseite")
+		daten    = flag.String("daten", "/data/local/tmp/wand/tag.json", "Stundenwerte")
+		takt     = flag.Duration("takt", 30*time.Second, "Abstand zwischen zwei Messungen")
+		taktHaus = flag.Duration("takt-haus", 10*time.Second, "Abstand der schnellen Messungen nur des Hausverbrauchs")
+		prot     = flag.String("log", "", "Protokolldatei, leer heisst Standardfehler")
+		vlx      = flag.String("velux", "http://127.0.0.1:8098", "Steuerdienst in hapwatch, leer schaltet ihn ab")
+		einm     = flag.Bool("einmal", false, "einmal messen und beenden")
+		lan      = flag.String("lan", ":8090", "Zugang aus dem WLAN fuer die Steuerung, leer schaltet ihn ab")
 	)
 	flag.Parse()
 
@@ -698,6 +713,7 @@ func main() {
 	hr.bediene(mux)
 	cs.bediene(mux)
 	lp.bediene(mux)
+	neueGeraete(filepath.Join(dir, "geraete-marken.json"), lp).bediene(mux)
 	an.bediene(mux)
 	tu.bediene(mux)
 	bl.bediene(mux)
@@ -746,6 +762,11 @@ func main() {
 	fehler := 0
 	uhr := time.NewTicker(*takt)
 	defer uhr.Stop()
+	// Hauslast im schnellen Takt fuer die Geraeteerkennung (Versuch vom
+	// 15.10.2026): zaehlen, wie oft der Dongle dabei ausfaellt.
+	schnell := time.NewTicker(*taktHaus)
+	defer schnell.Stop()
+	schnellFehler := 0
 
 	messen := func() {
 		m, err := d.messe()
@@ -771,6 +792,16 @@ func main() {
 		select {
 		case <-uhr.C:
 			messen()
+		case <-schnell.C:
+			haus, err := d.messeHaus()
+			if err != nil {
+				schnellFehler++
+				if schnellFehler == 1 || schnellFehler%100 == 0 {
+					sag("schneller Takt: keine Antwort (%d): %v", schnellFehler, err)
+				}
+				continue
+			}
+			lp.probe(time.Now().In(ort), haus)
 		case <-schluss:
 			sag("wandsolar endet")
 			d.schliesse()

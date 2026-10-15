@@ -21,7 +21,11 @@ func TestLastprofilMinuten(t *testing.T) {
 	if len(l.punkte) != 3 || l.punkte[0].Haus != 1.4 || l.punkte[0].Max != 2.4 {
 		t.Fatalf("Punkte: %+v", l.punkte)
 	}
-	if n := len(neuesLastprofil(dir).punkte); n != 3 {
-		t.Fatalf("nach Neustart %d Punkte", n)
+	if n := len(l.roh); n != 7 || l.roh[1].W != 2400 {
+		t.Fatalf("Rohdaten: %+v", l.roh)
+	}
+	neu := neuesLastprofil(dir)
+	if len(neu.punkte) != 3 || len(neu.roh) != 7 {
+		t.Fatalf("nach Neustart %d Punkte, %d Proben", len(neu.punkte), len(neu.roh))
 	}
 }
