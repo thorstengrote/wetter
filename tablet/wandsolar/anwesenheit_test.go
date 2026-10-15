@@ -43,7 +43,7 @@ func TestHandysAmSpielkellerRepeater(t *testing.T) {
 func TestAnwesenheitBleiben(t *testing.T) {
 	a := &anwesenheit{}
 	t0 := time.Date(2026, 10, 14, 23, 0, 0, 0, berlin())
-	ben := []anwGeraet{{MAC: "A"}}
+	ben := []anwGeraet{{MAC: "A", Name: "iphoneben"}}
 	for i := 0; i <= 4; i++ { // 8 Minuten
 		a.merke(ben, t0.Add(time.Duration(i)*2*time.Minute))
 	}
@@ -92,5 +92,20 @@ func TestAtemfeuchte(t *testing.T) {
 	a.merke(t1.Add(93*time.Minute), 61, 20.1, true)
 	if _, sicher := a.zeigt(t1.Add(93 * time.Minute)); sicher {
 		t.Fatal("Entfeuchter laeuft, trotzdem sicher")
+	}
+}
+
+// 15.10.2026: Thorstens Handy haengt nach einem Gang in den Keller weiter
+// am Repeater. Es zaehlt nicht, Gaeste und Ben schon.
+func TestNurSchlaeferZaehlen(t *testing.T) {
+	a := &anwesenheit{}
+	t0 := time.Date(2026, 10, 15, 7, 0, 0, 0, berlin())
+	h := []anwGeraet{{MAC: "T", Name: "iphonethorsten"}, {MAC: "X", Name: "iPhone"},
+		{MAC: "G", Name: "iPhone", Gast: true}, {MAC: "B", Name: "iphoneben"}}
+	for i := 0; i <= 10; i++ {
+		a.merke(h, t0.Add(time.Duration(i)*2*time.Minute))
+	}
+	if n := a.zaehle(t0.Add(20 * time.Minute)); n != 2 {
+		t.Fatalf("%d statt 2", n)
 	}
 }

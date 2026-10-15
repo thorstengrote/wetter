@@ -13,6 +13,14 @@ package main
 // Schaetzung weiter die Schlafzeit. Kurze Aussetzer eines schlafenden
 // Handys ueberbrueckt anwHalten.
 //
+// Nachtrag 15.10.2026: Ein iPhone bleibt am Keller-Repeater haengen, auch
+// wenn man laengst wieder oben ist. Thorstens Handy hing nach einem kurzen
+// Gang in den Keller noch aus der Kueche dort, ein anderes die halbe Nacht.
+// Die Empfangsstaerke trennt das nicht (Spielkeller -63 bis -66 dBm, Kueche
+// -68). Darum zaehlen nur die Handys derer, die unten schlafen
+// (anwSchlaefer) und Gaeste im Gastnetz. Alle anderen stehen nur im Verlauf,
+// fuer sie entscheidet die Atemfeuchte. Die Staerke wird mitgeschrieben.
+//
 // Abfrage per TR-064 (Port 49000, Digest-Anmeldung), Aktion
 // X_AVM-DE_GetMeshListPath. Der Benutzer des Tablets braucht dafuer das
 // Recht "FRITZ!Box Einstellungen".
@@ -43,6 +51,11 @@ const (
 
 var anwHandy = regexp.MustCompile(`(?i)iphone|android|galaxy|pixel|handy|phone|redmi|xiaomi`)
 
+// anwSchlaefer: Namen in der FRITZ!Box ("iphone ben" heisst dort iphoneben)
+var anwSchlaefer = regexp.MustCompile(`(?i)ben|aniek`)
+
+func (g anwGeraet) zaehlt() bool { return g.Gast || anwSchlaefer.MatchString(g.Name) }
+
 type anwGeraet struct {
 	Name string `json:"name"`
 	MAC  string `json:"mac"`
@@ -53,12 +66,14 @@ type anwGeraet struct {
 
 type anwSicht struct {
 	Seit, Zuletzt time.Time
+	Zaehlt        bool `json:"zaehlt"`
 }
 
 type anwPunkt struct {
 	Zeit     time.Time `json:"zeit"`
 	Personen int       `json:"personen"`
-	MACs     []string  `json:"macs,omitempty"`
+	MACs     []string  `json:"macs,omitempty"` // alle Handys am Repeater
+	RCPI     []int     `json:"rcpi,omitempty"` // dazu der Empfang, dBm
 }
 
 type anwesenheit struct {
@@ -96,7 +111,7 @@ func (a *anwesenheit) personen(t time.Time) (int, bool) {
 func (a *anwesenheit) zaehle(t time.Time) int {
 	n := 0
 	for _, g := range a.gesehen {
-		if g.Zuletzt.Sub(g.Seit) >= anwBleiben && t.Sub(g.Zuletzt) <= anwHalten {
+		if g.Zaehlt && g.Zuletzt.Sub(g.Seit) >= anwBleiben && t.Sub(g.Zuletzt) <= anwHalten {
 			n++
 		}
 	}
@@ -276,13 +291,14 @@ func (a *anwesenheit) lies() error {
 	if err != nil {
 		return err
 	}
-	t := time.Now()
+	t := time.Now().In(ort)
 	a.Lock()
 	defer a.Unlock()
 	a.merke(h, t)
 	p := anwPunkt{Zeit: t, Personen: a.zaehle(t)}
 	for _, g := range h {
 		p.MACs = append(p.MACs, g.MAC)
+		p.RCPI = append(p.RCPI, g.RCPI)
 	}
 	a.verlauf = append(a.verlauf, p)
 	for len(a.verlauf) > 0 && t.Sub(a.verlauf[0].Zeit) > anwBehalten {
@@ -305,7 +321,7 @@ func (a *anwesenheit) merke(h []anwGeraet, t time.Time) {
 			s = &anwSicht{Seit: t}
 			a.gesehen[g.MAC] = s
 		}
-		s.Zuletzt = t
+		s.Zuletzt, s.Zaehlt = t, g.zaehlt()
 	}
 	for m, s := range a.gesehen {
 		if t.Sub(s.Zuletzt) > anwHalten {
